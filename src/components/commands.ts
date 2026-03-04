@@ -40,7 +40,7 @@ export interface CommandContext {
   setCoAuthorCommits: React.Dispatch<React.SetStateAction<boolean>>;
   chatStyle: ChatStyle;
   setChatStyle: React.Dispatch<React.SetStateAction<ChatStyle>>;
-  handleSuspend: (opts: { command: string; args?: string[] }) => void;
+  handleSuspend: (opts: { command: string; args?: string[]; noAltScreen?: boolean }) => void;
   openGitMenu: () => void;
   openEditorWithFile: (file: string) => void;
   setSessionConfig: React.Dispatch<React.SetStateAction<Partial<AppConfig> | null>>;
@@ -511,6 +511,79 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     case "/lazygit":
       ctx.handleSuspend({ command: "lazygit" });
       break;
+    case "/proxy":
+    case "/proxy status": {
+      const { getProxyBinary, isProxyRunning } =
+        require("../core/proxy/lifecycle.js") as typeof import("../core/proxy/lifecycle.js");
+      const binary = getProxyBinary();
+      isProxyRunning().then((running: boolean) => {
+        const lines = [
+          "── Proxy Status ──",
+          "",
+          `Installed: ${binary ? `yes (${binary})` : "no"}`,
+          `Running:   ${running ? "yes" : "no"}`,
+          "",
+          "Commands:",
+          "  /proxy login   — authenticate with Claude (browser OAuth)",
+          "  /proxy install — manually install CLIProxyAPI",
+        ];
+        ctx.setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "system",
+            content: lines.join("\n"),
+            timestamp: Date.now(),
+          },
+        ]);
+      });
+      break;
+    }
+    case "/proxy login": {
+      const { proxyLogin } =
+        require("../core/proxy/lifecycle.js") as typeof import("../core/proxy/lifecycle.js");
+      const loginCmd = proxyLogin();
+      ctx.handleSuspend({ command: loginCmd.command, args: loginCmd.args, noAltScreen: true });
+      break;
+    }
+    case "/proxy install": {
+      const { installProxy } =
+        require("../core/setup/install.js") as typeof import("../core/setup/install.js");
+      ctx.setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "system",
+          content: "Installing CLIProxyAPI...",
+          timestamp: Date.now(),
+        },
+      ]);
+      installProxy()
+        .then((path: string) => {
+          ctx.setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content: `CLIProxyAPI installed at ${path}`,
+              timestamp: Date.now(),
+            },
+          ]);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          ctx.setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content: `Install failed: ${msg}`,
+              timestamp: Date.now(),
+            },
+          ]);
+        });
+      break;
+    }
     case "/push":
       ctx.setMessages((prev) => [
         ...prev,

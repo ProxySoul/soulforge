@@ -80,12 +80,16 @@ export function mergeConfigs(
     const ei = layer.editorIntegration
       ? { ...merged.editorIntegration, ...layer.editorIntegration }
       : merged.editorIntegration;
+    const ci = layer.codeIntelligence
+      ? { ...merged.codeIntelligence, ...layer.codeIntelligence }
+      : merged.codeIntelligence;
     merged = {
       ...merged,
       ...layer,
       editor: { ...merged.editor, ...layer.editor },
       theme: { ...merged.theme, ...layer.theme },
       editorIntegration: ei,
+      codeIntelligence: ci,
     };
   }
   return merged;

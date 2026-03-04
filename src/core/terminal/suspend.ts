@@ -4,6 +4,7 @@ interface SuspendOpts {
   command: string;
   args?: string[];
   cwd?: string;
+  noAltScreen?: boolean;
 }
 
 /**
@@ -18,8 +19,10 @@ export function suspendAndRun(opts: SuspendOpts): Promise<{ exitCode: number | n
       process.stdin.setRawMode(false);
     }
 
-    // Enter alt screen buffer
-    process.stdout.write("\x1b[?1049h");
+    // Enter alt screen buffer (unless disabled for non-TUI commands)
+    if (!opts.noAltScreen) {
+      process.stdout.write("\x1b[?1049h");
+    }
 
     const proc = spawn(opts.command, opts.args ?? [], {
       cwd: opts.cwd ?? process.cwd(),
@@ -28,8 +31,9 @@ export function suspendAndRun(opts: SuspendOpts): Promise<{ exitCode: number | n
     });
 
     proc.on("close", (code) => {
-      // Leave alt screen buffer
-      process.stdout.write("\x1b[?1049l");
+      if (!opts.noAltScreen) {
+        process.stdout.write("\x1b[?1049l");
+      }
 
       // Re-enable raw mode for Ink
       if (process.stdin.isTTY) {
@@ -41,7 +45,9 @@ export function suspendAndRun(opts: SuspendOpts): Promise<{ exitCode: number | n
     });
 
     proc.on("error", () => {
-      process.stdout.write("\x1b[?1049l");
+      if (!opts.noAltScreen) {
+        process.stdout.write("\x1b[?1049l");
+      }
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(true);
         process.stdin.resume();

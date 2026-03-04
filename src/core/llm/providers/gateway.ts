@@ -9,6 +9,7 @@ export const gatewayProvider: ProviderDefinition = {
   name: "Gateway (Vercel)",
   envVar: "AI_GATEWAY_API_KEY",
   icon: "󰒍", // nf-md-cloud_sync U+F048D
+  grouped: true,
 
   createModel(modelId: string) {
     if (!process.env.AI_GATEWAY_API_KEY) {

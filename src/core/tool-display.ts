@@ -29,6 +29,10 @@ export const TOOL_ICONS: Record<string, string> = {
   git_push: "󰊢",
   git_pull: "󰊢",
   git_stash: "󰊢",
+  read_code: "\uDB80\uDD69", // 󰅩 nf-md-code-braces
+  navigate: "\uF0A9", // nf-fa-arrow_circle_right
+  analyze: "\uF002", // nf-fa-search
+  refactor: "\uF0AD", // nf-fa-wrench
   editor_panel: "\uF044", //
   plan: "\uF0CB", // nf-fa-list_ol
   update_plan_step: "\uF058", // nf-fa-check_circle
@@ -67,6 +71,10 @@ export const TOOL_LABELS: Record<string, string> = {
   git_push: "Pushing",
   git_pull: "Pulling",
   git_stash: "Stashing",
+  read_code: "Reading code",
+  navigate: "Navigating",
+  analyze: "Analyzing",
+  refactor: "Refactoring",
   editor_panel: "Opening editor",
   plan: "Planning",
   update_plan_step: "Updating plan",
@@ -105,6 +113,10 @@ export const TOOL_ICON_COLORS: Record<string, string> = {
   git_push: "#FF8C00",
   git_pull: "#2d5",
   git_stash: "#2d5",
+  read_code: "#8B5CF6",
+  navigate: "#8B5CF6",
+  analyze: "#8B5CF6",
+  refactor: "#FF8C00",
   plan: "#00BFFF",
   update_plan_step: "#00BFFF",
   ask_user: "#FF8C00",

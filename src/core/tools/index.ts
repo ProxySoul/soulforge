@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import type { EditorIntegration } from "../../types/index.js";
+import { analyzeTool } from "./analyze.js";
 import { editFileTool } from "./edit-file";
 import {
   editorActionsTool,
@@ -30,7 +31,10 @@ import {
 import { globTool } from "./glob";
 import { grepTool } from "./grep";
 import { createMemoryWriteTool } from "./memory-write";
+import { navigateTool } from "./navigate.js";
+import { readCodeTool } from "./read-code.js";
 import { readFileTool } from "./read-file";
+import { refactorTool } from "./refactor.js";
 import { shellTool } from "./shell";
 import { webSearchTool } from "./web-search";
 
@@ -273,6 +277,61 @@ export function buildTools(cwd?: string, editorSettings?: EditorIntegration) {
         }
       : {}),
 
+    navigate: tool({
+      description: navigateTool.description,
+      inputSchema: z.object({
+        action: z
+          .enum(["definition", "references", "symbols", "imports", "exports"])
+          .describe("Navigation action"),
+        symbol: z.string().optional().describe("Symbol name to look up"),
+        file: z.string().optional().describe("File path to analyze"),
+        scope: z.string().optional().describe("Filter symbols by name pattern"),
+      }),
+      execute: (args) => navigateTool.execute(args),
+    }),
+
+    read_code: tool({
+      description: readCodeTool.description,
+      inputSchema: z.object({
+        target: z
+          .enum(["function", "class", "type", "interface", "scope"])
+          .describe("What to read"),
+        name: z.string().optional().describe("Symbol name (required unless target is scope)"),
+        file: z.string().describe("File path"),
+        startLine: z.number().optional().describe("Start line for scope target"),
+        endLine: z.number().optional().describe("End line for scope target"),
+      }),
+      execute: (args) => readCodeTool.execute(args),
+    }),
+
+    refactor: tool({
+      description: refactorTool.description,
+      inputSchema: z.object({
+        action: z
+          .enum(["rename", "extract_function", "extract_variable"])
+          .describe("Refactoring action"),
+        file: z.string().optional().describe("File path"),
+        symbol: z.string().optional().describe("Symbol to rename"),
+        newName: z.string().optional().describe("New name for rename or extracted symbol"),
+        startLine: z.number().optional().describe("Start line for extraction"),
+        endLine: z.number().optional().describe("End line for extraction"),
+        apply: z.boolean().optional().describe("Apply changes to disk (default true)"),
+      }),
+      execute: (args) => refactorTool.execute(args),
+    }),
+
+    analyze: tool({
+      description: analyzeTool.description,
+      inputSchema: z.object({
+        action: z.enum(["diagnostics", "type_info", "outline"]).describe("Analysis action"),
+        file: z.string().optional().describe("File path to analyze"),
+        symbol: z.string().optional().describe("Symbol for type_info"),
+        line: z.number().optional().describe("Line number for type_info"),
+        column: z.number().optional().describe("Column number for type_info"),
+      }),
+      execute: (args) => analyzeTool.execute(args),
+    }),
+
     git_status: tool({
       description: gitStatusTool.description,
       inputSchema: z.object({}),
@@ -336,6 +395,9 @@ export function buildReadOnlyTools(editorSettings?: EditorIntegration) {
     glob: all.glob,
     web_search: all.web_search,
     editor_read: all.editor_read,
+    navigate: all.navigate,
+    read_code: all.read_code,
+    analyze: all.analyze,
   };
 }
 
@@ -355,6 +417,9 @@ export function buildPlanModeTools(cwd: string, editorSettings?: EditorIntegrati
     ...(all.editor_references ? { editor_references: all.editor_references } : {}),
     ...(all.editor_definition ? { editor_definition: all.editor_definition } : {}),
     ...(all.editor_lsp_status ? { editor_lsp_status: all.editor_lsp_status } : {}),
+    navigate: all.navigate,
+    read_code: all.read_code,
+    analyze: all.analyze,
     write_plan: tool({
       description:
         "Submit a structured implementation plan. Call this when your research is complete and you have a concrete plan ready.",
@@ -418,6 +483,10 @@ export function getToolNames(): string[] {
     globTool.name,
     "web_search",
     "memory_write",
+    navigateTool.name,
+    readCodeTool.name,
+    refactorTool.name,
+    analyzeTool.name,
     editorReadTool.name,
     editorEditTool.name,
     editorNavigateTool.name,

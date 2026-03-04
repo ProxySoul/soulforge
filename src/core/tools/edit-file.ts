@@ -137,6 +137,31 @@ export const editFileTool = {
 
       if (openedInEditor) output += " → opened in editor";
 
+      // Post-edit diagnostics (soft — fails silently)
+      try {
+        const { getIntelligenceRouter } = await import("../intelligence/index.js");
+        const router = getIntelligenceRouter(cwd);
+        const language = router.detectLanguage(filePath);
+        const diags = await router.executeWithFallback(language, "getDiagnostics", (b) => {
+          if (!b.getDiagnostics) return Promise.resolve(null);
+          return b.getDiagnostics(filePath);
+        });
+        if (diags && diags.length > 0) {
+          const errors = diags.filter((d) => d.severity === "error");
+          if (errors.length > 0) {
+            output += `\n⚠ ${String(errors.length)} error(s) after edit:`;
+            for (const e of errors.slice(0, 3)) {
+              output += `\n  L${String(e.line)}: ${e.message}`;
+            }
+            if (errors.length > 3) {
+              output += `\n  ...and ${String(errors.length - 3)} more`;
+            }
+          }
+        }
+      } catch {
+        // Intelligence not available — that's fine
+      }
+
       return { success: true, output };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

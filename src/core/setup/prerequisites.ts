@@ -101,6 +101,19 @@ export const PREREQUISITES: Prerequisite[] = [
       win32: ["scoop install ripgrep"],
     },
   },
+  {
+    name: "CLIProxyAPI",
+    description: "Proxy for Claude Max (optional, auto-installed)",
+    required: false,
+    check: () =>
+      getVendoredPath("cli-proxy-api") !== null ||
+      commandExists("cli-proxy-api") ||
+      commandExists("cliproxyapi"),
+    install: {
+      darwin: ["Auto-installed when selecting Proxy provider"],
+      linux: ["Auto-installed when selecting Proxy provider"],
+    },
+  },
 ];
 
 export interface PrerequisiteStatus {

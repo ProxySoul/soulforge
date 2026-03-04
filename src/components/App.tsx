@@ -44,6 +44,7 @@ import { EditorPanel } from "./EditorPanel.js";
 import { EditorSettings } from "./EditorSettings.js";
 import { ErrorLog } from "./ErrorLog.js";
 import { Footer } from "./Footer.js";
+import { GhostLogo } from "./GhostLogo.js";
 import { GitCommitModal } from "./GitCommitModal.js";
 import { GitMenu } from "./GitMenu.js";
 import { HealthCheck } from "./HealthCheck.js";
@@ -313,7 +314,7 @@ export function App({ config, projectConfig }: Props) {
   }, [chatChars, contextManager, coreMessages.length, summarizeConversation, activeModel]);
 
   const handleSuspend = useCallback(
-    async (opts: { command: string; args?: string[] }) => {
+    async (opts: { command: string; args?: string[]; noAltScreen?: boolean }) => {
       setSuspended(true);
       // Small delay to let Ink flush before we steal the terminal
       await new Promise((r) => setTimeout(r, 50));
@@ -336,16 +337,18 @@ export function App({ config, projectConfig }: Props) {
     [cwd, git, contextManager],
   );
 
-  const { displayProvider, displayModel, isGateway } = useMemo(() => {
+  const { displayProvider, displayModel, isGateway, isProxy } = useMemo(() => {
     const isGw = activeModel.startsWith("gateway/");
-    if (isGw) {
-      // gateway/anthropic/claude-opus-4.6 → provider=anthropic, model=claude-opus-4.6
-      const rest = activeModel.slice(8); // after "gateway/"
+    const isPrx = activeModel.startsWith("proxy/");
+    if (isGw || isPrx) {
+      const prefix = isGw ? "gateway/" : "proxy/";
+      const rest = activeModel.slice(prefix.length);
       const idx = rest.indexOf("/");
       return {
         displayProvider: idx >= 0 ? rest.slice(0, idx) : rest,
         displayModel: idx >= 0 ? rest.slice(idx + 1) : rest,
-        isGateway: true,
+        isGateway: isGw,
+        isProxy: isPrx,
       };
     }
     const idx = activeModel.indexOf("/");
@@ -353,6 +356,7 @@ export function App({ config, projectConfig }: Props) {
       displayProvider: idx >= 0 ? activeModel.slice(0, idx) : "unknown",
       displayModel: idx >= 0 ? activeModel.slice(idx + 1) : activeModel,
       isGateway: false,
+      isProxy: false,
     };
   }, [activeModel]);
 
@@ -902,6 +906,18 @@ export function App({ config, projectConfig }: Props) {
               }));
               break;
             }
+            case "error": {
+              // Stream error (e.g. second API call after tool results failed).
+              // Extract error from whatever shape the SDK sends.
+              const ep = part as Record<string, unknown>;
+              const errText =
+                (typeof ep.errorText === "string" && ep.errorText) ||
+                (ep.error instanceof Error ? ep.error.message : null) ||
+                (typeof ep.error === "string" ? ep.error : null) ||
+                JSON.stringify(ep);
+              appendText(`\n\n_Error: ${errText}_`);
+              break;
+            }
           }
         }
 
@@ -919,6 +935,20 @@ export function App({ config, projectConfig }: Props) {
                 break;
             }
           }
+        }
+
+        // Get response messages from AI SDK (includes tool calls + results).
+        // Falls back to text-only if the provider didn't produce proper steps
+        // (e.g. proxy/OpenAI-compat providers that omit finish markers).
+        let responseMessages: ModelMessage[];
+        try {
+          const responseData = await result.response;
+          responseMessages = responseData.messages;
+        } catch {
+          // NoOutputGeneratedError — stream completed without finish-step events.
+          // Fall back to text-only so we don't lose the assistant's response.
+          responseMessages =
+            fullText.length > 0 ? [{ role: "assistant" as const, content: fullText }] : [];
         }
 
         // Embed plan as a segment if one was created
@@ -940,11 +970,11 @@ export function App({ config, projectConfig }: Props) {
 
         setMessages((prev) => {
           const next = [...prev, assistantMsg];
-          // Auto-save session after each exchange
-          const updatedCore = [
+          // Auto-save session after each exchange — include full tool call history
+          const updatedCore: ModelMessage[] = [
             ...coreMessages,
             { role: "user" as const, content: input },
-            { role: "assistant" as const, content: fullText },
+            ...responseMessages,
           ];
           sessionManager.saveSession({
             id: sessionIdRef.current,
@@ -958,7 +988,7 @@ export function App({ config, projectConfig }: Props) {
           });
           return next;
         });
-        setCoreMessages((prev) => [...prev, { role: "assistant" as const, content: fullText }]);
+        setCoreMessages((prev) => [...prev, ...responseMessages]);
         setStreamSegments([]);
         setLiveToolCalls([]);
       } catch (err: unknown) {
@@ -1089,10 +1119,18 @@ export function App({ config, projectConfig }: Props) {
           )}
           <Text color="#333">│</Text>
           <Text color="#6A0DAD" wrap="truncate">
-            {isGateway ? (
+            {isProxy ? (
               <>
-                <Text color="#555">GW→</Text>
-                {providerIcon(displayProvider)} {truncate(displayModel, 28)}
+                <Text color="#8B5CF6">󰌆 </Text>
+                <Text color="#555">sub</Text>
+                <Text color="#333">·</Text>
+                {providerIcon(displayProvider)} {truncate(displayModel, 24)}
+              </>
+            ) : isGateway ? (
+              <>
+                <Text color="#555">󰒍 gw</Text>
+                <Text color="#333">·</Text>
+                {providerIcon(displayProvider)} {truncate(displayModel, 25)}
               </>
             ) : (
               <>
@@ -1146,9 +1184,7 @@ export function App({ config, projectConfig }: Props) {
               justifyContent="center"
             >
               <Box flexDirection="column" alignItems="center" paddingX={2}>
-                <Text color="#9B30FF" bold>
-                  󰊠
-                </Text>
+                <GhostLogo />
                 <Text color="#9B30FF" bold>
                   SoulForge
                 </Text>

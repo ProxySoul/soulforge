@@ -131,6 +131,11 @@ export interface Session {
 
 export type NvimConfigMode = "auto" | "default" | "user" | "none";
 
+export interface CodeIntelligenceConfig {
+  backend?: "auto" | "ts-morph" | "tree-sitter" | "regex";
+  language?: string;
+}
+
 export interface AppConfig {
   defaultModel: string;
   routerRules: RouterRule[];
@@ -145,6 +150,7 @@ export interface AppConfig {
   nvimPath?: string;
   nvimConfig?: NvimConfigMode;
   editorIntegration?: EditorIntegration;
+  codeIntelligence?: CodeIntelligenceConfig;
   font?: string;
 }
 

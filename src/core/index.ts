@@ -7,9 +7,14 @@ export { createForgeAgent } from "./agents/forge.js";
 export { buildSubagentTools } from "./agents/subagent-tools.js";
 // Icons
 export { providerIcon, UI_ICONS } from "./icons.js";
-export type { FetchModelsResult, GatewayModelsResult } from "./llm/models.js";
+export type { FetchModelsResult, GatewayModelsResult, GroupedModelsResult } from "./llm/models.js";
 // Model utilities
-export { fetchGatewayModels, fetchProviderModels, getModelContextWindow } from "./llm/models.js";
+export {
+  fetchGatewayModels,
+  fetchGroupedModels,
+  fetchProviderModels,
+  getModelContextWindow,
+} from "./llm/models.js";
 export type { ProviderStatus } from "./llm/provider.js";
 // LLM provider resolution
 export { checkProviders, resolveModel } from "./llm/provider.js";

@@ -1,26 +1,26 @@
 import { useEffect, useState } from "react";
 import {
-  fetchGatewayModels,
-  type GatewaySubProvider,
-  getCachedGatewayModels,
+  fetchGroupedModels,
+  getCachedGroupedModels,
   type ProviderModelInfo,
+  type SubProvider,
 } from "../core/llm/models.js";
 
-interface UseGatewayModelsReturn {
-  subProviders: GatewaySubProvider[];
+interface UseGroupedModelsReturn {
+  subProviders: SubProvider[];
   modelsByProvider: Record<string, ProviderModelInfo[]>;
   loading: boolean;
   error?: string;
 }
 
-export function useGatewayModels(active: boolean): UseGatewayModelsReturn {
-  const [subProviders, setSubProviders] = useState<GatewaySubProvider[]>([]);
+export function useGroupedModels(providerId: string | null): UseGroupedModelsReturn {
+  const [subProviders, setSubProviders] = useState<SubProvider[]>([]);
   const [modelsByProvider, setModelsByProvider] = useState<Record<string, ProviderModelInfo[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
-    if (!active) {
+    if (!providerId) {
       setSubProviders([]);
       setModelsByProvider({});
       setLoading(false);
@@ -28,7 +28,7 @@ export function useGatewayModels(active: boolean): UseGatewayModelsReturn {
       return;
     }
 
-    const cached = getCachedGatewayModels();
+    const cached = getCachedGroupedModels(providerId);
     if (cached) {
       setSubProviders(cached.subProviders);
       setModelsByProvider(cached.modelsByProvider);
@@ -41,7 +41,7 @@ export function useGatewayModels(active: boolean): UseGatewayModelsReturn {
     setError(undefined);
     let cancelled = false;
 
-    fetchGatewayModels().then((result) => {
+    fetchGroupedModels(providerId).then((result) => {
       if (!cancelled) {
         setSubProviders(result.subProviders);
         setModelsByProvider(result.modelsByProvider);
@@ -53,7 +53,7 @@ export function useGatewayModels(active: boolean): UseGatewayModelsReturn {
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [providerId]);
 
   return { subProviders, modelsByProvider, loading, error };
 }

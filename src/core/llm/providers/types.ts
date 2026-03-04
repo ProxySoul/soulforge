@@ -15,4 +15,5 @@ export interface ProviderDefinition {
   fetchModels(): Promise<ProviderModelInfo[] | null>;
   fallbackModels: ProviderModelInfo[];
   contextWindows: [pattern: string, tokens: number][];
+  grouped?: boolean;
 }

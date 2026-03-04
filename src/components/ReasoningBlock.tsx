@@ -1,8 +1,9 @@
 import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
 
-const THINKING_ICON = "\uDB80\uDE26"; // 󰘦 nf-md-brain
+const BRAIN_ICON = "󰘦"; // nf-md-head_cog U+F0626
 const DIMMED = "#555";
+const RAIL_COLOR = "#444";
 
 interface Props {
   content: string;
@@ -10,69 +11,78 @@ interface Props {
   isStreaming?: boolean;
 }
 
-function AnimatedDots() {
-  const [dots, setDots] = useState(1);
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function ThinkingSpinner() {
+  const [frame, setFrame] = useState(0);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setDots((d) => (d % 3) + 1);
-    }, 400);
+      setFrame((f) => (f + 1) % SPINNER.length);
+    }, 80);
     return () => clearInterval(timer);
   }, []);
 
   return (
-    <Text color={DIMMED}>
-      {THINKING_ICON} Thinking{".".repeat(dots)}
+    <Text color="#8B5CF6" bold>
+      {SPINNER[frame]}
     </Text>
   );
 }
 
 export function ReasoningBlock({ content, expanded, isStreaming }: Props) {
-  // While streaming: show animated "Thinking..." indicator
-  if (isStreaming && !expanded) {
-    return (
-      <Box paddingLeft={2} height={1} flexShrink={0}>
-        <AnimatedDots />
-      </Box>
-    );
-  }
+  const lineCount = content.split("\n").length;
 
-  // While streaming + expanded: show live content
-  if (isStreaming && expanded) {
+  // While streaming: show wrapped block with spinner
+  if (isStreaming) {
+    if (!expanded) {
+      return (
+        <Box height={1} flexShrink={0}>
+          <Text color={RAIL_COLOR}>│ </Text>
+          <ThinkingSpinner />
+          <Text color={DIMMED}> {BRAIN_ICON} reasoning</Text>
+          {lineCount > 1 && <Text color="#444"> ({String(lineCount)} lines)</Text>}
+        </Box>
+      );
+    }
+
+    // Streaming + expanded: show live content in wrapped block
     const lines = content.split("\n");
     const maxLines = 6;
     const visible = lines.slice(-maxLines);
     return (
-      <Box flexDirection="column" paddingLeft={2}>
+      <Box flexDirection="column">
         <Box height={1} flexShrink={0}>
-          <AnimatedDots />
+          <Text color={RAIL_COLOR}>│ </Text>
+          <ThinkingSpinner />
+          <Text color={DIMMED}> {BRAIN_ICON} reasoning</Text>
         </Box>
         {visible.map((line, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: stable line order
-          <Box key={i} paddingLeft={2}>
+          <Box key={i}>
+            <Text color={RAIL_COLOR}>│ </Text>
             <Text color="#555">{line}</Text>
           </Box>
         ))}
         {lines.length > maxLines && (
-          <Box paddingLeft={2}>
-            <Text color="#444">...{String(lines.length - maxLines)} more lines</Text>
+          <Box>
+            <Text color={RAIL_COLOR}>│ </Text>
+            <Text color="#444">...{String(lines.length - maxLines)} more</Text>
           </Box>
         )}
       </Box>
     );
   }
 
-  // Finished: auto-collapsed summary (like tool calls)
-  const lines = content.split("\n");
-  const lineCount = lines.length;
-  const firstLine = (lines[0] ?? "").trim();
-  const preview = firstLine.length > 70 ? `${firstLine.slice(0, 67)}...` : firstLine;
+  // Finished: collapsed one-liner summary
+  const firstLine = (content.split("\n")[0] ?? "").trim();
+  const preview = firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
 
   return (
-    <Box paddingLeft={2} height={1} flexShrink={0}>
+    <Box height={1} flexShrink={0}>
       <Text color={DIMMED} wrap="truncate">
-        ✓ {THINKING_ICON} {preview || "Reasoned"}{" "}
-        {lineCount > 1 ? `(${String(lineCount)} lines)` : ""}
+        <Text color="#2d5">✓</Text> {BRAIN_ICON} <Text color="#666">{preview || "Reasoned"}</Text>
+        {lineCount > 1 && <Text color="#444"> ({String(lineCount)} lines)</Text>}
       </Text>
     </Box>
   );

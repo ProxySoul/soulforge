@@ -76,6 +76,27 @@ function formatArgs(toolName: string, args?: string): string {
       const q = String(parsed.question);
       return q.length > 50 ? `${q.slice(0, 47)}...` : q;
     }
+    if (toolName === "read_code" && parsed.file) {
+      const label = parsed.name
+        ? `${String(parsed.name)} in ${String(parsed.file)}`
+        : String(parsed.file);
+      return label.length > 50 ? `${label.slice(0, 47)}...` : label;
+    }
+    if (toolName === "navigate") {
+      const parts = [parsed.action, parsed.symbol, parsed.file].filter(Boolean).map(String);
+      const label = parts.join(" ");
+      return label.length > 50 ? `${label.slice(0, 47)}...` : label;
+    }
+    if (toolName === "analyze") {
+      const parts = [parsed.action, parsed.symbol ?? parsed.file].filter(Boolean).map(String);
+      const label = parts.join(" ");
+      return label.length > 50 ? `${label.slice(0, 47)}...` : label;
+    }
+    if (toolName === "refactor") {
+      const parts = [parsed.action, parsed.symbol].filter(Boolean).map(String);
+      const label = parts.join(" ");
+      return label.length > 50 ? `${label.slice(0, 47)}...` : label;
+    }
     if (toolName === "write_plan") return ".soulforge/plan.md";
     if (toolName === "git_commit" && parsed.message) {
       const m = String(parsed.message);

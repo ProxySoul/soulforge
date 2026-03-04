@@ -10,6 +10,7 @@ const FONTS_DIR = join(SOULFORGE_DIR, "fonts");
 
 const NVIM_VERSION = "0.11.1";
 const RG_VERSION = "14.1.1";
+const PROXY_VERSION = "6.8.40";
 
 // ─── Nerd Fonts ───
 
@@ -121,10 +122,34 @@ function getRgAsset(): PlatformAsset {
   };
 }
 
+function getProxyAsset(): PlatformAsset {
+  const { platform, arch } = process;
+  let suffix: string;
+
+  if (platform === "darwin" && arch === "arm64") {
+    suffix = "darwin_arm64";
+  } else if (platform === "darwin" && arch === "x64") {
+    suffix = "darwin_amd64";
+  } else if (platform === "linux" && arch === "x64") {
+    suffix = "linux_amd64";
+  } else if (platform === "linux" && arch === "arm64") {
+    suffix = "linux_arm64";
+  } else {
+    throw new Error(`Unsupported platform: ${platform}-${arch}`);
+  }
+
+  const asset = `CLIProxyAPI_${PROXY_VERSION}_${suffix}.tar.gz`;
+
+  return {
+    url: `https://github.com/router-for-me/CLIProxyAPI/releases/download/v${PROXY_VERSION}/${asset}`,
+    binPath: join(INSTALLS_DIR, `cliproxyapi-${PROXY_VERSION}`, "cli-proxy-api"),
+  };
+}
+
 /**
  * Returns the vendored binary path if it exists, or null.
  */
-export function getVendoredPath(binary: "nvim" | "rg"): string | null {
+export function getVendoredPath(binary: "nvim" | "rg" | "cli-proxy-api"): string | null {
   const binLink = join(BIN_DIR, binary);
   if (existsSync(binLink)) {
     return binLink;
@@ -204,6 +229,29 @@ export async function installRipgrep(): Promise<string> {
   createSymlink(asset.binPath, join(BIN_DIR, "rg"));
 
   return join(BIN_DIR, "rg");
+}
+
+/**
+ * Download and install CLIProxyAPI to ~/.soulforge/. Returns path to binary.
+ */
+export async function installProxy(): Promise<string> {
+  ensureDirs();
+
+  const asset = getProxyAsset();
+  const extractDir = join(INSTALLS_DIR, `cliproxyapi-${PROXY_VERSION}`);
+
+  if (!existsSync(asset.binPath)) {
+    await downloadAndExtract(asset.url, extractDir);
+  }
+
+  if (!existsSync(asset.binPath)) {
+    throw new Error(`CLIProxyAPI binary not found after extraction at ${asset.binPath}`);
+  }
+
+  execSync(`chmod +x "${asset.binPath}"`, { stdio: "ignore" });
+  createSymlink(asset.binPath, join(BIN_DIR, "cli-proxy-api"));
+
+  return join(BIN_DIR, "cli-proxy-api");
 }
 
 // ─── Font install ───

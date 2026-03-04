@@ -33,8 +33,20 @@ if (!getVendoredPath("rg")) {
   installRipgrep().catch(() => {});
 }
 
-// Clear terminal on exit
+// Clear terminal and dispose resources on exit
 process.on("exit", () => {
+  try {
+    const { stopProxy } = require("./core/proxy/lifecycle.js");
+    stopProxy();
+  } catch {
+    // Proxy module may not be loaded
+  }
+  try {
+    const { disposeIntelligenceRouter } = require("./core/intelligence/index.js");
+    disposeIntelligenceRouter();
+  } catch {
+    // Intelligence module may not be loaded
+  }
   process.stdout.write("\x1b[2J\x1b[H");
 });
 

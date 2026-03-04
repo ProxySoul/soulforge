@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { providerIcon } from "../core/icons.js";
 import { PROVIDER_CONFIGS } from "../core/llm/models.js";
 import { checkProviders } from "../core/llm/provider.js";
-import { useGatewayModels } from "../hooks/useGatewayModels.js";
+import { useGroupedModels } from "../hooks/useGroupedModels.js";
 import { useProviderModels } from "../hooks/useProviderModels.js";
 import { POPUP_BG, POPUP_HL, PopupRow, SPINNER_FRAMES_FILLED } from "./shared.js";
 
@@ -18,6 +18,10 @@ interface Props {
 
 type Level = "provider" | "subprovider" | "model";
 
+function isGroupedProvider(id: string | null): boolean {
+  return !!id && !!PROVIDER_CONFIGS.find((p) => p.id === id)?.grouped;
+}
+
 export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) {
   const [level, setLevel] = useState<Level>("provider");
   const [providerCursor, setProviderCursor] = useState(0);
@@ -27,26 +31,26 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   const [expandedSubprovider, setExpandedSubprovider] = useState<string | null>(null);
   const [spinnerIdx, setSpinnerIdx] = useState(0);
 
-  // Direct provider models (non-gateway)
-  const directProviderId =
-    expandedProvider && expandedProvider !== "gateway" ? expandedProvider : null;
+  const isGrouped = isGroupedProvider(expandedProvider);
+
+  // Direct provider models (non-grouped)
+  const directProviderId = expandedProvider && !isGrouped ? expandedProvider : null;
   const {
     models: directModels,
     loading: directLoading,
     error: directError,
   } = useProviderModels(directProviderId);
 
-  // Gateway models
-  const gatewayActive =
-    level === "subprovider" || (level === "model" && expandedProvider === "gateway");
+  // Grouped provider models (gateway, proxy, etc.)
+  const groupedProviderId = isGrouped ? expandedProvider : null;
   const {
     subProviders,
-    modelsByProvider: gatewayModelsByProvider,
-    loading: gatewayLoading,
-    error: gatewayError,
-  } = useGatewayModels(gatewayActive);
+    modelsByProvider: groupedModelsByProvider,
+    loading: groupedLoading,
+    error: groupedError,
+  } = useGroupedModels(groupedProviderId);
 
-  const loading = expandedProvider === "gateway" ? gatewayLoading : directLoading;
+  const loading = isGrouped ? groupedLoading : directLoading;
 
   const providerStatuses = checkProviders();
 
@@ -70,11 +74,11 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
 
   // Determine current models for the model level
   const currentModels =
-    expandedProvider === "gateway" && expandedSubprovider
-      ? (gatewayModelsByProvider[expandedSubprovider] ?? [])
+    isGrouped && expandedSubprovider
+      ? (groupedModelsByProvider[expandedSubprovider] ?? [])
       : directModels;
 
-  const currentError = expandedProvider === "gateway" ? gatewayError : directError;
+  const currentError = isGrouped ? groupedError : directError;
 
   useInput(
     (input, key) => {
@@ -87,7 +91,7 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
           const provider = PROVIDER_CONFIGS[providerCursor];
           if (provider) {
             setExpandedProvider(provider.id);
-            if (provider.id === "gateway") {
+            if (provider.grouped) {
               setLevel("subprovider");
               setSubproviderCursor(0);
             } else {
@@ -114,7 +118,7 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
           setExpandedSubprovider(null);
           return;
         }
-        if (key.return && !gatewayLoading && subProviders.length > 0) {
+        if (key.return && !groupedLoading && subProviders.length > 0) {
           const sub = subProviders[subproviderCursor];
           if (sub) {
             setExpandedSubprovider(sub.id);
@@ -137,7 +141,7 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
 
       if (level === "model") {
         if (key.escape || key.leftArrow) {
-          if (expandedProvider === "gateway") {
+          if (isGrouped) {
             setLevel("subprovider");
             setExpandedSubprovider(null);
           } else {
@@ -149,11 +153,7 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
         if (key.return && !loading && currentModels.length > 0) {
           const model = currentModels[modelCursor];
           if (model) {
-            if (expandedProvider === "gateway") {
-              onSelect(`gateway/${model.id}`);
-            } else {
-              onSelect(`${expandedProvider}/${model.id}`);
-            }
+            onSelect(`${expandedProvider}/${model.id}`);
             onClose();
           }
           return;
@@ -244,10 +244,12 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   }
 
   if (level === "subprovider") {
-    const totalModels = Object.values(gatewayModelsByProvider).reduce(
+    const totalModels = Object.values(groupedModelsByProvider).reduce(
       (sum, arr) => sum + arr.length,
       0,
     );
+    const providerName =
+      PROVIDER_CONFIGS.find((p) => p.id === expandedProvider)?.name ?? expandedProvider ?? "";
 
     return (
       <Box
@@ -262,15 +264,27 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
           {/* Title */}
           <PopupRow w={innerW}>
             <Text color="white" bold backgroundColor={POPUP_BG}>
-              {providerIcon("gateway")} Gateway (Vercel)
+              {providerIcon(expandedProvider ?? "")} {providerName}
             </Text>
-            {!gatewayLoading && subProviders.length > 0 && (
+            {!groupedLoading && subProviders.length > 0 && (
               <Text color="#555" dimColor backgroundColor={POPUP_BG}>
                 {" "}
                 {String(totalModels)} models
               </Text>
             )}
           </PopupRow>
+          {/* Subscription badge for proxy */}
+          {expandedProvider === "proxy" && !groupedLoading && subProviders.length > 0 && (
+            <PopupRow w={innerW}>
+              <Text color="#8B5CF6" backgroundColor={POPUP_BG}>
+                {"  "}󰄬 Claude subscription
+              </Text>
+              <Text color="#555" backgroundColor={POPUP_BG}>
+                {" "}
+                · local proxy
+              </Text>
+            </PopupRow>
+          )}
           {/* Separator */}
           <PopupRow w={innerW}>
             <Text color="#333" backgroundColor={POPUP_BG}>
@@ -290,15 +304,15 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
           </PopupRow>
 
           {/* Error warning */}
-          {gatewayError && (
+          {groupedError && (
             <PopupRow w={innerW}>
               <Text color="#f44" backgroundColor={POPUP_BG}>
-                ⚠ {gatewayError}
+                ⚠ {groupedError}
               </Text>
             </PopupRow>
           )}
 
-          {gatewayLoading ? (
+          {groupedLoading ? (
             <PopupRow w={innerW}>
               <Text color="#9B30FF" backgroundColor={POPUP_BG}>
                 {SPINNER_FRAMES_FILLED[spinnerIdx]} fetching providers...
@@ -307,7 +321,7 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
           ) : (
             subProviders.map((sub, i) => {
               const isActive = i === subproviderCursor;
-              const modelCount = gatewayModelsByProvider[sub.id]?.length ?? 0;
+              const modelCount = groupedModelsByProvider[sub.id]?.length ?? 0;
               const bg = isActive ? POPUP_HL : POPUP_BG;
               return (
                 <PopupRow key={sub.id} bg={bg} w={innerW}>
@@ -342,11 +356,10 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   }
 
   // Level: model
-  const isGatewayModel = expandedProvider === "gateway";
-  const headerIcon = isGatewayModel
+  const headerIcon = isGrouped
     ? providerIcon(expandedSubprovider ?? "")
     : providerIcon(expandedProvider ?? "");
-  const headerName = isGatewayModel
+  const headerName = isGrouped
     ? (subProviders.find((s) => s.id === expandedSubprovider)?.name ?? expandedSubprovider ?? "")
     : (PROVIDER_CONFIGS.find((p) => p.id === expandedProvider)?.name ?? expandedProvider ?? "");
 
@@ -365,10 +378,10 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
           <Text color="white" bold backgroundColor={POPUP_BG}>
             {headerIcon} {headerName}
           </Text>
-          {isGatewayModel && (
+          {isGrouped && (
             <Text color="#555" dimColor backgroundColor={POPUP_BG}>
               {" "}
-              via gateway
+              via {expandedProvider}
             </Text>
           )}
         </PopupRow>
@@ -408,17 +421,13 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
         ) : (
           currentModels.map((model, i) => {
             const isActive = i === modelCursor;
-            // For gateway: activeModelId is "anthropic/claude-opus-4.6", model.id is "anthropic/claude-opus-4.6"
-            // For direct: activeProvider is "anthropic", model.id is "claude-opus-4.6"
-            const isCurrent = isGatewayModel
-              ? activeProvider === "gateway" && model.id === activeModelId
+            const isCurrent = isGrouped
+              ? activeProvider === expandedProvider && model.id === activeModelId
               : expandedProvider === activeProvider && model.id === activeModelId;
             const bg = isActive ? POPUP_HL : POPUP_BG;
-            // Show just the model name part for gateway models (strip provider prefix)
-            const displayId = isGatewayModel
-              ? model.id.includes("/")
-                ? model.id.slice(model.id.indexOf("/") + 1)
-                : model.id
+            // Strip provider prefix for display (gateway models have "anthropic/..." IDs)
+            const displayId = model.id.includes("/")
+              ? model.id.slice(model.id.indexOf("/") + 1)
               : model.id;
             return (
               <PopupRow key={model.id} bg={bg} w={innerW}>
