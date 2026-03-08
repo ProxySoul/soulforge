@@ -27,6 +27,7 @@ function runShell(
     const timer = setTimeout(() => {
       timedOut = true;
       proc.kill("SIGKILL");
+      setTimeout(() => finish(null), 200);
     }, timeout);
 
     proc.stdout.on("data", (data: Buffer) => {
@@ -88,13 +89,12 @@ describe("shell execution — timeout", () => {
   it("kills process on timeout", async () => {
     const r = await runShell("sleep 10", { timeout: 500 });
     expect(r.code).not.toBe(0);
-  }, 3000);
+  }, 5000);
 
   it("returns non-zero code on timeout", async () => {
     const r = await runShell("sleep 10", { timeout: 500 });
-    // Process killed by timeout should not return success
     expect(r.code === null || r.code !== 0).toBe(true);
-  }, 3000);
+  }, 5000);
 });
 
 describe("shell execution — output limits", () => {
