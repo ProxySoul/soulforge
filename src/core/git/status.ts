@@ -43,24 +43,56 @@ export function parseGitLogLine(line: string): GitLogEntry {
   return { hash, subject, date };
 }
 
+const NAMED_ESCAPES: Record<string, string> = {
+  n: "\n",
+  t: "\t",
+  a: "\x07",
+  b: "\b",
+  r: "\r",
+  '"': '"',
+  "\\": "\\",
+};
+
 export function unquoteGitPath(path: string): string {
-  if (path.startsWith('"') && path.endsWith('"')) {
-    return path
-      .slice(1, -1)
-      .replace(/\\([ntabr"\\])/g, (_, c: string) => {
-        const map: Record<string, string> = {
-          n: "\n",
-          t: "\t",
-          a: "\x07",
-          b: "\b",
-          r: "\r",
-          '"': '"',
-          "\\": "\\",
-        };
-        return map[c] ?? c;
-      });
+  if (!path.startsWith('"') || !path.endsWith('"')) return path;
+  const inner = path.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner.charAt(i);
+    if (ch === "\\" && i + 1 < inner.length) {
+      const next = inner.charAt(i + 1);
+      if (next >= "0" && next <= "7") {
+        let octal = next;
+        const c2 = inner.charAt(i + 2);
+        if (c2 >= "0" && c2 <= "7") {
+          octal += c2;
+          const c3 = inner.charAt(i + 3);
+          if (c3 >= "0" && c3 <= "7") {
+            octal += c3;
+          }
+        }
+        bytes.push(Number.parseInt(octal, 8));
+        i += octal.length;
+        continue;
+      }
+      const named = NAMED_ESCAPES[next];
+      if (named !== undefined) {
+        for (let j = 0; j < named.length; j++) {
+          bytes.push(named.charCodeAt(j));
+        }
+        i++;
+        continue;
+      }
+    }
+    const code = ch.charCodeAt(0);
+    if (code < 0x80) {
+      bytes.push(code);
+    } else {
+      const encoded = new TextEncoder().encode(ch);
+      for (const b of encoded) bytes.push(b);
+    }
   }
-  return path;
+  return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
 export function parseStatusLine(line: string): {
@@ -127,7 +159,7 @@ export async function getGitStatus(cwd: string): Promise<GitStatus> {
       const parsed = parseStatusLine(raw);
       const x = raw[0];
       const y = raw[1];
-      if ((x === "U" || y === "U") || (x === "D" && y === "D") || (x === "A" && y === "A")) {
+      if (x === "U" || y === "U" || (x === "D" && y === "D") || (x === "A" && y === "A")) {
         conflicts.push(parsed.file);
       } else if (parsed.category === "untracked") {
         untracked.push(parsed.file);
@@ -237,12 +269,18 @@ export async function gitStashList(cwd: string): Promise<{ ok: boolean; entries:
   return { ok: true, entries: stdout.trim().split("\n").filter(Boolean) };
 }
 
-export async function gitStashShow(cwd: string, index = 0): Promise<{ ok: boolean; output: string }> {
+export async function gitStashShow(
+  cwd: string,
+  index = 0,
+): Promise<{ ok: boolean; output: string }> {
   const { ok, stdout } = await run(["stash", "show", "-p", `stash@{${String(index)}}`], cwd);
   return { ok, output: stdout };
 }
 
-export async function gitStashDrop(cwd: string, index = 0): Promise<{ ok: boolean; output: string }> {
+export async function gitStashDrop(
+  cwd: string,
+  index = 0,
+): Promise<{ ok: boolean; output: string }> {
   const { ok, stdout } = await run(["stash", "drop", `stash@{${String(index)}}`], cwd);
   return { ok, output: stdout };
 }
@@ -279,7 +317,9 @@ export async function buildGitContext(cwd: string): Promise<string | null> {
   const branchLine = `Branch: ${status.branch ?? "(detached)"}`;
   lines.push(upstream ? `${branchLine} → ${upstream}` : branchLine);
   if (status.conflicts.length > 0) {
-    lines.push(`⚠ Merge conflicts (${String(status.conflicts.length)}): ${status.conflicts.join(", ")}`);
+    lines.push(
+      `⚠ Merge conflicts (${String(status.conflicts.length)}): ${status.conflicts.join(", ")}`,
+    );
   }
   if (status.isDirty) {
     const parts: string[] = [];

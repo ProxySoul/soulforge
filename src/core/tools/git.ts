@@ -75,14 +75,18 @@ export const gitCommitTool = {
     }
     const diff = await getGitDiff(cwd, true);
     if (!diff) {
-      return { success: false, output: "Nothing staged to commit. Stage files first.", error: "nothing staged" };
+      return {
+        success: false,
+        output: "Nothing staged to commit. Stage files first.",
+        error: "nothing staged",
+      };
     }
     const result = await gitCommit(cwd, args.message);
     if (!result.ok) return { success: false, output: result.output, error: "commit failed" };
     const diffLines = diff.split("\n");
-    const statLines = diffLines.filter(l => l.startsWith("+++") || l.startsWith("---")).length;
-    const additions = diffLines.filter(l => l.startsWith("+") && !l.startsWith("+++")).length;
-    const deletions = diffLines.filter(l => l.startsWith("-") && !l.startsWith("---")).length;
+    const statLines = diffLines.filter((l) => l.startsWith("+++") || l.startsWith("---")).length;
+    const additions = diffLines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+    const deletions = diffLines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
     return {
       success: true,
       output: `${result.output}\n\nDiff summary: ~${String(statLines / 2)} files, +${String(additions)} -${String(deletions)} lines`,
@@ -121,7 +125,8 @@ export const gitStashTool = {
     switch (action) {
       case "list": {
         const { ok, entries } = await gitStashList(cwd);
-        if (!ok) return { success: false, output: "Failed to list stashes", error: "stash list failed" };
+        if (!ok)
+          return { success: false, output: "Failed to list stashes", error: "stash list failed" };
         return { success: true, output: entries.length > 0 ? entries.join("\n") : "No stashes." };
       }
       case "show": {
@@ -159,17 +164,20 @@ export const gitBranchTool = {
         return { success: ok, output: stdout || "No branches." };
       }
       case "create": {
-        if (!args.name) return { success: false, output: "Branch name required", error: "missing name" };
+        if (!args.name)
+          return { success: false, output: "Branch name required", error: "missing name" };
         const { ok, output } = await gitCreateBranch(cwd, args.name);
         return { success: ok, output: output || `Created and switched to ${args.name}` };
       }
       case "switch": {
-        if (!args.name) return { success: false, output: "Branch name required", error: "missing name" };
+        if (!args.name)
+          return { success: false, output: "Branch name required", error: "missing name" };
         const { ok, output } = await gitSwitchBranch(cwd, args.name);
         return { success: ok, output: output || `Switched to ${args.name}` };
       }
       case "delete": {
-        if (!args.name) return { success: false, output: "Branch name required", error: "missing name" };
+        if (!args.name)
+          return { success: false, output: "Branch name required", error: "missing name" };
         const { ok, stdout } = await run(["branch", "-d", args.name], cwd);
         return { success: ok, output: stdout || `Deleted ${args.name}` };
       }

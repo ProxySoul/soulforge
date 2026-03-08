@@ -38,7 +38,7 @@ export const StreamSegmentList = memo(function StreamSegmentList({
   let lastTextIndex = -1;
   if (streaming) {
     for (let j = segments.length - 1; j >= 0; j--) {
-      if (segments[j]!.type === "text") {
+      if (segments[j]?.type === "text") {
         lastTextIndex = j;
         break;
       }

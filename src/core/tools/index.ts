@@ -511,7 +511,10 @@ export function buildTools(
     git_stash: tool({
       description: gitStashTool.description,
       inputSchema: z.object({
-        action: z.enum(["push", "pop", "list", "show", "drop"]).optional().describe("Stash action (default: push)"),
+        action: z
+          .enum(["push", "pop", "list", "show", "drop"])
+          .optional()
+          .describe("Stash action (default: push)"),
         message: z.string().optional().describe("Stash message (for push)"),
         index: z.number().optional().describe("Stash index (for show/drop, default 0)"),
       }),
@@ -521,7 +524,10 @@ export function buildTools(
     git_branch: tool({
       description: gitBranchTool.description,
       inputSchema: z.object({
-        action: z.enum(["list", "create", "switch", "delete"]).optional().describe("Branch action (default: list)"),
+        action: z
+          .enum(["list", "create", "switch", "delete"])
+          .optional()
+          .describe("Branch action (default: list)"),
         name: z.string().optional().describe("Branch name (for create/switch/delete)"),
       }),
       execute: deferExecute((args) => gitBranchTool.execute(args)),
