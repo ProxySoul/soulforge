@@ -21,6 +21,17 @@ export type Language =
   | "dart"
   | "zig"
   | "bash"
+  | "ocaml"
+  | "objc"
+  | "css"
+  | "html"
+  | "json"
+  | "toml"
+  | "vue"
+  | "rescript"
+  | "solidity"
+  | "tlaplus"
+  | "elisp"
   | "unknown";
 
 /** A location in source code */

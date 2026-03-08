@@ -5,7 +5,14 @@ import { z } from "zod";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { RepoMap } from "../intelligence/repo-map.js";
 import { projectTool } from "../tools/project.js";
-import { AgentBus, type AgentTask, type FileReadRecord, type SharedCache } from "./agent-bus.js";
+import {
+  AgentBus,
+  type AgentTask,
+  type AgentResult as BusAgentResult,
+  DependencyFailedError,
+  type FileReadRecord,
+  type SharedCache,
+} from "./agent-bus.js";
 import { createCodeAgent } from "./code.js";
 import { createExploreAgent } from "./explore.js";
 import { emitAgentStats, emitMultiAgentEvent, emitSubagentStep } from "./subagent-events.js";
@@ -52,7 +59,6 @@ function formatToolArgs(toolCall: { toolName: string; input?: unknown }): string
   return "";
 }
 
-/** Build step-reporting callbacks for a subagent */
 function buildStepCallbacks(parentToolCallId: string, agentId?: string) {
   const acc = { toolUses: 0, input: 0, output: 0, cacheRead: 0 };
 
@@ -312,8 +318,10 @@ async function runEvaluator(
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 2000;
+const MAX_CONCURRENT_AGENTS = 3;
 
 function isRetryable(error: unknown): boolean {
+  if (error instanceof DependencyFailedError) return false;
   const msg = error instanceof Error ? error.message : String(error);
   const lower = msg.toLowerCase();
   return (
@@ -345,9 +353,23 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/**
- * Run a single agent task with retry + exponential backoff for transient errors.
- */
+function createAgent(task: AgentTask, models: SubagentModels, bus: AgentBus) {
+  const useExplore = task.role === "explore" || models.readOnly === true;
+  const opts = {
+    bus,
+    agentId: task.agentId,
+    providerOptions: models.providerOptions,
+    headers: models.headers,
+    webSearchModel: models.webSearchModel,
+    onApproveWebSearch: models.onApproveWebSearch,
+    repoMapContext: models.repoMapContext,
+    repoMap: models.repoMap,
+  };
+  return useExplore
+    ? createExploreAgent(models.explorationModel ?? models.defaultModel, opts)
+    : createCodeAgent(models.codingModel ?? models.defaultModel, opts);
+}
+
 async function runAgentTask(
   task: AgentTask,
   models: SubagentModels,
@@ -355,11 +377,47 @@ async function runAgentTask(
   parentToolCallId: string,
   totalAgents: number,
   abortSignal?: AbortSignal,
-): Promise<void> {
+): Promise<{
+  doneResult: DoneToolResult | null;
+  resultText: string;
+  callbacks: ReturnType<typeof buildStepCallbacks>;
+  result: BusAgentResult;
+}> {
   if (task.dependsOn && task.dependsOn.length > 0) {
-    await Promise.all(
-      task.dependsOn.map((dep) => bus.waitForAgent(dep, task.timeoutMs ?? 300_000)),
-    );
+    try {
+      await Promise.all(
+        task.dependsOn.map((dep) => bus.waitForAgent(dep, task.timeoutMs ?? 300_000)),
+      );
+    } catch (err) {
+      if (err instanceof DependencyFailedError) {
+        const errMsg = `Skipped: dependency "${err.depAgentId}" failed`;
+        const agentResult = {
+          agentId: task.agentId,
+          role: task.role,
+          task: task.task,
+          result: errMsg,
+          success: false,
+          error: errMsg,
+        } satisfies BusAgentResult;
+        bus.setResult(agentResult);
+        emitMultiAgentEvent({
+          parentToolCallId,
+          type: "agent-error",
+          agentId: task.agentId,
+          role: task.role,
+          task: task.task,
+          totalAgents,
+          error: errMsg,
+        });
+        return {
+          doneResult: null,
+          resultText: errMsg,
+          callbacks: buildStepCallbacks(parentToolCallId, task.agentId),
+          result: agentResult,
+        };
+      }
+      throw err;
+    }
   }
 
   emitMultiAgentEvent({
@@ -413,29 +471,7 @@ async function runAgentTask(
     }
 
     try {
-      const useExplore = task.role === "explore" || models.readOnly === true;
-      const agent = useExplore
-        ? createExploreAgent(models.explorationModel ?? models.defaultModel, {
-            bus,
-            agentId: task.agentId,
-            providerOptions: models.providerOptions,
-            headers: models.headers,
-            webSearchModel: models.webSearchModel,
-            onApproveWebSearch: models.onApproveWebSearch,
-            repoMapContext: models.repoMapContext,
-            repoMap: models.repoMap,
-          })
-        : createCodeAgent(models.codingModel ?? models.defaultModel, {
-            bus,
-            agentId: task.agentId,
-            providerOptions: models.providerOptions,
-            headers: models.headers,
-            webSearchModel: models.webSearchModel,
-            onApproveWebSearch: models.onApproveWebSearch,
-            repoMapContext: models.repoMapContext,
-            repoMap: models.repoMap,
-          });
-
+      const agent = createAgent(task, models, bus);
       const callbacks = buildStepCallbacks(parentToolCallId, task.agentId);
 
       const result = await agent.generate({
@@ -455,13 +491,14 @@ async function runAgentTask(
       const doneResult = extractDoneResult(result);
       const resultText = doneResult ? formatDoneResult(doneResult) : buildFallbackResult(result);
 
-      bus.setResult({
+      const agentResult: BusAgentResult = {
         agentId: task.agentId,
         role: task.role,
         task: task.task,
         result: resultText,
         success: true,
-      });
+      };
+      bus.setResult(agentResult);
 
       autoPostCompletionSummary(bus, task);
 
@@ -479,10 +516,15 @@ async function runAgentTask(
         cacheHits: cacheRead > 0 ? cacheRead : undefined,
         resultChars: resultText.length,
       });
-      return;
+      return { doneResult, resultText, callbacks, result: agentResult };
     } catch (error) {
       lastError = error;
-      if (!isRetryable(error) || attempt === MAX_RETRIES) break;
+      if (isRetryable(error)) {
+        const tripped = bus.recordProviderFailure();
+        if (tripped || attempt === MAX_RETRIES) break;
+      } else {
+        break;
+      }
     }
   }
 
@@ -490,14 +532,15 @@ async function runAgentTask(
     `Failed after ${String(MAX_RETRIES)} attempts. ` +
     `Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}`;
 
-  bus.setResult({
+  const agentResult: BusAgentResult = {
     agentId: task.agentId,
     role: task.role,
     task: task.task,
     result: errMsg,
     success: false,
     error: errMsg,
-  });
+  };
+  bus.setResult(agentResult);
 
   emitMultiAgentEvent({
     parentToolCallId,
@@ -508,12 +551,15 @@ async function runAgentTask(
     totalAgents,
     error: errMsg,
   });
+
+  return {
+    doneResult: null,
+    resultText: errMsg,
+    callbacks: buildStepCallbacks(parentToolCallId, task.agentId),
+    result: agentResult,
+  };
 }
 
-/**
- * Unified `dispatch` tool — replaces explore, code, and multi_agent.
- * Handles 1–10 agents with a minimal schema.
- */
 export function buildSubagentTools(models: SubagentModels) {
   const cacheRef: SharedCacheRef = models.sharedCacheRef ?? {
     current: undefined,
@@ -565,233 +611,223 @@ export function buildSubagentTools(models: SubagentModels) {
       }),
       execute: async (args, { abortSignal, toolCallId }) => {
         const bus = new AgentBus(cacheRef.current);
+        try {
+          const tasks: AgentTask[] = args.tasks.map((t, i) => ({
+            agentId: t.id ?? `agent-${String(i + 1)}`,
+            role: t.role,
+            task: t.task,
+            dependsOn: t.dependsOn,
+          }));
 
-        const tasks: AgentTask[] = args.tasks.map((t, i) => ({
-          agentId: t.id ?? `agent-${String(i + 1)}`,
-          role: t.role,
-          task: t.task,
-          dependsOn: t.dependsOn,
-        }));
+          bus.registerTasks(tasks);
 
-        bus.registerTasks(tasks);
+          bus.onCacheEvent = (agentId, type, path, sourceAgentId) => {
+            emitSubagentStep({
+              parentToolCallId: toolCallId,
+              toolName: type === "invalidate" ? "edit_file" : "read_file",
+              args: path,
+              state: type === "wait" ? "running" : "done",
+              agentId,
+              cacheState: type,
+              sourceAgentId,
+            });
+          };
 
-        bus.onCacheEvent = (agentId, type, path, sourceAgentId) => {
-          emitSubagentStep({
-            parentToolCallId: toolCallId,
-            toolName: type === "invalidate" ? "edit_file" : "read_file",
-            args: path,
-            state: type === "wait" ? "running" : "done",
-            agentId,
-            cacheState: type,
-            sourceAgentId,
-          });
-        };
+          bus.onToolCacheEvent = (agentId, toolName, key, type) => {
+            let displayArgs = "";
+            try {
+              const parts = JSON.parse(key) as string[];
+              displayArgs = parts.slice(1).join(" ");
+            } catch {
+              const colonIdx = key.indexOf(":");
+              displayArgs = colonIdx >= 0 ? key.slice(colonIdx + 1) : "";
+            }
+            emitSubagentStep({
+              parentToolCallId: toolCallId,
+              toolName,
+              args: displayArgs,
+              state: "done",
+              agentId,
+              cacheState: type,
+            });
+          };
 
-        bus.onToolCacheEvent = (agentId, toolName, key, type) => {
-          let displayArgs = "";
-          try {
-            const parts = JSON.parse(key) as string[];
-            displayArgs = parts.slice(1).join(" ");
-          } catch {
-            const colonIdx = key.indexOf(":");
-            displayArgs = colonIdx >= 0 ? key.slice(colonIdx + 1) : "";
+          const isSingle = tasks.length === 1;
+
+          if (isSingle) {
+            const task = tasks[0] as AgentTask;
+            const { doneResult, resultText } = await runAgentTask(
+              task,
+              models,
+              bus,
+              toolCallId,
+              1,
+              abortSignal,
+            );
+            if (!doneResult && !bus.getResult(task.agentId)?.success) {
+              throw new Error(resultText);
+            }
+            const editedMap = bus.getEditedFiles(task.agentId);
+            return {
+              reads: bus.getFileReadRecords(task.agentId),
+              filesEdited: [...editedMap.keys()],
+              output: resultText,
+            } satisfies DispatchOutput;
           }
-          emitSubagentStep({
-            parentToolCallId: toolCallId,
-            toolName,
-            args: displayArgs,
-            state: "done",
-            agentId,
-            cacheState: type,
-          });
-        };
 
-        const isSingle = tasks.length === 1;
-
-        if (!isSingle) {
           emitMultiAgentEvent({
             parentToolCallId: toolCallId,
             type: "dispatch-start",
             totalAgents: tasks.length,
           });
-        }
 
-        if (isSingle) {
-          const task = tasks[0] as AgentTask;
-          let lastErr: unknown;
-          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            if (abortSignal?.aborted) break;
-            if (attempt > 0) {
-              const jitter = Math.random() * 1000;
-              await sleep(BASE_DELAY_MS * 2 ** (attempt - 1) + jitter, abortSignal);
-              if (abortSignal?.aborted) break;
-            }
-            try {
-              const useExploreAgent = task.role === "explore" || models.readOnly === true;
-              const agent = useExploreAgent
-                ? createExploreAgent(models.explorationModel ?? models.defaultModel, {
-                    bus,
-                    agentId: task.agentId,
-                    providerOptions: models.providerOptions,
-                    headers: models.headers,
-                    webSearchModel: models.webSearchModel,
-                    onApproveWebSearch: models.onApproveWebSearch,
-                    repoMapContext: models.repoMapContext,
-                    repoMap: models.repoMap,
-                  })
-                : createCodeAgent(models.codingModel ?? models.defaultModel, {
-                    bus,
-                    agentId: task.agentId,
-                    providerOptions: models.providerOptions,
-                    headers: models.headers,
-                    webSearchModel: models.webSearchModel,
-                    onApproveWebSearch: models.onApproveWebSearch,
-                    repoMapContext: models.repoMapContext,
-                    repoMap: models.repoMap,
-                  });
-
-              const result = await agent.generate({
-                prompt: task.task,
-                abortSignal,
-                ...buildStepCallbacks(toolCallId, task.agentId),
-              });
-              const doneResult = extractDoneResult(result);
-              autoPostCompletionSummary(bus, task);
-              cacheRef.current = bus.exportCaches();
-              const output = doneResult
-                ? formatDoneResult(doneResult)
-                : buildFallbackResult(result);
-              const editedMap = bus.getEditedFiles(task.agentId);
-              return {
-                reads: bus.getFileReadRecords(task.agentId),
-                filesEdited: [...editedMap.keys()],
-                output,
-              } satisfies DispatchOutput;
-            } catch (error) {
-              lastErr = error;
-              if (!isRetryable(error) || attempt === MAX_RETRIES) throw error;
-            }
-          }
-          throw lastErr;
-        }
-
-        const taskIds = new Set(tasks.map((t) => t.agentId));
-        for (const task of tasks) {
-          if (task.dependsOn) {
-            for (const dep of task.dependsOn) {
-              if (!taskIds.has(dep)) {
-                return `Error: task "${task.agentId}" depends on unknown task "${dep}"`;
+          const taskIds = new Set(tasks.map((t) => t.agentId));
+          for (const task of tasks) {
+            if (task.dependsOn) {
+              for (const dep of task.dependsOn) {
+                if (!taskIds.has(dep)) {
+                  return `Error: task "${task.agentId}" depends on unknown task "${dep}"`;
+                }
               }
             }
           }
-        }
 
-        const hasCycle = (() => {
-          const visited = new Set<string>();
-          const stack = new Set<string>();
-          const depMap = new Map(tasks.map((t) => [t.agentId, t.dependsOn ?? []]));
-          const dfs = (id: string): boolean => {
-            if (stack.has(id)) return true;
-            if (visited.has(id)) return false;
-            visited.add(id);
-            stack.add(id);
-            for (const dep of depMap.get(id) ?? []) {
-              if (dfs(dep)) return true;
+          const hasCycle = (() => {
+            const visited = new Set<string>();
+            const stack = new Set<string>();
+            const depMap = new Map(tasks.map((t) => [t.agentId, t.dependsOn ?? []]));
+            const dfs = (id: string): boolean => {
+              if (stack.has(id)) return true;
+              if (visited.has(id)) return false;
+              visited.add(id);
+              stack.add(id);
+              for (const dep of depMap.get(id) ?? []) {
+                if (dfs(dep)) return true;
+              }
+              stack.delete(id);
+              return false;
+            };
+            return tasks.some((t) => dfs(t.agentId));
+          })();
+          if (hasCycle) return "Error: dependency cycle detected among tasks";
+
+          const combinedAbort = AbortSignal.any(
+            [abortSignal, bus.abortSignal].filter(Boolean) as AbortSignal[],
+          );
+
+          const STAGGER_MS = 100;
+          let inflightCount = 0;
+          const inflightWaiters: Array<() => void> = [];
+
+          const acquireConcurrencySlot = async (): Promise<void> => {
+            while (inflightCount >= MAX_CONCURRENT_AGENTS) {
+              await new Promise<void>((resolve) => inflightWaiters.push(resolve));
             }
-            stack.delete(id);
-            return false;
+            inflightCount++;
           };
-          return tasks.some((t) => dfs(t.agentId));
-        })();
-        if (hasCycle) return "Error: dependency cycle detected among tasks";
 
-        // Combine parent abort (user cancel) with bus abort (peer cancel)
-        const combinedAbort = AbortSignal.any(
-          [abortSignal, bus.abortSignal].filter(Boolean) as AbortSignal[],
-        );
+          const releaseConcurrencySlot = (): void => {
+            inflightCount--;
+            const waiter = inflightWaiters.shift();
+            if (waiter) waiter();
+          };
 
-        const STAGGER_MS = 100;
-        const promises = tasks.map((task, idx) => {
-          const hasDeps = task.dependsOn && task.dependsOn.length > 0;
-          const delay = hasDeps ? 0 : idx * STAGGER_MS;
-          const run = () =>
-            runAgentTask(task, models, bus, toolCallId, tasks.length, combinedAbort);
-          return delay > 0 ? sleep(delay, combinedAbort).then(run) : run();
-        });
-        await Promise.all(promises);
+          const promises = tasks.map((task, idx) => {
+            const hasDeps = task.dependsOn && task.dependsOn.length > 0;
+            const jitter = Math.random() * STAGGER_MS;
+            const delay = hasDeps ? 0 : idx * STAGGER_MS + jitter;
 
-        emitMultiAgentEvent({
-          parentToolCallId: toolCallId,
-          type: "dispatch-done",
-          totalAgents: tasks.length,
-          completedAgents: bus.completedAgentIds.length,
-          findingCount: bus.findingCount,
-        });
+            const run = async () => {
+              await acquireConcurrencySlot();
+              try {
+                await runAgentTask(task, models, bus, toolCallId, tasks.length, combinedAbort);
+              } finally {
+                releaseConcurrencySlot();
+              }
+            };
 
-        const results = bus.getAllResults();
-        const successful = results.filter((r) => r.success);
-        const failed = results.filter((r) => !r.success);
+            return delay > 0 ? sleep(delay, combinedAbort).then(run) : run();
+          });
+          await Promise.all(promises);
 
-        const sections: string[] = [];
-        const heading = args.objective ?? "Dispatch";
-        sections.push(`## ${heading}`);
-        sections.push(
-          `**${String(successful.length)}/${String(tasks.length)}** agents completed successfully.`,
-        );
+          emitMultiAgentEvent({
+            parentToolCallId: toolCallId,
+            type: "dispatch-done",
+            totalAgents: tasks.length,
+            completedAgents: bus.completedAgentIds.length,
+            findingCount: bus.findingCount,
+          });
 
-        if (bus.findingCount > 0) {
-          const findings = bus.getFindings();
+          const results = bus.getAllResults();
+          const successful = results.filter((r) => r.success);
+          const failed = results.filter((r) => !r.success);
+
+          const sections: string[] = [];
+          const heading = args.objective ?? "Dispatch";
+          sections.push(`## ${heading}`);
           sections.push(
-            `### Coordination Findings (${String(findings.length)})`,
-            ...findings.map((f) => `**[${f.agentId}] ${f.label}:**\n${f.content}`),
+            `**${String(successful.length)}/${String(tasks.length)}** agents completed successfully.`,
           );
-        }
 
-        for (const r of results) {
-          const status = r.success ? "✓" : "✗";
-          sections.push(
-            `\n### ${status} Agent: ${r.agentId} (${r.role})\n**Task:** ${r.task}\n\n${r.result}`,
-          );
-        }
-
-        if (failed.length > 0) {
-          sections.push(
-            `\n### Errors\n${failed.map((r) => `- ${r.agentId}: ${r.error}`).join("\n")}`,
-          );
-        }
-
-        const allEdited = bus.getEditedFiles();
-        if (allEdited.size > 0) {
-          const lines: string[] = [];
-          const conflicts: string[] = [];
-          for (const [path, agents] of allEdited) {
-            lines.push(`- \`${path}\` — ${agents.join(", ")}`);
-            if (agents.length > 1) conflicts.push(path);
-          }
-          sections.push(`\n### Files Edited\n${lines.join("\n")}`);
-          if (conflicts.length > 0) {
+          if (bus.findingCount > 0) {
+            const findings = bus.getFindings();
             sections.push(
-              `\n⚠ **Edit conflicts detected** — multiple agents edited: ${conflicts.map((p) => `\`${p}\``).join(", ")}. Review these files carefully.`,
+              `### Coordination Findings (${String(findings.length)})`,
+              ...findings.map((f) => `**[${f.agentId}] ${f.label}:**\n${f.content}`),
             );
           }
+
+          for (const r of results) {
+            const status = r.success ? "✓" : "✗";
+            sections.push(
+              `\n### ${status} Agent: ${r.agentId} (${r.role})\n**Task:** ${r.task}\n\n${r.result}`,
+            );
+          }
+
+          if (failed.length > 0) {
+            sections.push(
+              `\n### Errors\n${failed.map((r) => `- ${r.agentId}: ${r.error}`).join("\n")}`,
+            );
+          }
+
+          const allEdited = bus.getEditedFiles();
+          if (allEdited.size > 0) {
+            const lines: string[] = [];
+            const conflicts: string[] = [];
+            for (const [path, agents] of allEdited) {
+              lines.push(`- \`${path}\` — ${agents.join(", ")}`);
+              if (agents.length > 1) conflicts.push(path);
+            }
+            sections.push(`\n### Files Edited\n${lines.join("\n")}`);
+            if (conflicts.length > 0) {
+              sections.push(
+                `\n⚠ **Edit conflicts detected** — multiple agents edited: ${conflicts.map((p) => `\`${p}\``).join(", ")}. Review these files carefully.`,
+              );
+            }
+          }
+
+          const evalResult = await runEvaluator(bus, tasks, toolCallId);
+          if (evalResult) sections.push(evalResult);
+
+          const m = bus.metrics;
+          const cacheStats = [m.fileHits, m.fileWaits, m.toolHits].some((v) => v > 0)
+            ? `\n### Cache\nFiles: ${String(m.fileHits)} hits, ${String(m.fileWaits)} waits, ${String(m.fileMisses)} misses | Tools: ${String(m.toolHits)} hits, ${String(m.toolWaits)} waits, ${String(m.toolMisses)} misses, ${String(m.toolEvictions)} evictions, ${String(m.toolInvalidations)} invalidations`
+            : "";
+          if (cacheStats) sections.push(cacheStats);
+
+          return {
+            reads: bus.getFileReadRecords(),
+            filesEdited: [...bus.getEditedFiles().keys()],
+            output: sections.join("\n"),
+          } satisfies DispatchOutput;
+        } finally {
+          try {
+            cacheRef.current = bus.exportCaches();
+          } catch (err) {
+            logBackgroundError("cache-export", err instanceof Error ? err.message : String(err));
+          }
+          bus.dispose();
         }
-
-        const evalResult = await runEvaluator(bus, tasks, toolCallId);
-        if (evalResult) sections.push(evalResult);
-
-        const m = bus.metrics;
-        const cacheStats = [m.fileHits, m.fileWaits, m.toolHits].some((v) => v > 0)
-          ? `\n### Cache\nFiles: ${String(m.fileHits)} hits, ${String(m.fileWaits)} waits, ${String(m.fileMisses)} misses | Tools: ${String(m.toolHits)} hits, ${String(m.toolMisses)} misses, ${String(m.toolEvictions)} evictions, ${String(m.toolInvalidations)} invalidations`
-          : "";
-        if (cacheStats) sections.push(cacheStats);
-
-        cacheRef.current = bus.exportCaches();
-
-        return {
-          reads: bus.getFileReadRecords(),
-          filesEdited: [...bus.getEditedFiles().keys()],
-          output: sections.join("\n"),
-        } satisfies DispatchOutput;
       },
       toModelOutput({ output }: { toolCallId: string; input: unknown; output: unknown }) {
         const dispatch = output as DispatchOutput | string;
@@ -801,16 +837,22 @@ export function buildSubagentTools(models: SubagentModels) {
         const compact: string[] = [];
         let blankRun = 0;
         let inCodeBlock = false;
+        let inStructuredSection = false;
 
         for (const line of lines) {
           if (line.startsWith("```")) inCodeBlock = !inCodeBlock;
+          if (/^(?:Files edited:|Key findings:|###.*Agent:)/.test(line)) {
+            inStructuredSection = true;
+          } else if (line.startsWith("## ") || line.startsWith("### Cache")) {
+            inStructuredSection = false;
+          }
           if (line.trim() === "") {
             blankRun++;
             if (blankRun <= 1) compact.push("");
             continue;
           }
           blankRun = 0;
-          const limit = inCodeBlock ? 500 : 250;
+          const limit = inCodeBlock || inStructuredSection ? 800 : 250;
           compact.push(line.length > limit ? `${line.slice(0, limit)}...` : line);
         }
 

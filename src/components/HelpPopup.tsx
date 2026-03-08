@@ -41,6 +41,7 @@ const LINES: HelpLine[] = [
   { type: "entry", label: "/stash pop", desc: "pop latest stash" },
   { type: "entry", label: "/log", desc: "show recent commits" },
   { type: "entry", label: "/compact", desc: "compact conversation to save context" },
+  { type: "entry", label: "/compaction", desc: "switch compaction strategy (v1/v2)" },
   { type: "entry", label: "/context", desc: "show context budget breakdown" },
   { type: "entry", label: "/context clear", desc: "reset context (git|skills|memory|all)" },
   {

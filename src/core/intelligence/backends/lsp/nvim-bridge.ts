@@ -245,8 +245,9 @@ export async function getCodeActions(
   endCol: number,
   diagnosticCodes?: (string | number)[],
 ): Promise<LspCodeAction[] | null> {
+  const escapeLua = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const codesFilter = diagnosticCodes
-    ? `local filter_codes = {${diagnosticCodes.map((c) => (typeof c === "string" ? `'${c}'` : String(c))).join(",")}}
+    ? `local filter_codes = {${diagnosticCodes.map((c) => (typeof c === "string" ? `'${escapeLua(c)}'` : String(c))).join(",")}}
        for _, d in ipairs(vim.diagnostic.get(bufnr)) do
          for _, code in ipairs(filter_codes) do
            if tostring(d.code) == tostring(code) then

@@ -92,6 +92,7 @@ export class ContextManager {
   private cwd: string;
   private skills = new Map<string, string>();
   private gitContext: string | null = null;
+  private gitContextStale = true;
   private memoryManager: MemoryManager;
   private forgeMode: ForgeMode = "default";
   private editorFile: string | null = null;
@@ -216,6 +217,7 @@ export class ContextManager {
     this.repoMap.onFileChanged(absPath);
     this.editedFiles.add(absPath);
     this.repoMapCache = null;
+    this.gitContextStale = true;
   }
 
   /** Track a file mentioned in conversation (tool reads, grep hits, etc.) */
@@ -227,6 +229,14 @@ export class ContextManager {
   updateConversationContext(input: string, totalTokens: number): void {
     this.conversationTokens = totalTokens;
     this.conversationTerms = extractConversationTerms(input);
+  }
+
+  /** Get a snapshot of tracked files (for preserving across compaction) */
+  getTrackedFiles(): { edited: string[]; mentioned: string[] } {
+    return {
+      edited: [...this.editedFiles],
+      mentioned: [...this.mentionedFiles],
+    };
   }
 
   /** Reset per-conversation tracking (call on new session / context clear) */
@@ -439,6 +449,13 @@ export class ContextManager {
   /** Pre-fetch git context (call before buildSystemPrompt) */
   async refreshGitContext(): Promise<void> {
     this.gitContext = await buildGitContext(this.cwd);
+    this.gitContextStale = false;
+  }
+
+  /** Refresh git context only if stale (files changed since last refresh) */
+  async ensureGitContext(): Promise<void> {
+    if (!this.gitContextStale) return;
+    await this.refreshGitContext();
   }
 
   /** Add a loaded skill to the system prompt */
@@ -954,7 +971,7 @@ const STOP_WORDS = new Set([
   "i",
 ]);
 
-function extractConversationTerms(input: string): string[] {
+export function extractConversationTerms(input: string): string[] {
   const words = input.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? [];
   const seen = new Set<string>();
   const terms: string[] = [];

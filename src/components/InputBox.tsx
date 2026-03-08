@@ -45,6 +45,7 @@ const CMD_DEFS: Array<{ cmd: string; ic: string; desc: string }> = [
   { cmd: "/co-author-commits", ic: "git", desc: "Toggle co-author trailer" },
   { cmd: "/commit", ic: "git", desc: "AI-assisted git commit" },
   { cmd: "/compact", ic: "compress", desc: "Compact conversation context" },
+  { cmd: "/compaction", ic: "compress", desc: "Switch compaction strategy (v1/v2)" },
   { cmd: "/context", ic: "context", desc: "Show/clear context budget" },
   { cmd: "/continue", ic: "play", desc: "Continue interrupted generation" },
   { cmd: "/diff", ic: "git", desc: "Open diff in editor" },
@@ -85,7 +86,6 @@ const CMD_DEFS: Array<{ cmd: string; ic: string; desc: string }> = [
   { cmd: "/stash pop", ic: "git", desc: "Pop latest stash" },
   { cmd: "/status", ic: "git", desc: "Git status" },
   { cmd: "/storage", ic: "system", desc: "View & manage storage usage" },
-  { cmd: "/summarize", ic: "compress", desc: "Compact conversation context" },
   { cmd: "/tabs", ic: "tabs", desc: "List open tabs" },
   { cmd: "/verbose", ic: "cog", desc: "Toggle verbose tool output" },
   { cmd: "/vim-hints", ic: "pencil", desc: "Toggle vim keybinding hints" },
@@ -215,22 +215,46 @@ export function InputBox({
   const [ghostTick, setGhostTick] = useState(0);
   const forgeStatusRef = useRef("");
   const wasLoadingRef = useRef(false);
+  const loadingStartRef = useRef(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
   if (isLoading && !wasLoadingRef.current) {
     forgeStatusRef.current = FORGE_STATUSES[
       Math.floor(Math.random() * FORGE_STATUSES.length)
     ] as string;
+    loadingStartRef.current = Date.now();
   }
   wasLoadingRef.current = isLoading;
 
   useEffect(() => {
-    if (!showBusy) return;
-    const timer = setInterval(() => setGhostTick((t) => t + 1), GHOST_SPEED);
+    if (!showBusy) {
+      setElapsedSec(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setGhostTick((t) => t + 1);
+      if (isLoading) {
+        setElapsedSec(Math.floor((Date.now() - loadingStartRef.current) / 1000));
+      }
+    }, GHOST_SPEED);
     return () => clearInterval(timer);
-  }, [showBusy]);
+  }, [showBusy, isLoading]);
 
   const ghostFrameFn = GHOST_FRAMES[ghostTick % GHOST_FRAMES.length];
   const currentGhost = ghostFrameFn ? ghostFrameFn() : " ";
   const busyStatus = isCompacting ? "Compacting context…" : forgeStatusRef.current;
+
+  let elapsedLabel = "";
+  if (isLoading && elapsedSec > 0) {
+    const h = Math.floor(elapsedSec / 3600);
+    const m = Math.floor((elapsedSec % 3600) / 60);
+    const s = elapsedSec % 60;
+    elapsedLabel =
+      h > 0
+        ? `${String(h)}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`
+        : m > 0
+          ? `${String(m)}m ${String(s).padStart(2, "0")}s`
+          : `${String(s)}s`;
+  }
 
   const historyDBRef = useRef<HistoryDB | null>(null);
   const historyCacheRef = useRef<string[]>([]);
@@ -922,6 +946,7 @@ export function InputBox({
         <box paddingX={1} height={1} gap={1} flexDirection="row">
           <text fg={isCompacting ? "#5af" : "#8B5CF6"}>{currentGhost}</text>
           <text fg={isCompacting ? "#3388cc" : "#6A0DAD"}>{busyStatus}</text>
+          {elapsedLabel !== "" && <text fg="#555">{elapsedLabel}</text>}
           {queueCount != null && queueCount > 0 && (
             <text fg="#555">({String(queueCount)} queued)</text>
           )}

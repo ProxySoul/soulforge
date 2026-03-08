@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { isForbidden } from "../security/forbidden.js";
 import type { Language, SymbolKind } from "./types.js";
@@ -257,6 +257,11 @@ export class RepoMap {
     this.db = new Database(dbPath);
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA foreign_keys = ON");
+    for (const suffix of ["", "-wal", "-shm"]) {
+      try {
+        chmodSync(dbPath + suffix, 0o600);
+      } catch {}
+    }
     this.initSchema();
   }
 
@@ -1212,6 +1217,11 @@ export class RepoMap {
 
   onFileChanged(absPath: string): void {
     const relPath = relative(this.cwd, absPath);
+
+    if (relPath === "package.json" || relPath === "Cargo.toml" || relPath === "go.mod") {
+      this.entryPointsCache = null;
+    }
+
     const ext = extname(absPath).toLowerCase();
     const language = INDEXABLE_EXTENSIONS[ext];
     if (!language) return;

@@ -4,7 +4,7 @@ import { smoothStream } from "ai";
 
 /** Shared smoothStream transform applied to all agents. */
 export const smoothStreamOptions = {
-  experimental_transform: smoothStream({ delayInMs: 500, chunking: "word" }),
+  experimental_transform: smoothStream({ delayInMs: 12, chunking: "word" }),
 };
 
 /**
@@ -19,7 +19,7 @@ export const smoothStreamOptions = {
  *
  * This prepareStep hook ensures all tool-call inputs are plain objects.
  */
-function sanitizeMessages(messages: ModelMessage[]): ModelMessage[] {
+export function sanitizeMessages(messages: ModelMessage[]): ModelMessage[] {
   let dirty = false;
   const cleaned = messages.map((msg) => {
     if (msg.role !== "assistant" || typeof msg.content === "string") return msg;

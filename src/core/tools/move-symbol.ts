@@ -3,6 +3,7 @@ import { dirname, relative, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceRouter } from "../intelligence/index.js";
 import type { Language } from "../intelligence/types.js";
+import { isForbidden } from "../security/forbidden.js";
 
 interface PendingWrite {
   path: string;
@@ -20,6 +21,10 @@ class WriteTransaction {
   }
 
   commit(): void {
+    for (const w of this.writes) {
+      const blocked = isForbidden(w.path);
+      if (blocked) throw new Error(`Cannot write forbidden file: ${w.path} (${blocked})`);
+    }
     for (const w of this.writes) {
       const dir = dirname(w.path);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -58,7 +63,7 @@ interface MoveSymbolArgs {
 
 // ─── Import Handling ──────────────────────────────────────────
 
-interface ImportStatement {
+export interface ImportStatement {
   full: string;
   startLine: number;
   endLine: number;
@@ -76,17 +81,17 @@ interface LangImports {
   generate(specs: string[], path: string, isType?: boolean): string;
 }
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function line(lines: string[], i: number): string {
+export function line(lines: string[], i: number): string {
   return lines[i] ?? "";
 }
 
 // ── TypeScript / JavaScript ──
 
-const tsJsHandler: LangImports = {
+export const tsJsHandler: LangImports = {
   canAutoUpdate: true,
 
   parse(content: string): ImportStatement[] {
@@ -163,7 +168,7 @@ const tsJsHandler: LangImports = {
 
 // ── Python ──
 
-const pythonHandler: LangImports = {
+export const pythonHandler: LangImports = {
   canAutoUpdate: true,
 
   parse(content: string): ImportStatement[] {
@@ -226,7 +231,7 @@ const pythonHandler: LangImports = {
 
 // ── Rust ──
 
-const rustHandler: LangImports = {
+export const rustHandler: LangImports = {
   canAutoUpdate: true,
 
   parse(content: string): ImportStatement[] {
@@ -401,7 +406,10 @@ function getLangHandler(lang: Language): LangImports | null {
 
 // ─── Symbol Extraction ────────────────────────────────────────
 
-function findSymbolRange(lines: string[], symbol: string): { start: number; end: number } | null {
+export function findSymbolRange(
+  lines: string[],
+  symbol: string,
+): { start: number; end: number } | null {
   const pat = new RegExp(
     `^\\s*(export\\s+)?(default\\s+)?(pub(\\(crate\\))?\\s+)?(interface|type|class|function|enum|const|let|var|struct|trait|impl|fn|def|func|abstract\\s+class)\\s+${esc(symbol)}\\b`,
   );
@@ -433,7 +441,7 @@ function findSymbolRange(lines: string[], symbol: string): { start: number; end:
   return null;
 }
 
-function findCommentStart(lines: string[], defStart: number): number {
+export function findCommentStart(lines: string[], defStart: number): number {
   let start = defStart;
   for (let i = defStart - 1; i >= 0; i--) {
     const t = line(lines, i).trim();

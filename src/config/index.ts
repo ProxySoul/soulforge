@@ -87,6 +87,9 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
     const cm = layer.contextManagement
       ? { ...merged.contextManagement, ...layer.contextManagement }
       : merged.contextManagement;
+    const comp = layer.compaction
+      ? { ...merged.compaction, ...layer.compaction }
+      : merged.compaction;
     merged = {
       ...merged,
       ...layer,
@@ -97,6 +100,7 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
       thinking: th,
       performance: perf,
       contextManagement: cm,
+      compaction: comp,
     };
   }
   return merged;

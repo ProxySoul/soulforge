@@ -27,12 +27,18 @@ interface StatusBarState {
   chatChars: number;
   subagentChars: number;
   rssMB: number;
+  compacting: boolean;
+  compactionStrategy: "v1" | "v2";
+  v2Slots: number;
 
   setTokenUsage: (usage: TokenUsage) => void;
   resetTokenUsage: () => void;
   setContext: (contextTokens: number, chatChars: number) => void;
   setSubagentChars: (chars: number) => void;
   setRssMB: (mb: number) => void;
+  setCompacting: (v: boolean) => void;
+  setCompactionStrategy: (s: "v1" | "v2") => void;
+  setV2Slots: (n: number) => void;
 }
 
 export const useStatusBarStore = create<StatusBarState>()((set) => ({
@@ -41,12 +47,18 @@ export const useStatusBarStore = create<StatusBarState>()((set) => ({
   chatChars: 0,
   subagentChars: 0,
   rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+  compacting: false,
+  compactionStrategy: "v1",
+  v2Slots: 0,
 
   setTokenUsage: (usage) => set({ tokenUsage: usage }),
   resetTokenUsage: () => set({ tokenUsage: { ...ZERO_USAGE } }),
   setContext: (contextTokens, chatChars) => set({ contextTokens, chatChars, subagentChars: 0 }),
   setSubagentChars: (chars) => set({ subagentChars: chars }),
   setRssMB: (mb) => set({ rssMB: mb }),
+  setCompacting: (v) => set({ compacting: v }),
+  setCompactionStrategy: (s) => set({ compactionStrategy: s }),
+  setV2Slots: (n) => set({ v2Slots: n }),
 }));
 
 export function resetStatusBarStore(): void {
@@ -55,6 +67,7 @@ export function resetStatusBarStore(): void {
     contextTokens: 0,
     chatChars: 0,
     subagentChars: 0,
+    compacting: false,
   });
 }
 

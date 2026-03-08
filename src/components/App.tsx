@@ -86,7 +86,7 @@ function truncate(str: string, max: number): string {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
-const ABORT_ON_LOADING = new Set(["/clear", "/compact", "/summarize", "/plan"]);
+const ABORT_ON_LOADING = new Set(["/clear", "/compact", "/plan"]);
 
 const SHUTDOWN_STEPS = [
   "Quenching active flames…",
@@ -850,6 +850,7 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
           vimHints: effectiveConfig.vimHints !== false,
           verbose: effectiveConfig.verbose === true,
           diffStyle: effectiveConfig.diffStyle ?? "default",
+          compactionStrategy: effectiveConfig.compaction?.strategy ?? "v1",
           showReasoning: uiState.showReasoning,
           setShowReasoning: uiState.setShowReasoning,
           openSetup: () => uiState.openModal("setup"),
@@ -886,6 +887,7 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
       effectiveConfig.vimHints,
       effectiveConfig.verbose,
       effectiveConfig.diffStyle,
+      effectiveConfig.compaction?.strategy,
       saveToScope,
       detectScope,
     ],
@@ -1196,6 +1198,7 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
                         <StreamSegmentList
                           segments={chat.streamSegments}
                           toolCalls={chat.liveToolCalls}
+                          streaming={chat.isLoading}
                           verbose={effectiveConfig.verbose === true}
                           diffStyle={effectiveConfig.diffStyle}
                           showReasoning={showReasoning}

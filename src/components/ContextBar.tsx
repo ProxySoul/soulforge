@@ -49,12 +49,22 @@ interface BarTarget {
   flash: boolean;
 }
 
+const COMPACT_FRAMES = ["◐", "◓", "◑", "◒"];
+
+interface CompactState {
+  active: boolean;
+  frame: number;
+  strategy: "v1" | "v2";
+  v2Slots: number;
+}
+
 function buildContent(
   pct: number,
   tokensK: string,
   windowLabel: string,
   live: boolean,
   flash: boolean,
+  compact?: CompactState,
 ): StyledText {
   const filled = Math.round((pct / 100) * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
@@ -72,6 +82,12 @@ function buildContent(
     fgStyle(pctColor)(live ? `${String(pct)}%` : `~${String(pct)}%`),
     fgStyle("#444")(` ${tokensK}k/${windowLabel}`),
   ];
+  if (compact?.active) {
+    const spinner = COMPACT_FRAMES[compact.frame % COMPACT_FRAMES.length] ?? "◐";
+    chunks.push(fgStyle("#5af")(` ${spinner} compacting`));
+  } else if (compact?.strategy === "v2" && compact.v2Slots > 0) {
+    chunks.push(fgStyle("#336")(` v2:${String(compact.v2Slots)}`));
+  }
   return new StyledText(chunks);
 }
 
@@ -128,12 +144,25 @@ export function ContextBar({ contextManager, modelId }: Props) {
 
   const currentPctRef = useRef(0);
   const currentTokensRef = useRef(0);
+  const compactFrameRef = useRef(0);
+  const prevV2SlotsRef = useRef(0);
   useEffect(() => {
     const timer = setInterval(() => {
       const target = targetRef.current;
+      const store = useStatusBarStore.getState();
+      const isCompacting = store.compacting;
+      if (isCompacting) compactFrameRef.current++;
       const pct = approach(currentPctRef.current, target.pct);
       const tok = approach(currentTokensRef.current, target.tokensX10);
-      if (pct === currentPctRef.current && tok === currentTokensRef.current && !target.flash)
+      const slotsChanged = store.v2Slots !== prevV2SlotsRef.current;
+      prevV2SlotsRef.current = store.v2Slots;
+      if (
+        pct === currentPctRef.current &&
+        tok === currentTokensRef.current &&
+        !target.flash &&
+        !isCompacting &&
+        !slotsChanged
+      )
         return;
       currentPctRef.current = pct;
       currentTokensRef.current = tok;
@@ -145,6 +174,12 @@ export function ContextBar({ contextManager, modelId }: Props) {
             windowLabel,
             target.live,
             target.flash,
+            {
+              active: isCompacting,
+              frame: compactFrameRef.current,
+              strategy: store.compactionStrategy,
+              v2Slots: store.v2Slots,
+            },
           );
         }
       } catch {}

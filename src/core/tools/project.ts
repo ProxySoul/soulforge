@@ -344,7 +344,7 @@ export const projectTool = {
     }
 
     if (command && args.flags) {
-      command = `${command} ${args.flags}`;
+      command = `${command} ${shellQuote(args.flags)}`;
     }
 
     if (!command) {

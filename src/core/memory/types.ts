@@ -11,7 +11,8 @@ export type MemoryCategory =
   | "preference"
   | "architecture"
   | "pattern"
-  | "fact";
+  | "fact"
+  | "checkpoint";
 
 export const MEMORY_CATEGORIES: MemoryCategory[] = [
   "decision",
@@ -20,6 +21,7 @@ export const MEMORY_CATEGORIES: MemoryCategory[] = [
   "architecture",
   "pattern",
   "fact",
+  "checkpoint",
 ];
 
 export interface MemoryRecord {

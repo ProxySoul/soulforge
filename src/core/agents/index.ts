@@ -1,5 +1,5 @@
 export type { AgentResult, AgentTask, BusFinding } from "./agent-bus.js";
-export { AgentBus } from "./agent-bus.js";
+export { AgentBus, DependencyFailedError } from "./agent-bus.js";
 export { buildBusTools } from "./bus-tools.js";
 export { createCodeAgent } from "./code.js";
 export { createExploreAgent } from "./explore.js";

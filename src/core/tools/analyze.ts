@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
@@ -251,10 +251,12 @@ export const analyzeTool = {
           let oldContent = args.oldContent;
           if (!oldContent) {
             try {
-              oldContent = execSync(`git show HEAD:${file}`, {
+              const gitResult = spawnSync("git", ["show", `HEAD:${file}`], {
                 encoding: "utf-8",
                 cwd: process.cwd(),
               });
+              if (gitResult.status !== 0) throw new Error(gitResult.stderr);
+              oldContent = gitResult.stdout;
             } catch {
               return {
                 success: false,

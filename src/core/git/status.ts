@@ -7,6 +7,7 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  conflicts: string[];
   ahead: number;
   behind: number;
 }
@@ -17,7 +18,7 @@ export interface GitLogEntry {
   date: string;
 }
 
-function run(
+export function run(
   args: string[],
   cwd: string,
   timeout = 5_000,
@@ -29,6 +30,58 @@ function run(
     proc.on("close", (code) => resolve({ ok: code === 0, stdout: chunks.join("") }));
     proc.on("error", () => resolve({ ok: false, stdout: "" }));
   });
+}
+
+export function parseGitLogLine(line: string): GitLogEntry {
+  const spaceIdx = line.indexOf(" ");
+  if (spaceIdx === -1) return { hash: line, subject: "", date: "" };
+  const hash = line.slice(0, spaceIdx);
+  const rest = line.slice(spaceIdx + 1);
+  const parenIdx = rest.lastIndexOf("(");
+  const subject = parenIdx >= 0 ? rest.slice(0, parenIdx).trim() : rest;
+  const date = parenIdx >= 0 ? rest.slice(parenIdx + 1, -1) : "";
+  return { hash, subject, date };
+}
+
+export function unquoteGitPath(path: string): string {
+  if (path.startsWith('"') && path.endsWith('"')) {
+    return path
+      .slice(1, -1)
+      .replace(/\\([ntabr"\\])/g, (_, c: string) => {
+        const map: Record<string, string> = {
+          n: "\n",
+          t: "\t",
+          a: "\x07",
+          b: "\b",
+          r: "\r",
+          '"': '"',
+          "\\": "\\",
+        };
+        return map[c] ?? c;
+      });
+  }
+  return path;
+}
+
+export function parseStatusLine(line: string): {
+  x: string;
+  y: string;
+  file: string;
+  category: "untracked" | "staged" | "modified" | "none";
+} {
+  const x = line[0] ?? "";
+  const y = line[1] ?? "";
+  const raw = line.slice(3);
+  const arrowIdx = raw.indexOf(" -> ");
+  const file = unquoteGitPath(arrowIdx >= 0 ? raw.slice(arrowIdx + 4) : raw);
+  let category: "untracked" | "staged" | "modified" | "none" = "none";
+  if (x === "?") {
+    category = "untracked";
+  } else {
+    if (x && x !== " " && x !== "?") category = "staged";
+    if (y && y !== " " && y !== "?") category = "modified";
+  }
+  return { x, y, file, category };
 }
 
 export async function isGitRepo(cwd: string): Promise<boolean> {
@@ -51,6 +104,7 @@ export async function getGitStatus(cwd: string): Promise<GitStatus> {
       staged: [],
       modified: [],
       untracked: [],
+      conflicts: [],
       ahead: 0,
       behind: 0,
     };
@@ -65,18 +119,21 @@ export async function getGitStatus(cwd: string): Promise<GitStatus> {
   const staged: string[] = [];
   const modified: string[] = [];
   const untracked: string[] = [];
+  const conflicts: string[] = [];
 
   if (statusResult.ok) {
-    for (const line of statusResult.stdout.split("\n")) {
-      if (!line) continue;
-      const x = line[0];
-      const y = line[1];
-      const file = line.slice(3);
-      if (x === "?") {
-        untracked.push(file);
+    for (const raw of statusResult.stdout.split("\n")) {
+      if (!raw) continue;
+      const parsed = parseStatusLine(raw);
+      const x = raw[0];
+      const y = raw[1];
+      if ((x === "U" || y === "U") || (x === "D" && y === "D") || (x === "A" && y === "A")) {
+        conflicts.push(parsed.file);
+      } else if (parsed.category === "untracked") {
+        untracked.push(parsed.file);
       } else {
-        if (x && x !== " " && x !== "?") staged.push(file);
-        if (y && y !== " " && y !== "?") modified.push(file);
+        if (x && x !== " " && x !== "?") staged.push(parsed.file);
+        if (y && y !== " " && y !== "?") modified.push(parsed.file);
       }
     }
   }
@@ -96,6 +153,7 @@ export async function getGitStatus(cwd: string): Promise<GitStatus> {
     staged,
     modified,
     untracked,
+    conflicts,
     ahead,
     behind,
   };
@@ -113,19 +171,7 @@ export async function getGitLog(cwd: string, count = 10): Promise<GitLogEntry[]>
     cwd,
   );
   if (!ok) return [];
-  return stdout
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const spaceIdx = line.indexOf(" ");
-      const hash = line.slice(0, spaceIdx);
-      const rest = line.slice(spaceIdx + 1);
-      const parenIdx = rest.lastIndexOf("(");
-      const subject = parenIdx > 0 ? rest.slice(0, parenIdx).trim() : rest;
-      const date = parenIdx > 0 ? rest.slice(parenIdx + 1, -1) : "";
-      return { hash, subject, date };
-    });
+  return stdout.trim().split("\n").filter(Boolean).map(parseGitLogLine);
 }
 
 export async function gitInit(cwd: string): Promise<boolean> {
@@ -185,12 +231,56 @@ export async function gitStashPop(cwd: string): Promise<{ ok: boolean; output: s
   return { ok, output: stdout };
 }
 
+export async function gitStashList(cwd: string): Promise<{ ok: boolean; entries: string[] }> {
+  const { ok, stdout } = await run(["stash", "list"], cwd);
+  if (!ok) return { ok: false, entries: [] };
+  return { ok: true, entries: stdout.trim().split("\n").filter(Boolean) };
+}
+
+export async function gitStashShow(cwd: string, index = 0): Promise<{ ok: boolean; output: string }> {
+  const { ok, stdout } = await run(["stash", "show", "-p", `stash@{${String(index)}}`], cwd);
+  return { ok, output: stdout };
+}
+
+export async function gitStashDrop(cwd: string, index = 0): Promise<{ ok: boolean; output: string }> {
+  const { ok, stdout } = await run(["stash", "drop", `stash@{${String(index)}}`], cwd);
+  return { ok, output: stdout };
+}
+
+export async function gitCreateBranch(
+  cwd: string,
+  name: string,
+  checkout = true,
+): Promise<{ ok: boolean; output: string }> {
+  if (checkout) {
+    const { ok, stdout } = await run(["checkout", "-b", name], cwd);
+    return { ok, output: stdout };
+  }
+  const { ok, stdout } = await run(["branch", name], cwd);
+  return { ok, output: stdout };
+}
+
+export async function gitSwitchBranch(
+  cwd: string,
+  name: string,
+): Promise<{ ok: boolean; output: string }> {
+  const { ok, stdout } = await run(["checkout", name], cwd);
+  return { ok, output: stdout };
+}
+
 export async function buildGitContext(cwd: string): Promise<string | null> {
   const status = await getGitStatus(cwd);
   if (!status.isRepo) return null;
 
+  const { ok: upOk, stdout: upOut } = await run(["rev-parse", "--abbrev-ref", "@{upstream}"], cwd);
+  const upstream = upOk ? upOut.trim() : null;
+
   const lines: string[] = [];
-  lines.push(`Branch: ${status.branch ?? "(detached)"}`);
+  const branchLine = `Branch: ${status.branch ?? "(detached)"}`;
+  lines.push(upstream ? `${branchLine} → ${upstream}` : branchLine);
+  if (status.conflicts.length > 0) {
+    lines.push(`⚠ Merge conflicts (${String(status.conflicts.length)}): ${status.conflicts.join(", ")}`);
+  }
   if (status.isDirty) {
     const parts: string[] = [];
     if (status.staged.length > 0) parts.push(`${String(status.staged.length)} staged`);

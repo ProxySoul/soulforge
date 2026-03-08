@@ -109,7 +109,7 @@ function fileRead(): Record<string, string> {
 
 function fileWrite(data: Record<string, string>): void {
   if (!existsSync(SECRETS_DIR)) {
-    mkdirSync(SECRETS_DIR, { recursive: true });
+    mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 });
   }
   writeFileSync(SECRETS_FILE, JSON.stringify(data, null, 2));
   chmodSync(SECRETS_FILE, 0o600);

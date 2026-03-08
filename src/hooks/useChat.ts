@@ -9,6 +9,14 @@ import { createForgeAgent } from "../core/agents/index.js";
 import { repairToolCall, sanitizeToolInputsStep } from "../core/agents/stream-options.js";
 import { onAgentStats, onMultiAgentEvent } from "../core/agents/subagent-events.js";
 import { buildSubagentTools, type SharedCacheRef } from "../core/agents/subagent-tools.js";
+import {
+  buildV2Summary,
+  extractFromAssistantMessage,
+  extractFromToolCall,
+  extractFromToolResult,
+  extractFromUserMessage,
+  WorkingStateManager,
+} from "../core/compaction/index.js";
 import type { ContextManager } from "../core/context/manager.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
 import { getModelContextWindow, getShortModelLabel } from "../core/llm/models.js";
@@ -46,6 +54,71 @@ function safeParseArgs(raw: string | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+const PATH_ARG_KEYS = new Set([
+  "file",
+  "path",
+  "filePath",
+  "file_path",
+  "target_file",
+  "source_file",
+  "target",
+]);
+
+function reprimeContextFromMessages(cm: ContextManager, msgs: ModelMessage[]): void {
+  try {
+    for (const msg of msgs) {
+      if (typeof msg.content === "string") {
+        extractPathsFromText(msg.content, cm);
+        continue;
+      }
+      if (!Array.isArray(msg.content)) continue;
+      for (const part of msg.content) {
+        if (typeof part !== "object" || part === null) continue;
+        const typed = part as { type?: string; text?: string; args?: Record<string, unknown> };
+        if (typed.type === "tool-call" && typed.args && typeof typed.args === "object") {
+          for (const [key, val] of Object.entries(typed.args)) {
+            if (PATH_ARG_KEYS.has(key) && typeof val === "string" && val.length > 0) {
+              cm.trackMentionedFile(val);
+            }
+            if (key === "files" && Array.isArray(val)) {
+              for (const f of val) {
+                if (typeof f === "string") cm.trackMentionedFile(f);
+              }
+            }
+          }
+        } else if ("text" in typed && typeof typed.text === "string") {
+          extractPathsFromText(typed.text, cm);
+        }
+      }
+    }
+  } catch {
+    // Best-effort — partial priming is better than crashing compaction/restore
+  }
+}
+
+const BACKTICK_PATH_RE = /`([^`\s]+)`/g;
+
+function extractPathsFromText(text: string, cm: ContextManager): void {
+  if (text.length > 500_000) return;
+  for (const match of text.matchAll(BACKTICK_PATH_RE)) {
+    if (match[1] && looksLikeFilePath(match[1])) {
+      cm.trackMentionedFile(match[1]);
+    }
+  }
+}
+
+export function looksLikeFilePath(s: string): boolean {
+  if (s.length < 3 || s.length > 300) return false;
+  if (/[<>{}[\]|&;$!()@#=+]/.test(s)) return false;
+  if (s.startsWith("http://") || s.startsWith("https://")) return false;
+  if (/\s/.test(s)) return false;
+  if (!s.includes("/")) return false;
+  const lastDot = s.lastIndexOf(".");
+  if (lastDot < 0) return false;
+  const ext = s.slice(lastDot + 1);
+  return ext.length > 0 && ext.length <= 10 && /^[a-zA-Z0-9]+$/.test(ext);
 }
 
 // ─── Types ───
@@ -411,6 +484,39 @@ export function useChat({
   const [isCompacting, setIsCompacting] = useState(false);
   const isCompactingRef = useRef(false);
   const pendingCompactRef = useRef(false);
+  const initialStrategy = effectiveConfig.compaction?.strategy ?? "v1";
+  const workingStateRef = useRef<WorkingStateManager | null>(
+    initialStrategy === "v2" ? new WorkingStateManager(effectiveConfig.compaction) : null,
+  );
+  const prevCompactionStrategy = useRef(effectiveConfig.compaction?.strategy);
+
+  // Sync store on mount (useRef initializer doesn't trigger the change block)
+  const didInitCompaction = useRef(false);
+  if (!didInitCompaction.current) {
+    didInitCompaction.current = true;
+    useStatusBarStore.getState().setCompactionStrategy(initialStrategy);
+  }
+
+  // React to compaction strategy changes: create/destroy WSM as needed
+  if (effectiveConfig.compaction?.strategy !== prevCompactionStrategy.current) {
+    prevCompactionStrategy.current = effectiveConfig.compaction?.strategy;
+    const strategy = effectiveConfig.compaction?.strategy ?? "v1";
+    useStatusBarStore.getState().setCompactionStrategy(strategy);
+    if (strategy === "v2") {
+      workingStateRef.current = new WorkingStateManager(effectiveConfig.compaction);
+    } else {
+      workingStateRef.current = null;
+      useStatusBarStore.getState().setV2Slots(0);
+    }
+  }
+
+  const syncV2SlotsRef = useRef(() => {
+    if (workingStateRef.current) {
+      useStatusBarStore.getState().setV2Slots(workingStateRef.current.slotCount());
+    }
+  });
+  const syncV2Slots = syncV2SlotsRef.current;
+
   const handleSubmitRef = useRef<(input: string) => void>(() => {});
   const summarizeConversationRef = useRef<(opts?: { skipQueueDrain?: boolean }) => Promise<void>>(
     async () => {},
@@ -451,6 +557,7 @@ export function useChat({
 
       isCompactingRef.current = true;
       setIsCompacting(true);
+      useStatusBarStore.getState().setCompacting(true);
       try {
         const compactModelId = resolveTaskModel(
           "compact",
@@ -477,7 +584,9 @@ export function useChat({
           }, 0);
         const beforePct = Math.round((beforeChars / charsPerToken / contextWindow) * 100);
 
-        const KEEP_RECENT = 4;
+        const compactionCfg = effectiveConfig.compaction;
+        const isV2 = compactionCfg?.strategy === "v2";
+        const KEEP_RECENT = compactionCfg?.keepRecent ?? 4;
         const keepStart = Math.max(0, currentCore.length - KEEP_RECENT);
         const olderMessages = currentCore.slice(0, keepStart);
         const recentMessages = currentCore.slice(keepStart);
@@ -498,84 +607,150 @@ export function useChat({
           return;
         }
 
+        const strategyLabel = isV2 ? "v2 incremental" : modelLabel;
         setMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             role: "system",
-            content: `Compacting ${olderMessages.length} messages with ${modelLabel}...`,
+            content: `Compacting ${olderMessages.length} messages with ${strategyLabel}...`,
             timestamp: Date.now(),
           },
         ]);
 
-        const formatMessage = (m: ModelMessage, charLimit: number) => {
-          const role = m.role;
-          if (typeof m.content === "string") {
-            return `${role}: ${m.content.slice(0, charLimit)}`;
+        const planContext = (() => {
+          const plan = activePlanRef.current;
+          if (!plan) return "";
+          const lines = [`\n## Active Plan: ${plan.title}`];
+          for (const step of plan.steps) {
+            const icon =
+              step.status === "done"
+                ? "✓"
+                : step.status === "active"
+                  ? "▸"
+                  : step.status === "skipped"
+                    ? "⊘"
+                    : "○";
+            lines.push(`  ${icon} [${step.id}] ${step.label} — ${step.status}`);
           }
-          if (Array.isArray(m.content)) {
-            const parts = m.content
-              .map((p) => {
-                if (typeof p === "object" && p !== null) {
-                  if ("text" in p) return String((p as { text: string }).text).slice(0, charLimit);
-                  if ("type" in p && (p as { type: string }).type === "tool-result") {
-                    const tr = p as { toolName?: string; result?: unknown };
-                    const resultStr = tr.result != null ? JSON.stringify(tr.result) : "null";
-                    return `[tool-result: ${tr.toolName ?? "unknown"} → ${resultStr.slice(0, 3000)}]`;
-                  }
-                }
-                return JSON.stringify(p).slice(0, 1500);
-              })
-              .join("\n");
-            return `${role}: ${parts}`;
-          }
-          return `${role}: [complex content]`;
-        };
-
-        const convoText = olderMessages.map((m) => formatMessage(m, 4000)).join("\n\n");
+          return lines.join("\n");
+        })();
 
         const { providerOptions, headers } = buildProviderOptions(compactModelId, effectiveConfig);
-        const { text: summary } = await generateText({
-          model,
-          maxOutputTokens: 8192,
-          ...(providerOptions && Object.keys(providerOptions).length > 0
-            ? { providerOptions }
-            : {}),
-          ...(headers ? { headers } : {}),
-          prompt: [
-            "You are compacting the OLDER portion of a coding assistant conversation.",
-            "The most recent messages will be preserved verbatim — focus on summarizing what came before.",
-            "",
-            "Create a structured summary with these sections:",
-            "",
-            "## Environment",
-            "Project type, key technologies, working directory, any config details mentioned.",
-            "",
-            "## Files Touched",
-            "Every file path that was read, edited, or created. For EDITS: include the specific old→new changes (function signatures, variable names, logic). For READS: note key content found.",
-            "",
-            "## Tool Results",
-            "Key tool results that inform future decisions: grep matches, test output, diagnostics, build errors. Include literal output where it matters — don't just say 'tests passed', say which tests and any warnings.",
-            "",
-            "## Key Decisions",
-            "Architectural choices, design patterns chosen, trade-offs discussed.",
-            "",
-            "## Work Completed",
-            "What was accomplished. Include specific function names, variable names, code patterns.",
-            "",
-            "## Errors & Resolutions",
-            "Problems encountered and how they were resolved. Include the actual error messages.",
-            "",
-            "## Current State",
-            "What was being worked on at the end of this section. What remains to be done.",
-            "",
-            "Be thorough — this summary is the only record of the older conversation.",
-            "CRITICAL: Preserve specific details from tool results (file contents, error messages, test output). Generic summaries like 'edited file X' are useless — include WHAT was changed.",
-            "",
-            "CONVERSATION TO SUMMARIZE:",
-            convoText,
-          ].join("\n"),
-        });
+
+        let summary: string;
+
+        if (isV2 && workingStateRef.current) {
+          // ─── V2: Incremental structured extraction ───
+          // The working state was built incrementally during the conversation.
+          // Inject plan context if active, then serialize + optional gap-fill.
+          const wsm = workingStateRef.current;
+          if (activePlanRef.current) {
+            wsm.setPlan(
+              activePlanRef.current.steps.map((s) => ({
+                id: s.id,
+                label: s.label,
+                status: s.status,
+              })),
+            );
+          }
+          summary = await buildV2Summary({
+            wsm,
+            olderMessages,
+            model: compactionCfg?.llmExtraction !== false ? model : undefined,
+            providerOptions,
+            headers,
+            skipLlm: compactionCfg?.llmExtraction === false,
+          });
+        } else {
+          // ─── V1: Full LLM batch summarization ───
+          const formatMessage = (m: ModelMessage, charLimit: number) => {
+            const role = m.role;
+            if (typeof m.content === "string") {
+              return `${role}: ${m.content.slice(0, charLimit)}`;
+            }
+            if (Array.isArray(m.content)) {
+              const parts = m.content
+                .map((p) => {
+                  if (typeof p === "object" && p !== null) {
+                    if ("text" in p)
+                      return String((p as { text: string }).text).slice(0, charLimit);
+                    if ("type" in p && (p as { type: string }).type === "tool-result") {
+                      const tr = p as { toolName?: string; result?: unknown };
+                      const resultStr = tr.result != null ? JSON.stringify(tr.result) : "null";
+                      return `[tool-result: ${tr.toolName ?? "unknown"} → ${resultStr.slice(0, 8000)}]`;
+                    }
+                  }
+                  return JSON.stringify(p).slice(0, 3000);
+                })
+                .join("\n");
+              return `${role}: ${parts}`;
+            }
+            return `${role}: [complex content]`;
+          };
+
+          const convoText = olderMessages.map((m) => formatMessage(m, 6000)).join("\n\n");
+
+          const { text: v1Summary } = await generateText({
+            model,
+            maxOutputTokens: 8192,
+            ...(providerOptions && Object.keys(providerOptions).length > 0
+              ? { providerOptions }
+              : {}),
+            ...(headers ? { headers } : {}),
+            prompt: [
+              "You are compacting the OLDER portion of a coding assistant conversation.",
+              "The most recent messages will be preserved verbatim — focus on summarizing what came before.",
+              "",
+              "Create a structured summary with these sections:",
+              "",
+              "## Environment",
+              "Project type, key technologies, working directory, any config details mentioned.",
+              "",
+              "## Files Touched",
+              "Every file path that was read, edited, or created. For EDITS: include the specific old→new changes (function signatures, variable names, logic). For READS: note key content found.",
+              "",
+              "## Tool Results",
+              "Key tool results that inform future decisions: grep matches, test output, diagnostics, build errors. Include literal output where it matters — don't just say 'tests passed', say which tests and any warnings.",
+              "",
+              "## Key Decisions",
+              "Architectural choices, design patterns chosen, trade-offs discussed.",
+              "",
+              "## Work Completed",
+              "What was accomplished. Include specific function names, variable names, code patterns.",
+              "",
+              "## Errors & Resolutions",
+              "Problems encountered and how they were resolved. Include the actual error messages.",
+              "",
+              "## Current State",
+              "What was being worked on at the end of this section. What remains to be done.",
+              planContext
+                ? `\n${planContext}\nINCLUDE the plan progress above VERBATIM in ## Current State so the agent knows which steps are done/active/pending.`
+                : "",
+              "",
+              "Be thorough — this summary is the only record of the older conversation.",
+              "CRITICAL: Preserve specific details from tool results (file contents, error messages, test output). Generic summaries like 'edited file X' are useless — include WHAT was changed.",
+              "",
+              "CONVERSATION TO SUMMARIZE:",
+              convoText,
+            ].join("\n"),
+          });
+          summary = v1Summary;
+        }
+
+        if (!summary || summary.trim().length < 50) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content:
+                "Compaction produced an empty or too-short summary — aborting to preserve context.",
+              timestamp: Date.now(),
+            },
+          ]);
+          return;
+        }
 
         const summaryMsg: ModelMessage = {
           role: "user" as const,
@@ -596,6 +771,18 @@ export function useChat({
 
         const newMessages = [summaryMsg, ackMsg, ...recentMessages];
         setCoreMessages(newMessages);
+
+        const trackedFiles = contextManager.getTrackedFiles();
+        contextManager.resetConversationTracking();
+        for (const f of trackedFiles.edited) {
+          try {
+            contextManager.onFileChanged(f);
+          } catch {
+            // File may have been deleted — skip re-tracking
+          }
+        }
+        for (const f of trackedFiles.mentioned) contextManager.trackMentionedFile(f);
+        reprimeContextFromMessages(contextManager, recentMessages);
 
         const newCoreChars = newMessages.reduce((sum, m) => {
           if (typeof m.content === "string") return sum + m.content.length;
@@ -638,6 +825,7 @@ export function useChat({
       } finally {
         isCompactingRef.current = false;
         setIsCompacting(false);
+        useStatusBarStore.getState().setCompacting(false);
         if (!opts?.skipQueueDrain) {
           setMessageQueue((queue) => {
             if (queue.length > 0) {
@@ -659,17 +847,25 @@ export function useChat({
   const autoSummarizedRef = useRef(false);
   useEffect(() => {
     const systemChars = contextManager.getContextBreakdown().reduce((sum, s) => sum + s.chars, 0);
-    const totalChars = systemChars + coreChars;
+    const totalChars = systemChars + chatChars;
     const contextBudgetChars = getModelContextWindow(activeModelRef.current) * 3;
     const pct = totalChars / contextBudgetChars;
-    if (pct > 0.7 && !autoSummarizedRef.current && coreMessagesRef.current.length >= 6) {
+    const triggerAt = effectiveConfig.compaction?.triggerThreshold ?? 0.7;
+    const resetAt = effectiveConfig.compaction?.resetThreshold ?? 0.4;
+    if (pct > triggerAt && !autoSummarizedRef.current && coreMessagesRef.current.length >= 6) {
       autoSummarizedRef.current = true;
       summarizeConversation();
     }
-    if (pct < 0.4) {
+    if (pct < resetAt) {
       autoSummarizedRef.current = false;
     }
-  }, [coreChars, contextManager, summarizeConversation]);
+  }, [
+    chatChars,
+    contextManager,
+    summarizeConversation,
+    effectiveConfig.compaction?.triggerThreshold,
+    effectiveConfig.compaction?.resetThreshold,
+  ]);
 
   // Interactive callbacks for plan/question tools
   const interactiveCallbacks = useMemo<InteractiveCallbacks>(
@@ -860,11 +1056,14 @@ export function useChat({
       setMessages((prev) => [...prev, userMsg]);
 
       const currentCoreMessages = coreMessagesRef.current;
-      const newCoreMessages: ModelMessage[] = [
-        ...currentCoreMessages,
-        { role: "user" as const, content: input },
-      ];
+      const userCoreMsg: ModelMessage = { role: "user" as const, content: input };
+      const newCoreMessages: ModelMessage[] = [...currentCoreMessages, userCoreMsg];
       setCoreMessages(newCoreMessages);
+
+      if (workingStateRef.current) {
+        extractFromUserMessage(workingStateRef.current, userCoreMsg);
+        syncV2Slots();
+      }
 
       const estimatedTokens = tokenUsageRef.current.total;
       contextManager.updateConversationContext(input, estimatedTokens);
@@ -892,6 +1091,7 @@ export function useChat({
       abortRef.current = abortController;
 
       let fullText = "";
+      let lastIncrementalSave = 0;
       const completedCalls: import("../types/index.js").ToolCall[] = [];
       const finalSegments: MessageSegment[] = [];
 
@@ -984,6 +1184,8 @@ export function useChat({
           effectiveConfig,
           taskType,
         );
+
+        await contextManager.ensureGitContext();
 
         const agent = planModeRef.current
           ? new ToolLoopAgent({
@@ -1107,9 +1309,11 @@ export function useChat({
                               sessionId: sessionIdRef.current,
                             });
                       })();
-                result = (await currentAgent.stream({
+                // biome-ignore lint/suspicious/noExplicitAny: agent union type varies by plan mode — callOptionsSchema differs
+                result = (await (currentAgent as any).stream({
                   messages: newCoreMessages,
                   abortSignal: abortController.signal,
+                  options: { userMessage: input },
                 })) as unknown as StreamTextResult<ToolSet, never>;
                 break;
               } catch (err: unknown) {
@@ -1206,10 +1410,10 @@ export function useChat({
         };
 
         flushTimerRef.current = setInterval(() => {
-          if (Date.now() - lastFlushTime.current < 100) return;
+          if (Date.now() - lastFlushTime.current < 30) return;
           lastFlushTime.current = Date.now();
           flushStreamState();
-        }, 150);
+        }, 40);
 
         let streamEventCount = 0;
         for await (const part of result.fullStream) {
@@ -1251,6 +1455,7 @@ export function useChat({
                   }
                 }
               }
+              queueMicrotaskFlush();
               break;
             }
             case "tool-input-start": {
@@ -1297,12 +1502,23 @@ export function useChat({
                 tc.result = resultStr;
               }
               toolCharsRef.current += resultStr.length;
+              const parsedArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
               completedCalls.push({
                 id: part.toolCallId,
                 name: part.toolName,
-                args: safeParseArgs(toolCallArgs.get(part.toolCallId)),
+                args: parsedArgs,
                 result: { success: true, output: resultStr },
               });
+              if (workingStateRef.current) {
+                extractFromToolCall(workingStateRef.current, part.toolName, parsedArgs);
+                extractFromToolResult(
+                  workingStateRef.current,
+                  part.toolName,
+                  resultStr,
+                  parsedArgs,
+                );
+                syncV2Slots();
+              }
               queueMicrotaskFlush();
               break;
             }
@@ -1313,12 +1529,20 @@ export function useChat({
                 tc.state = "error";
                 tc.error = String(part.error);
               }
+              const errorArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
               completedCalls.push({
                 id: part.toolCallId,
                 name: part.toolName,
-                args: safeParseArgs(toolCallArgs.get(part.toolCallId)),
+                args: errorArgs,
                 result: { success: false, output: "", error: String(part.error) },
               });
+              if (workingStateRef.current) {
+                extractFromToolCall(workingStateRef.current, part.toolName, errorArgs);
+                workingStateRef.current.addFailure(
+                  `${part.toolName}: ${String(part.error).slice(0, 200)}`,
+                );
+                syncV2Slots();
+              }
               queueMicrotaskFlush();
               break;
             }
@@ -1344,6 +1568,43 @@ export function useChat({
               streamingCharsRef.current = 0;
               if (stepIn > 0) pendingContextTokens.current = stepIn;
               pendingLastStepOutput.current = stepOut;
+
+              if (completedCalls.length > 0 && Date.now() - lastIncrementalSave > 10_000) {
+                lastIncrementalSave = Date.now();
+                queueMicrotask(() => {
+                  try {
+                    const snapshot = getWorkspaceSnapshot?.();
+                    if (!snapshot) return;
+                    const partialMsg: ChatMessage = {
+                      id: crypto.randomUUID(),
+                      role: "assistant",
+                      content: fullText,
+                      timestamp: Date.now(),
+                      toolCalls: [...completedCalls],
+                    };
+                    setMessages((prev) => {
+                      const allMsgs = [...prev, partialMsg];
+                      const { meta, tabMessages } = buildSessionMeta({
+                        sessionId: sessionIdRef.current,
+                        title: SessionManager.deriveTitle(allMsgs),
+                        cwd,
+                        snapshot,
+                        currentTabMessages: allMsgs.filter(
+                          (m) => m.role !== "system" || m.showInChat,
+                        ),
+                      });
+                      try {
+                        sessionManager.saveSession(meta, tabMessages);
+                      } catch {
+                        // Incremental save is best-effort — final save will retry
+                      }
+                      return prev;
+                    });
+                  } catch {
+                    // Don't let checkpoint failures interrupt streaming
+                  }
+                });
+              }
               break;
             }
             case "error": {
@@ -1400,6 +1661,14 @@ export function useChat({
           finalSegments.push({ type: "plan", plan: activePlanRef.current });
         }
         setActivePlan(null);
+
+        if (workingStateRef.current && fullText.length > 0) {
+          extractFromAssistantMessage(workingStateRef.current, {
+            role: "assistant",
+            content: fullText,
+          });
+          syncV2Slots();
+        }
 
         const assistantMsg: ChatMessage = {
           id: crypto.randomUUID(),
@@ -1604,16 +1873,27 @@ export function useChat({
         } else if (pendingCompactRef.current) {
           // Compact was requested during generation — run it now that state is settled
           pendingCompactRef.current = false;
-          summarizeConversationRef.current({ skipQueueDrain: true }).then(() => {
-            // After compact, auto-continue the conversation
-            setTimeout(
-              () =>
-                handleSubmitRef.current(
-                  "Continue from where you left off. Complete any remaining work.",
-                ),
-              0,
-            );
-          });
+          const planSnapshot = activePlanRef.current;
+          summarizeConversationRef
+            .current({ skipQueueDrain: true })
+            .then(() => {
+              const planHint = planSnapshot
+                ? (() => {
+                    const active = planSnapshot.steps.find((s) => s.status === "active");
+                    const done = planSnapshot.steps.filter((s) => s.status === "done").length;
+                    const total = planSnapshot.steps.length;
+                    return ` You are executing plan "${planSnapshot.title}" — ${String(done)}/${String(total)} steps done.${active ? ` Currently on step [${active.id}]: ${active.label}.` : ""}`;
+                  })()
+                : "";
+              setTimeout(
+                () =>
+                  handleSubmitRef.current(
+                    `Continue from where you left off.${planHint} Complete any remaining work.`,
+                  ),
+                0,
+              );
+            })
+            .catch(() => {});
         } else {
           // Process message queue
           setMessageQueue((queue) => {
@@ -1640,6 +1920,7 @@ export function useChat({
       getWorkspaceSnapshot,
       setTokenUsage,
       setActivePlan,
+      syncV2Slots,
     ],
   );
   handleSubmitRef.current = handleSubmit;
@@ -1706,6 +1987,7 @@ export function useChat({
       setIsLoading(false);
       autoSummarizedRef.current = false;
       contextManager.resetConversationTracking();
+      reprimeContextFromMessages(contextManager, state.coreMessages);
     },
     [setTokenUsage, contextManager, setActivePlan],
   );
@@ -1716,6 +1998,7 @@ export function useChat({
       const data = sessionManager.loadSessionMessages(sessionId);
       if (!data) return;
       contextManager.resetConversationTracking();
+      reprimeContextFromMessages(contextManager, data.coreMessages);
       sessionIdRef.current = sessionId;
       setMessages(data.messages);
       setCoreMessages(data.coreMessages);

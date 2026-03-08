@@ -73,8 +73,8 @@ const ITEMS: SettingItem[] = [
   },
   {
     key: "compact",
-    label: "Compact",
-    desc: "server-side compaction",
+    label: "Prompt Cache",
+    desc: "API-level prompt caching (200K+ models)",
     type: "toggle",
     section: "CONTEXT MANAGEMENT",
   },
@@ -384,7 +384,7 @@ export function ProviderSettings({
                 item.type === "toggle" ? (raw ? "x" : " ") : String(raw).padStart(valW - 2);
 
               const srcScope = detectValueScope(item.key, projectConfig);
-              const srcTag = srcScope === "project" ? "p" : "g";
+              const srcTag = srcScope === "project" ? "[project]" : "[global]";
               const srcColor = srcScope === "project" ? "#00BFFF" : "#666";
 
               rows.push(

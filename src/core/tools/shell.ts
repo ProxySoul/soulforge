@@ -79,9 +79,9 @@ function checkShellForbidden(command: string): string | null {
     }
   }
 
-  // Block subshell / variable expansion referencing forbidden filenames directly
+  // Block subshell / variable expansion — extract inner content and check paths
   if (SUBSHELL_RE.test(command)) {
-    for (const pattern of [
+    const SENSITIVE_KW = [
       "env",
       "pem",
       "key",
@@ -90,9 +90,28 @@ function checkShellForbidden(command: string): string | null {
       "npmrc",
       "netrc",
       "htpasswd",
-    ]) {
-      if (command.toLowerCase().includes(pattern)) {
-        return `suspicious subshell referencing "${pattern}"`;
+      "ssh",
+      "token",
+      "passwd",
+      "shadow",
+      "aws",
+    ];
+    const lower = command.toLowerCase();
+    for (const kw of SENSITIVE_KW) {
+      if (lower.includes(kw)) return `suspicious subshell referencing "${kw}"`;
+    }
+    for (const m of command.matchAll(/\$\(([^)]+)\)/g)) {
+      const inner = m[1] ?? "";
+      for (const arg of extractAllPathLikeArgs(inner)) {
+        const blocked = isForbidden(arg);
+        if (blocked) return blocked;
+      }
+    }
+    for (const m of command.matchAll(/`([^`]+)`/g)) {
+      const inner = m[1] ?? "";
+      for (const arg of extractAllPathLikeArgs(inner)) {
+        const blocked = isForbidden(arg);
+        if (blocked) return blocked;
       }
     }
   }

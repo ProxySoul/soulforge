@@ -175,6 +175,38 @@ export class MemoryManager {
     return db.list().map((m) => ({ ...m, scope }));
   }
 
+  autoRecall(userMessage: string): string | null {
+    const readScope = this._scopeConfig.readScope;
+    if (readScope === "none") return null;
+
+    const keywords = extractKeywords(userMessage);
+    if (keywords.length === 0) return null;
+
+    const query = keywords.join(" ");
+    const seen = new Set<string>();
+    const hits: import("./types.js").MemoryRecord[] = [];
+
+    const dbs =
+      readScope === "all" || (readScope as string) === "both"
+        ? [this.projectDb, this.globalDb]
+        : readScope === "project"
+          ? [this.projectDb]
+          : [this.globalDb];
+
+    for (const db of dbs) {
+      for (const record of db.searchFull(query, 3)) {
+        if (seen.has(record.id)) continue;
+        seen.add(record.id);
+        hits.push(record);
+      }
+    }
+
+    if (hits.length === 0) return null;
+
+    const parts = hits.map((m) => `**${m.title}** (${m.category})\n${m.content}`);
+    return parts.join("\n\n");
+  }
+
   buildMemoryIndex(): string | null {
     const projectIdx = this.projectDb.getIndex();
     const globalIdx = this.globalDb.getIndex();
@@ -208,4 +240,165 @@ export class MemoryManager {
     this.globalDb.close();
     this.projectDb.close();
   }
+}
+
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "shall",
+  "can",
+  "need",
+  "must",
+  "i",
+  "me",
+  "my",
+  "we",
+  "our",
+  "you",
+  "your",
+  "he",
+  "she",
+  "it",
+  "they",
+  "them",
+  "this",
+  "that",
+  "these",
+  "those",
+  "what",
+  "which",
+  "who",
+  "whom",
+  "how",
+  "when",
+  "where",
+  "why",
+  "and",
+  "or",
+  "but",
+  "not",
+  "no",
+  "so",
+  "if",
+  "then",
+  "else",
+  "for",
+  "of",
+  "in",
+  "on",
+  "at",
+  "to",
+  "from",
+  "by",
+  "with",
+  "about",
+  "into",
+  "through",
+  "during",
+  "before",
+  "after",
+  "above",
+  "below",
+  "up",
+  "down",
+  "out",
+  "off",
+  "over",
+  "under",
+  "again",
+  "just",
+  "also",
+  "too",
+  "very",
+  "really",
+  "quite",
+  "some",
+  "any",
+  "all",
+  "each",
+  "every",
+  "both",
+  "few",
+  "more",
+  "most",
+  "other",
+  "than",
+  "get",
+  "got",
+  "make",
+  "made",
+  "let",
+  "use",
+  "using",
+  "used",
+  "want",
+  "like",
+  "know",
+  "think",
+  "see",
+  "look",
+  "find",
+  "give",
+  "tell",
+  "try",
+  "take",
+  "come",
+  "go",
+  "put",
+  "run",
+  "say",
+  "said",
+  "here",
+  "there",
+  "now",
+  "still",
+  "already",
+  "yet",
+  "file",
+  "files",
+  "code",
+  "please",
+  "thanks",
+  "help",
+  "ok",
+  "sure",
+  "hey",
+  "hi",
+  "hello",
+  "yeah",
+  "yes",
+  "no",
+  "right",
+  "well",
+]);
+
+function extractKeywords(message: string): string[] {
+  const words = message
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-/.]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+  const unique = [...new Set(words)];
+  return unique.slice(0, 8);
 }

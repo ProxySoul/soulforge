@@ -52,6 +52,7 @@ export interface CommandContext {
   vimHints: boolean;
   verbose: boolean;
   diffStyle: "default" | "sidebyside" | "compact";
+  compactionStrategy: "v1" | "v2";
   showReasoning: boolean;
   setShowReasoning: (v: boolean) => void;
   openSetup: () => void;
@@ -500,16 +501,20 @@ function openMemoryMenu(ctx: CommandContext): void {
         {
           value: "write-scope",
           label: "Write Scope",
-          description: `current: ${config.writeScope}`,
+          description: `where Forge saves new memories (current: ${config.writeScope})`,
         },
-        { value: "read-scope", label: "Read Scope", description: `current: ${config.readScope}` },
+        {
+          value: "read-scope",
+          label: "Read Scope",
+          description: `which memories Forge can access (current: ${config.readScope})`,
+        },
         {
           value: "settings-storage",
-          label: "Persist Settings",
-          description: `current: ${memMgr.settingsScope}`,
+          label: "Save Settings To",
+          description: `where these scope preferences are stored (current: ${memMgr.settingsScope})`,
         },
-        { value: "view", label: "View Memories", description: "list all memories by scope" },
-        { value: "clear", label: "Clear Memories", description: "delete memories by scope" },
+        { value: "view", label: "View Memories", description: "browse all stored memories" },
+        { value: "clear", label: "Clear Memories", description: "permanently delete memories" },
       ],
       onSelect: (value) => {
         if (value === "write-scope") {
@@ -518,9 +523,17 @@ function openMemoryMenu(ctx: CommandContext): void {
             icon: "󰍽",
             currentValue: memMgr.scopeConfig.writeScope,
             options: [
-              { value: "global", label: "Global", description: "write to global memory" },
-              { value: "project", label: "Project", description: "write to project memory" },
-              { value: "none", label: "None", description: "disable memory writes" },
+              {
+                value: "global",
+                label: "Global",
+                description: "shared across all projects (~/.soulforge/)",
+              },
+              {
+                value: "project",
+                label: "Project",
+                description: "scoped to this project (.soulforge/)",
+              },
+              { value: "none", label: "None", description: "Forge won't save new memories" },
             ],
             onSelect: (ws) => {
               memMgr.scopeConfig = {
@@ -548,11 +561,19 @@ function openMemoryMenu(ctx: CommandContext): void {
               {
                 value: "all",
                 label: "All",
-                description: "read from all scopes (project > global)",
+                description: "search both project and global memories",
               },
-              { value: "global", label: "Global", description: "read global only" },
-              { value: "project", label: "Project", description: "read project only" },
-              { value: "none", label: "None", description: "disable memory reads" },
+              { value: "global", label: "Global", description: "only access global memories" },
+              {
+                value: "project",
+                label: "Project",
+                description: "only access this project's memories",
+              },
+              {
+                value: "none",
+                label: "None",
+                description: "Forge won't read or auto-recall memories",
+              },
             ],
             onSelect: (rs) => {
               memMgr.scopeConfig = {
@@ -580,12 +601,12 @@ function openMemoryMenu(ctx: CommandContext): void {
               {
                 value: "project",
                 label: "Project",
-                description: "save to .soulforge/ in this project",
+                description: "scope preferences saved in .soulforge/ (this project only)",
               },
               {
                 value: "global",
                 label: "Global",
-                description: "save to ~/.soulforge/ for all projects",
+                description: "scope preferences saved in ~/.soulforge/ (apply everywhere)",
               },
             ],
             onSelect: (ss) => {
@@ -628,9 +649,13 @@ function openMemoryMenu(ctx: CommandContext): void {
             title: "Clear Memories",
             icon: "󰍽",
             options: [
-              { value: "project", label: "Project", description: "clear project memories" },
-              { value: "global", label: "Global", description: "clear global memories" },
-              { value: "all", label: "All", description: "clear all memories" },
+              {
+                value: "project",
+                label: "Project",
+                description: "delete all project-scoped memories",
+              },
+              { value: "global", label: "Global", description: "delete all global memories" },
+              { value: "all", label: "All", description: "delete everything from both scopes" },
             ],
             onSelect: (scope) => {
               const cleared = memMgr.clearScope(scope as "project" | "global" | "all");
@@ -1125,7 +1150,6 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
     case "/session":
       ctx.openSessions();
       break;
-    case "/summarize":
     case "/compact":
       ctx.chat.summarizeConversation();
       break;
@@ -1829,6 +1853,44 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
             ctx.setShowReasoning(value === "on");
             ctx.saveToScope(patch(value), to, from);
           },
+        });
+        break;
+      }
+      if (cmd === "/compaction") {
+        const patch = (v: string) => ({
+          compaction: { strategy: v as "v1" | "v2" },
+        });
+        ctx.openCommandPicker({
+          title: "Compaction Strategy",
+          icon: "󰁜",
+          currentValue: ctx.compactionStrategy,
+          scopeEnabled: true,
+          initialScope: ctx.detectScope("compaction"),
+          options: [
+            {
+              value: "v1",
+              label: "V1 — LLM Summarization",
+              description: "batch summarize with LLM when context is full (default)",
+            },
+            {
+              value: "v2",
+              label: "V2 — Incremental Extraction",
+              description: "extract structured state as-you-go, cheap gap-fill on compact",
+            },
+          ],
+          onSelect: (value, scope) => {
+            ctx.saveToScope(patch(value), scope ?? "project");
+            ctx.chat.setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "system",
+                content: `Compaction strategy: ${value} (${scope ?? "project"})`,
+                timestamp: Date.now(),
+              },
+            ]);
+          },
+          onScopeMove: (value, from, to) => ctx.saveToScope(patch(value), to, from),
         });
         break;
       }

@@ -178,6 +178,21 @@ export interface ContextManagementConfig {
   clearThinking?: boolean;
 }
 
+export interface CompactionConfig {
+  /** "v1" = LLM batch summarization (default), "v2" = incremental structured extraction */
+  strategy?: "v1" | "v2";
+  /** Threshold (0-1) at which auto-compaction triggers. Default: 0.7 */
+  triggerThreshold?: number;
+  /** Hysteresis reset threshold. Default: 0.4 */
+  resetThreshold?: number;
+  /** Number of recent messages to keep verbatim. Default: 4 */
+  keepRecent?: number;
+  /** Max tool result slots to retain in working state (v2 only). Default: 30 */
+  maxToolResults?: number;
+  /** Use a cheap LLM gap-fill pass for fuzzy extraction (v2 only). Default: true */
+  llmExtraction?: boolean;
+}
+
 export interface AppConfig {
   defaultModel: string;
   routerRules: RouterRule[];
@@ -197,6 +212,7 @@ export interface AppConfig {
   thinking?: ThinkingConfig;
   performance?: PerformanceConfig;
   contextManagement?: ContextManagementConfig;
+  compaction?: CompactionConfig;
   codeExecution?: boolean;
   /** Enable web search tool for all LLMs. Always prompts for approval before searching. Default: true */
   webSearch?: boolean;

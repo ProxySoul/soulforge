@@ -6,6 +6,8 @@
  * The bus is immutable-append-only (no deletions) to avoid race conditions.
  */
 
+import { logBackgroundError } from "../../stores/errors.js";
+
 export function normalizePath(p: string): string {
   let n = p;
   while (n.startsWith("./")) n = n.slice(2);
@@ -14,31 +16,22 @@ export function normalizePath(p: string): string {
 
 export interface SharedCache {
   files: Map<string, string | null>;
-  toolResults: Map<string, string>;
+  toolResults: Map<string, { result: string; ts: number; agentId: string }>;
   findings: BusFinding[];
 }
 
 export interface BusFinding {
-  /** Which agent posted this */
   agentId: string;
-  /** Short label for the finding */
   label: string;
-  /** Full content — code snippets, analysis, file paths, etc. */
   content: string;
-  /** Timestamp */
   timestamp: number;
 }
 
 export interface AgentTask {
-  /** Unique ID for this agent within the dispatch group */
   agentId: string;
-  /** "explore" or "code" */
   role: "explore" | "code";
-  /** The task description sent to the subagent */
   task: string;
-  /** Optional dependencies — agent IDs that must complete first */
   dependsOn?: string[];
-  /** Optional timeout in ms for dependency waits (default: 300_000) */
   timeoutMs?: number;
 }
 
@@ -51,13 +44,23 @@ export interface AgentResult {
   error?: string;
 }
 
+export class DependencyFailedError extends Error {
+  constructor(
+    public readonly depAgentId: string,
+    public readonly depResult: AgentResult,
+  ) {
+    super(`Dependency "${depAgentId}" failed: ${depResult.error ?? depResult.result}`);
+    this.name = "DependencyFailedError";
+  }
+}
+
 interface FileCacheEntry {
   agentId: string;
   state: "reading" | "done" | "failed";
   content: string | null;
   waiters: Array<(content: string | null) => void>;
-  /** Incremented on every edit/update — reads check this to avoid overwriting fresher content */
   gen: number;
+  lastAccess: number;
 }
 
 export type AcquireResult =
@@ -86,8 +89,10 @@ export interface CacheMetrics {
   fileWaits: number;
   toolHits: number;
   toolMisses: number;
+  toolWaits: number;
   toolEvictions: number;
   toolInvalidations: number;
+  providerFailures: number;
 }
 
 export interface FileReadRecord {
@@ -101,9 +106,13 @@ export interface FileReadRecord {
   cached: boolean;
 }
 
+const EDIT_LOCK_TIMEOUT_MS = 180_000;
+const CIRCUIT_BREAKER_THRESHOLD = 2;
+const CIRCUIT_BREAKER_WINDOW_MS = 10_000;
+
 export class AgentBus {
   private findings: BusFinding[] = [];
-  private findingKeys = new Set<string>();
+  private findingKeys = new Map<string, number>();
   private results = new Map<string, AgentResult>();
   private completionCallbacks = new Map<string, Array<() => void>>();
 
@@ -114,10 +123,15 @@ export class AgentBus {
   private _filesRead = new Map<string, Set<string>>();
   private _fileReadRecords: FileReadRecord[] = [];
   private _filesEdited = new Map<string, Set<string>>();
-  private toolResultCache = new Map<string, string>();
+  private fileCacheBytes = 0;
+  private readonly fileCacheMaxBytes = 50 * 1024 * 1024; // 50MB
+  private toolResultCache = new Map<string, { result: string; ts: number; agentId: string }>();
+  private toolResultWaiters = new Map<string, Array<(result: string | null) => void>>();
   private readonly toolResultCacheMaxSize = 200;
+  private readonly toolResultTTL = 120_000;
   private _lastSeenFindingIdx = new Map<string, number>();
-  private _editLocks = new Map<string, Promise<void>>();
+  private _editLockQueues = new Map<string, Array<() => void>>();
+  private _editLockHeld = new Set<string>();
   private _fileOwners = new Map<string, string>();
   private _metrics: CacheMetrics = {
     fileHits: 0,
@@ -125,14 +139,19 @@ export class AgentBus {
     fileWaits: 0,
     toolHits: 0,
     toolMisses: 0,
+    toolWaits: 0,
     toolEvictions: 0,
     toolInvalidations: 0,
+    providerFailures: 0,
   };
 
   private _abortController = new AbortController();
 
+  private _providerFailures: number[] = [];
+
   constructor(shared?: SharedCache) {
     if (shared) {
+      const now = Date.now();
       for (const [path, content] of shared.files) {
         this.fileCache.set(path, {
           agentId: "_shared",
@@ -140,7 +159,9 @@ export class AgentBus {
           content,
           waiters: [],
           gen: 0,
+          lastAccess: now,
         });
+        this.fileCacheBytes += content?.length ?? 0;
       }
       for (const [key, result] of shared.toolResults) {
         this.toolResultCache.set(key, result);
@@ -157,6 +178,34 @@ export class AgentBus {
 
   abort(reason?: string): void {
     this._abortController.abort(reason ?? "dispatch cancelled by peer agent");
+    this.drainAllWaiters();
+  }
+
+  dispose(): void {
+    this.drainAllWaiters();
+  }
+
+  private drainAllWaiters(): void {
+    for (const [, entry] of this.fileCache) {
+      if (entry.state === "reading") {
+        for (const w of entry.waiters) w(null);
+        entry.waiters = [];
+        entry.state = "failed";
+      }
+    }
+    for (const [key, waiters] of this.toolResultWaiters) {
+      for (const w of waiters) w(null);
+      this.toolResultWaiters.delete(key);
+    }
+    for (const [path, queue] of this._editLockQueues) {
+      this._editLockQueues.delete(path);
+      this._editLockHeld.delete(path);
+      for (const grant of queue) grant();
+    }
+    for (const [_agentId, cbs] of this.completionCallbacks) {
+      this.completionCallbacks.delete(_agentId);
+      for (const cb of cbs) cb();
+    }
   }
 
   registerTasks(tasks: AgentTask[]): void {
@@ -174,6 +223,7 @@ export class AgentBus {
     const entry = this.fileCache.get(key);
     if (entry) {
       if (entry.state === "done") {
+        entry.lastAccess = Date.now();
         this._metrics.fileHits++;
         this.onCacheEvent?.(agentId, "hit", key, entry.agentId);
         return { cached: true, content: entry.content };
@@ -188,8 +238,16 @@ export class AgentBus {
       }
     }
     this._metrics.fileMisses++;
+    const now = Date.now();
     const gen = entry?.gen ?? 0;
-    this.fileCache.set(key, { agentId, state: "reading", content: null, waiters: [], gen });
+    this.fileCache.set(key, {
+      agentId,
+      state: "reading",
+      content: null,
+      waiters: [],
+      gen,
+      lastAccess: now,
+    });
     return { cached: false, gen };
   }
 
@@ -199,9 +257,13 @@ export class AgentBus {
     if (!entry) return;
     if (entry.gen !== readGen) return;
     entry.state = "done";
+    entry.lastAccess = Date.now();
+    const oldSize = entry.content?.length ?? 0;
     entry.content = content;
+    this.fileCacheBytes += (content?.length ?? 0) - oldSize;
     for (const waiter of entry.waiters) waiter(content);
     entry.waiters = [];
+    this.evictFileCacheIfNeeded(key);
   }
 
   failFileRead(path: string, readGen: number): void {
@@ -209,6 +271,7 @@ export class AgentBus {
     const entry = this.fileCache.get(key);
     if (!entry) return;
     if (entry.gen !== readGen) return;
+    this.fileCacheBytes -= entry.content?.length ?? 0;
     const { waiters } = entry;
     this.fileCache.delete(key);
     for (const waiter of waiters) waiter(null);
@@ -217,12 +280,16 @@ export class AgentBus {
   invalidateFile(path: string, agentId = "_edit"): void {
     const key = normalizePath(path);
     const entry = this.fileCache.get(key);
-    if (entry && entry.waiters.length > 0) {
+    if (entry) {
+      this.fileCacheBytes -= entry.content?.length ?? 0;
+      entry.gen++;
+      entry.state = "failed";
+      entry.content = null;
       for (const waiter of entry.waiters) waiter(null);
       entry.waiters = [];
     }
     this.fileCache.delete(key);
-    const invalidated = this.invalidateToolResultsForFile(key);
+    const invalidated = this.invalidateToolResultsForFile(key, agentId);
     if (invalidated > 0) {
       this.onCacheEvent?.(agentId, "invalidate", key, agentId);
     }
@@ -230,44 +297,103 @@ export class AgentBus {
 
   updateFile(path: string, content: string, agentId = "_edit"): void {
     const key = normalizePath(path);
+    const now = Date.now();
     const entry = this.fileCache.get(key);
     if (entry) {
+      const oldSize = entry.content?.length ?? 0;
       entry.gen++;
       entry.content = content;
       entry.state = "done";
       entry.agentId = agentId;
+      entry.lastAccess = now;
+      this.fileCacheBytes += content.length - oldSize;
       for (const waiter of entry.waiters) waiter(content);
       entry.waiters = [];
     } else {
-      this.fileCache.set(key, { agentId, state: "done", content, waiters: [], gen: 1 });
+      this.fileCache.set(key, {
+        agentId,
+        state: "done",
+        content,
+        waiters: [],
+        gen: 1,
+        lastAccess: now,
+      });
+      this.fileCacheBytes += content.length;
     }
-    const invalidated = this.invalidateToolResultsForFile(key);
+    this.evictFileCacheIfNeeded(key);
+    const invalidated = this.invalidateToolResultsForFile(key, agentId);
     if (invalidated > 0) {
       this.onCacheEvent?.(agentId, "invalidate", key, agentId);
     }
   }
 
-  private invalidateToolResultsForFile(filePath: string): number {
+  private evictFileCacheIfNeeded(protectKey: string): void {
+    if (this.fileCacheBytes <= this.fileCacheMaxBytes) return;
+
+    const candidates: [string, FileCacheEntry][] = [];
+    for (const [key, entry] of this.fileCache) {
+      if (key === protectKey) continue;
+      if (entry.state !== "done") continue;
+      candidates.push([key, entry]);
+    }
+    candidates.sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+
+    for (const [key, entry] of candidates) {
+      this.fileCacheBytes -= entry.content?.length ?? 0;
+      this.fileCache.delete(key);
+      if (this.fileCacheBytes <= this.fileCacheMaxBytes * 0.8) break;
+    }
+  }
+
+  private invalidateToolResult(key: string): void {
+    this.toolResultCache.delete(key);
+    const waiters = this.toolResultWaiters.get(key);
+    if (waiters) {
+      this.toolResultWaiters.delete(key);
+      for (const w of waiters) w(null);
+    }
+    this._metrics.toolInvalidations++;
+  }
+
+  private keyMatchesFile(parts: string[], filePath: string): boolean {
+    const tool = parts[0];
+    if (tool === "read_code" || tool === "analyze") {
+      return parts[1] === filePath;
+    }
+    if (tool === "navigate") {
+      return parts[2] === filePath || parts[2] === "";
+    }
+    if (tool === "grep" || tool === "glob") {
+      const scopePath = parts[2] ?? "";
+      return (
+        scopePath === "" ||
+        scopePath === "." ||
+        filePath.startsWith(`${scopePath}/`) ||
+        filePath === scopePath
+      );
+    }
+    return false;
+  }
+
+  private invalidateToolResultsForFile(filePath: string, editingAgentId: string): number {
     let count = 0;
-    for (const k of this.toolResultCache.keys()) {
-      if (k.includes(filePath)) {
-        this.toolResultCache.delete(k);
-        this._metrics.toolInvalidations++;
-        count++;
-        continue;
-      }
+    for (const [k, entry] of this.toolResultCache) {
       try {
         const parts = JSON.parse(k) as string[];
-        const tool = parts[0];
-        if ((tool === "grep" || tool === "glob") && parts.some((p) => p === "." || p === "")) {
-          this.toolResultCache.delete(k);
-          this._metrics.toolInvalidations++;
-          count++;
+        if (!this.keyMatchesFile(parts, filePath)) continue;
+        if (
+          parts[0] === "read_code" &&
+          entry.agentId === editingAgentId &&
+          parts[1] === filePath &&
+          parts[3]
+        ) {
+          continue;
         }
+        this.invalidateToolResult(k);
+        count++;
       } catch {
-        if ((k.startsWith("grep:") || k.startsWith("glob:")) && k.includes(":.")) {
-          this.toolResultCache.delete(k);
-          this._metrics.toolInvalidations++;
+        if (k.includes(`"${filePath}"`) || k.includes(`:${filePath}:`)) {
+          this.invalidateToolResult(k);
           count++;
         }
       }
@@ -346,22 +472,62 @@ export class AgentBus {
     agentId: string,
     path: string,
   ): Promise<{ release: () => void; owner: string | null }> {
-    const prev = this._editLocks.get(path) ?? Promise.resolve();
-    let release!: () => void;
-    const done = new Promise<void>((r) => {
-      release = r;
-    });
-    this._editLocks.set(
-      path,
-      prev.then(() => done),
-    );
     const existingOwner = this._fileOwners.get(path) ?? null;
-    return prev.then(() => {
+
+    const grant = (): { release: () => void; owner: string | null } => {
+      this._editLockHeld.add(path);
       if (!this._fileOwners.has(path)) {
         this._fileOwners.set(path, agentId);
       }
-      return { release, owner: existingOwner };
+      let released = false;
+      const timer = setTimeout(() => {
+        if (!released) {
+          released = true;
+          logBackgroundError(
+            "edit-lock-timeout",
+            `Edit lock for "${path}" held by "${agentId}" force-released after ${String(EDIT_LOCK_TIMEOUT_MS / 1000)}s`,
+          );
+          this.releaseEditLock(path);
+        }
+      }, EDIT_LOCK_TIMEOUT_MS);
+      return {
+        release: () => {
+          if (released) return;
+          released = true;
+          clearTimeout(timer);
+          this.releaseEditLock(path);
+        },
+        owner: existingOwner,
+      };
+    };
+
+    if (!this._editLockHeld.has(path)) {
+      return Promise.resolve(grant());
+    }
+
+    return new Promise((resolve) => {
+      let queue = this._editLockQueues.get(path);
+      if (!queue) {
+        queue = [];
+        this._editLockQueues.set(path, queue);
+      }
+      queue.push(() => resolve(grant()));
     });
+  }
+
+  private releaseEditLock(path: string): void {
+    this._editLockHeld.delete(path);
+    const queue = this._editLockQueues.get(path);
+    if (queue && queue.length > 0) {
+      const next = queue.shift();
+      if (queue.length === 0) this._editLockQueues.delete(path);
+      try {
+        next?.();
+      } catch {
+        this._editLockQueues.delete(path);
+        this._editLockHeld.delete(path);
+      }
+    }
   }
 
   getFileOwner(path: string): string | null {
@@ -388,52 +554,93 @@ export class AgentBus {
     return result;
   }
 
-  acquireToolResult(agentId: string, key: string): string | null {
-    const result = this.toolResultCache.get(key);
-    if (result === undefined) {
-      this._metrics.toolMisses++;
-      return null;
+  acquireToolResult(
+    agentId: string,
+    key: string,
+  ):
+    | { hit: true; result: string }
+    | { hit: false }
+    | { hit: "waiting"; result: Promise<string | null> } {
+    const entry = this.toolResultCache.get(key);
+    if (entry !== undefined) {
+      if (Date.now() - entry.ts > this.toolResultTTL) {
+        this.toolResultCache.delete(key);
+      } else {
+        this._metrics.toolHits++;
+        this.toolResultCache.delete(key);
+        this.toolResultCache.set(key, entry);
+        this.onToolCacheEvent?.(agentId, this.toolNameFromKey(key), key, "hit");
+        return { hit: true, result: entry.result };
+      }
     }
-    this._metrics.toolHits++;
-    this.toolResultCache.delete(key);
-    this.toolResultCache.set(key, result);
-    let toolName = key;
-    try {
-      const parts = JSON.parse(key) as string[];
-      toolName = parts[0] ?? key;
-    } catch {
-      const colonIdx = key.indexOf(":");
-      toolName = colonIdx >= 0 ? key.slice(0, colonIdx) : key;
+    const waiters = this.toolResultWaiters.get(key);
+    if (waiters) {
+      this._metrics.toolWaits++;
+      const promise = new Promise<string | null>((resolve) => {
+        waiters.push((r) => resolve(r));
+      });
+      return { hit: "waiting", result: promise };
     }
-    this.onToolCacheEvent?.(agentId, toolName, key, "hit");
-    return result;
+    this.toolResultWaiters.set(key, []);
+    this._metrics.toolMisses++;
+    return { hit: false };
   }
 
   cacheToolResult(agentId: string, key: string, result: string): void {
+    const waiters = this.toolResultWaiters.get(key);
+    this.toolResultWaiters.delete(key);
+    if (waiters) {
+      for (const w of waiters) w(result);
+    }
     this.toolResultCache.delete(key);
     if (this.toolResultCache.size >= this.toolResultCacheMaxSize) {
       this._metrics.toolEvictions++;
       const firstKey = this.toolResultCache.keys().next().value;
       if (firstKey) this.toolResultCache.delete(firstKey);
     }
-    this.toolResultCache.set(key, result);
-    let toolName = key;
-    try {
-      const parts = JSON.parse(key) as string[];
-      toolName = parts[0] ?? key;
-    } catch {
-      const colonIdx = key.indexOf(":");
-      toolName = colonIdx >= 0 ? key.slice(0, colonIdx) : key;
-    }
-    this.onToolCacheEvent?.(agentId, toolName, key, "store");
+    this.toolResultCache.set(key, { result, ts: Date.now(), agentId });
+    this.onToolCacheEvent?.(agentId, this.toolNameFromKey(key), key, "store");
   }
 
+  private toolNameFromKey(key: string): string {
+    try {
+      const parts = JSON.parse(key) as string[];
+      return parts[0] ?? key;
+    } catch {
+      const colonIdx = key.indexOf(":");
+      return colonIdx >= 0 ? key.slice(0, colonIdx) : key;
+    }
+  }
+
+  private findingBytes = 0;
+  private readonly findingMaxContentBytes = 2048;
+  private readonly findingMaxTotalBytes = 128 * 1024; // 128KB
+
   postFinding(finding: BusFinding): void {
-    if (this.findings.length >= 30) return;
+    if (this.findings.length >= 30 && !this.findingKeys.has(`${finding.agentId}:${finding.label}`))
+      return;
+    if (this.findingBytes >= this.findingMaxTotalBytes) return;
     const key = `${finding.agentId}:${finding.label}`;
-    if (this.findingKeys.has(key)) return;
-    this.findingKeys.add(key);
-    this.findings.push(finding);
+    const content =
+      finding.content.length > this.findingMaxContentBytes
+        ? `${finding.content.slice(0, this.findingMaxContentBytes)}… [truncated]`
+        : finding.content;
+    const capped = { ...finding, content };
+
+    const existingIdx = this.findingKeys.get(key);
+    if (existingIdx !== undefined) {
+      const old = this.findings[existingIdx];
+      if (old) {
+        this.findingBytes -= old.content.length;
+        this.findings[existingIdx] = capped;
+        this.findingBytes += content.length;
+      }
+      return;
+    }
+
+    this.findingKeys.set(key, this.findings.length);
+    this.findingBytes += content.length;
+    this.findings.push(capped);
   }
 
   getFindings(excludeAgentId?: string): BusFinding[] {
@@ -464,7 +671,12 @@ export class AgentBus {
 
   waitForAgent(agentId: string, timeoutMs = 300_000): Promise<AgentResult> {
     const existing = this.results.get(agentId);
-    if (existing) return Promise.resolve(existing);
+    if (existing) {
+      if (!existing.success) {
+        return Promise.reject(new DependencyFailedError(agentId, existing));
+      }
+      return Promise.resolve(existing);
+    }
     return new Promise((resolve, reject) => {
       let settled = false;
       const timer = setTimeout(() => {
@@ -480,10 +692,33 @@ export class AgentBus {
         settled = true;
         clearTimeout(timer);
         const result = this.results.get(agentId);
-        if (result) resolve(result);
+        if (result) {
+          if (!result.success) {
+            reject(new DependencyFailedError(agentId, result));
+          } else {
+            resolve(result);
+          }
+        } else {
+          reject(new Error(`Agent bus disposed while waiting for "${agentId}"`));
+        }
       });
       this.completionCallbacks.set(agentId, cbs);
     });
+  }
+
+  recordProviderFailure(): boolean {
+    const now = Date.now();
+    this._providerFailures.push(now);
+    this._metrics.providerFailures++;
+
+    const cutoff = now - CIRCUIT_BREAKER_WINDOW_MS;
+    this._providerFailures = this._providerFailures.filter((t) => t > cutoff);
+
+    if (this._providerFailures.length >= CIRCUIT_BREAKER_THRESHOLD) {
+      this.abort("circuit breaker tripped — multiple provider failures within window");
+      return true;
+    }
+    return false;
   }
 
   summarizeFindings(excludeAgentId?: string): string {
@@ -562,9 +797,16 @@ export class AgentBus {
     for (const [path, entry] of this.fileCache) {
       if (entry.state === "done") files.set(path, entry.content);
     }
+    const now = Date.now();
+    const toolResults = new Map<string, { result: string; ts: number; agentId: string }>();
+    for (const [key, entry] of this.toolResultCache) {
+      if (now - entry.ts <= this.toolResultTTL) {
+        toolResults.set(key, entry);
+      }
+    }
     return {
       files,
-      toolResults: new Map(this.toolResultCache),
+      toolResults,
       findings: [...this.findings],
     };
   }

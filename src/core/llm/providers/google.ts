@@ -25,9 +25,9 @@ export const google: ProviderDefinition = {
   async fetchModels(): Promise<ProviderModelInfo[] | null> {
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) return null;
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-    );
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+      headers: { "x-goog-api-key": apiKey },
+    });
     if (!res.ok) throw new Error(`Google API ${String(res.status)}`);
     const data = (await res.json()) as { models: GoogleModel[] };
     const result: ProviderModelInfo[] = [];

@@ -136,6 +136,49 @@ const QUERIES: Record<string, string> = {
   bash: `
     (function_definition name: (word) @name) @func
   `,
+  ocaml: `
+    (value_definition (let_binding pattern: (value_name) @name)) @func
+    (type_definition (type_binding name: (type_constructor) @name)) @type
+    (module_definition (module_binding name: (module_name) @name)) @type
+    (open_module) @import
+  `,
+  objc: `
+    (function_definition declarator: (function_declarator declarator: (identifier) @name)) @func
+    (class_interface . (identifier) @name) @class
+    (protocol_declaration . (identifier) @name) @iface
+    (preproc_include) @import
+  `,
+  css: `
+    (rule_set (selectors) @name) @var
+    (keyframes_statement (keyframes_name) @name) @type
+  `,
+  html: `
+    (element (start_tag (tag_name) @name)) @var
+  `,
+  vue: `
+    (element (start_tag (tag_name) @name)) @var
+  `,
+  rescript: `
+    (let_declaration (let_binding pattern: (value_identifier) @name)) @func
+    (type_declaration (type_binding name: (type_identifier) @name)) @type
+    (module_declaration (module_binding name: (module_identifier) @name)) @type
+  `,
+  solidity: `
+    (contract_declaration name: (identifier) @name) @class
+    (function_definition name: (identifier) @name) @func
+    (event_definition name: (identifier) @name) @type
+    (struct_declaration name: (identifier) @name) @struct
+    (enum_declaration name: (identifier) @name) @type
+    (import_directive) @import
+  `,
+  tlaplus: `
+    (operator_definition name: (identifier) @name) @func
+    (function_definition name: (identifier) @name) @func
+  `,
+  elisp: `
+    (function_definition name: (symbol) @name) @func
+    (special_form . (symbol) @name) @var
+  `,
 };
 
 const GRAMMAR_FILES: Record<string, string> = {
@@ -158,6 +201,18 @@ const GRAMMAR_FILES: Record<string, string> = {
   dart: "tree-sitter-dart.wasm",
   zig: "tree-sitter-zig.wasm",
   bash: "tree-sitter-bash.wasm",
+  tsx: "tree-sitter-tsx.wasm",
+  ocaml: "tree-sitter-ocaml.wasm",
+  objc: "tree-sitter-objc.wasm",
+  css: "tree-sitter-css.wasm",
+  html: "tree-sitter-html.wasm",
+  json: "tree-sitter-json.wasm",
+  toml: "tree-sitter-toml.wasm",
+  vue: "tree-sitter-vue.wasm",
+  rescript: "tree-sitter-rescript.wasm",
+  solidity: "tree-sitter-solidity.wasm",
+  tlaplus: "tree-sitter-tlaplus.wasm",
+  elisp: "tree-sitter-elisp.wasm",
 };
 
 // Dynamically import web-tree-sitter types
@@ -204,6 +259,23 @@ const EXT_TO_LANG: Record<string, Language> = {
   ".sh": "bash",
   ".bash": "bash",
   ".zsh": "bash",
+  ".ml": "ocaml",
+  ".mli": "ocaml",
+  ".m": "objc",
+  ".css": "css",
+  ".scss": "css",
+  ".less": "css",
+  ".html": "html",
+  ".htm": "html",
+  ".json": "json",
+  ".jsonc": "json",
+  ".toml": "toml",
+  ".vue": "vue",
+  ".res": "rescript",
+  ".resi": "rescript",
+  ".sol": "solidity",
+  ".tla": "tlaplus",
+  ".el": "elisp",
 };
 
 // Store the module reference for Query construction
@@ -676,7 +748,8 @@ export class TreeSitterBackend implements IntelligenceBackend {
     }
 
     const language = this.detectLang(file);
-    const lang = await this.loadLanguage(language);
+    const grammarKey = language === "typescript" && /\.tsx$/i.test(file) ? "tsx" : language;
+    const lang = await this.loadLanguage(grammarKey);
     if (!lang) return null;
 
     this.parser.setLanguage(lang);

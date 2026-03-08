@@ -5,7 +5,6 @@ import { getIntelligenceRouter } from "../intelligence/index.js";
 import type { FileEdit, FormatEdit, RefactorResult } from "../intelligence/types.js";
 
 type RefactorAction =
-  | "rename"
   | "extract_function"
   | "extract_variable"
   | "format"
@@ -15,7 +14,6 @@ type RefactorAction =
 interface RefactorArgs {
   action: RefactorAction;
   file?: string;
-  symbol?: string;
   newName?: string;
   startLine?: number;
   endLine?: number;
@@ -86,8 +84,7 @@ function formatResult(result: RefactorResult, applied: boolean): string {
 export const refactorTool = {
   name: "refactor",
   description:
-    "Extract functions/variables, format code, and organize imports. " +
-    "Compiler-guaranteed safety. For renaming symbols, use rename_symbol instead (simpler, auto-locates).",
+    "Extract functions/variables, format code, and organize imports. Compiler-guaranteed safety.",
   execute: async (args: RefactorArgs): Promise<ToolResult> => {
     try {
       const router = getIntelligenceRouter(process.cwd());
@@ -96,48 +93,6 @@ export const refactorTool = {
       const shouldApply = args.apply ?? true;
 
       switch (args.action) {
-        case "rename": {
-          const symbol = args.symbol;
-          const newName = args.newName;
-          if (!symbol) {
-            return {
-              success: false,
-              output: "symbol is required for rename",
-              error: "missing symbol",
-            };
-          }
-          if (!newName) {
-            return {
-              success: false,
-              output: "newName is required for rename",
-              error: "missing newName",
-            };
-          }
-          if (!file) {
-            return { success: false, output: "file is required for rename", error: "missing file" };
-          }
-
-          const tracked = await router.executeWithFallbackTracked(language, "rename", (b) =>
-            b.rename ? b.rename(file, symbol, newName) : Promise.resolve(null),
-          );
-
-          if (!tracked) {
-            return {
-              success: false,
-              output: `Cannot rename '${symbol}' — no backend supports rename for ${language}`,
-              error: "unsupported",
-            };
-          }
-
-          let diagOutput: string | null = null;
-          if (shouldApply) {
-            diagOutput = await applyAndDiagnose(tracked.value.edits, router);
-          }
-          let output = formatResult(tracked.value, shouldApply);
-          if (diagOutput) output += `\n${diagOutput}`;
-          return { success: true, output, backend: tracked.backend };
-        }
-
         case "extract_function": {
           const startLine = args.startLine;
           const endLine = args.endLine;

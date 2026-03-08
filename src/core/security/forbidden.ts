@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -208,7 +208,12 @@ export function getAllPatterns(tabId?: string): {
 export function isForbidden(filePath: string, tabId?: string): string | null {
   if (!initialized) return null;
 
-  const resolved = resolve(filePath);
+  let resolved: string;
+  try {
+    resolved = realpathSync(filePath);
+  } catch {
+    resolved = resolve(filePath);
+  }
   const name = basename(resolved);
 
   const allPatterns = [

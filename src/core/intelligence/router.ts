@@ -42,6 +42,23 @@ const EXT_TO_LANGUAGE: Record<string, Language> = {
   ".sh": "bash",
   ".bash": "bash",
   ".zsh": "bash",
+  ".ml": "ocaml",
+  ".mli": "ocaml",
+  ".m": "objc",
+  ".css": "css",
+  ".scss": "css",
+  ".less": "css",
+  ".html": "html",
+  ".htm": "html",
+  ".json": "json",
+  ".jsonc": "json",
+  ".toml": "toml",
+  ".vue": "vue",
+  ".res": "rescript",
+  ".resi": "rescript",
+  ".sol": "solidity",
+  ".tla": "tlaplus",
+  ".el": "elisp",
 };
 
 const PROJECT_FILE_TO_LANGUAGE: Record<string, Language> = {

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
   MemoryCategory,
@@ -41,6 +41,13 @@ export class MemoryDB {
     this.db = new Database(dbPath);
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA foreign_keys = ON");
+    if (dbPath !== ":memory:") {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          chmodSync(dbPath + suffix, 0o600);
+        } catch {}
+      }
+    }
     this.init();
   }
 
@@ -168,6 +175,30 @@ export class MemoryDB {
       return rows.map(toSummary);
     } catch {
       return this.list();
+    }
+  }
+
+  searchFull(query: string, limit = 5): MemoryRecord[] {
+    const words = query.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+
+    const ftsQuery = words.map((w) => `"${w.replace(/"/g, "")}"`).join(" OR ");
+
+    try {
+      const rows = this.db
+        .query<RawRow, [string, number]>(
+          `SELECT m.*
+           FROM memories_fts f
+           JOIN memories m ON m.rowid = f.rowid
+           WHERE memories_fts MATCH ?
+           ORDER BY rank
+           LIMIT ?`,
+        )
+        .all(ftsQuery, limit);
+
+      return rows.map(toRecord);
+    } catch {
+      return [];
     }
   }
 

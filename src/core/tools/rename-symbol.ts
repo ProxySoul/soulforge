@@ -3,9 +3,12 @@ import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceRouter } from "../intelligence/index.js";
 import type { FileEdit } from "../intelligence/types.js";
+import { isForbidden } from "../security/forbidden.js";
 
 function applyEdits(edits: FileEdit[]): void {
   for (const edit of edits) {
+    const blocked = isForbidden(edit.file);
+    if (blocked) throw new Error(`Cannot edit forbidden file: ${edit.file} (${blocked})`);
     writeFileSync(edit.file, edit.newContent, "utf-8");
   }
 }
@@ -14,7 +17,7 @@ function applyEdits(edits: FileEdit[]): void {
  * Replace a symbol in code regions only — skips string literals and comments.
  * Uses a state machine to track whether we're inside a string or comment.
  */
-function replaceInCode(source: string, escapedSymbol: string, newName: string): string {
+export function replaceInCode(source: string, escapedSymbol: string, newName: string): string {
   const symbolRe = new RegExp(`\\b${escapedSymbol}\\b`, "g");
   const result: string[] = [];
   let i = 0;
@@ -50,8 +53,8 @@ function replaceInCode(source: string, escapedSymbol: string, newName: string): 
       continue;
     }
 
-    // String literal (single, double, backtick)
-    if (source[i] === '"' || source[i] === "'" || source[i] === "`") {
+    // String literals (single, double)
+    if (source[i] === '"' || source[i] === "'") {
       const quote = source[i] as string;
       let j = i + 1;
       while (j < source.length) {
@@ -70,11 +73,59 @@ function replaceInCode(source: string, escapedSymbol: string, newName: string): 
       continue;
     }
 
+    // Template literal — recurse into ${} interpolations as code
+    if (source[i] === "`") {
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === "$" && source[j + 1] === "{") {
+          result.push(source.slice(i, j + 2));
+          j += 2;
+          let depth = 1;
+          const exprStart = j;
+          while (j < source.length && depth > 0) {
+            if (source[j] === "{") depth++;
+            else if (source[j] === "}") depth--;
+            if (depth > 0) j++;
+          }
+          const expr = source.slice(exprStart, j);
+          result.push(replaceInCode(expr, escapedSymbol, newName));
+          if (j < source.length) {
+            result.push("}");
+            j++;
+          }
+          i = j;
+          continue;
+        }
+        if (source[j] === "`") {
+          j++;
+          break;
+        }
+        j++;
+      }
+      result.push(source.slice(i, j));
+      i = j;
+      continue;
+    }
+
     // Code region — scan to next potential string/comment start, replace symbols
     let end = i;
     while (end < source.length) {
       const ch = source[end] as string;
-      if (ch === "/" || ch === '"' || ch === "'" || ch === "`" || ch === "#") break;
+      if (ch === '"' || ch === "'" || ch === "`") break;
+      if (ch === "/" && (source[end + 1] === "/" || source[end + 1] === "*")) break;
+      if (
+        ch === "#" &&
+        (end === 0 ||
+          source[end - 1] === "\n" ||
+          source[end - 1] === " " ||
+          source[end - 1] === "\t")
+      ) {
+        break;
+      }
       end++;
     }
 
@@ -246,6 +297,8 @@ export const renameSymbolTool = {
         for (const ref of remaining) {
           try {
             const content = readFileSync(ref, "utf-8");
+            const refBlocked = isForbidden(ref);
+            if (refBlocked) continue;
             const updated = replaceInCode(content, escaped, args.newName);
             if (updated !== content) {
               writeFileSync(ref, updated, "utf-8");

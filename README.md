@@ -20,7 +20,7 @@ SoulForge combines a multi-agent system, deep code intelligence, and an embedded
 
 **Web Search** — Brave API → DuckDuckGo fallback for search, Jina Reader → Readability → regex for page fetching. Agent-loop mode for multi-step research. OS keychain secret storage.
 
-**Context Compaction** — LLM-powered summarization of older conversation when context fills up. Shows before/after context percentages, preserves recent messages, supports deferred compaction during streaming. Auto-triggers at 70% context or manual via `/compact`.
+**Context Compaction** — Two strategies: V1 (LLM batch summarization) and V2 (incremental structured extraction). V2 builds working state as-you-go from tool calls and messages — compaction is near-instant with an optional cheap gap-fill pass. Configurable thresholds, dedicated model via task router, live toggle via `/compaction`. [Deep dive →](docs/compaction.md)
 
 **Task Router** — Assign different models per task type (planning, coding, exploration, web search, compact, semantic). Opus for architecture, Haiku for grep.
 
@@ -92,6 +92,7 @@ See [GETTING_STARTED.md](GETTING_STARTED.md) for the full setup guide.
 | [Repo Map](docs/repo-map.md) | PageRank ranking, co-change, semantic summaries, dynamic budgets |
 | [Compound Tools](docs/compound-tools.md) | Design principles, benchmarks, tool reference |
 | [Agent Bus](docs/agent-bus.md) | Parallel coordination, shared cache, edit mutex, findings |
+| [Compaction](docs/compaction.md) | V1/V2 strategies, configuration, task router, visual indicators |
 
 ## Dev Commands
 

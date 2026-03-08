@@ -25,6 +25,7 @@ import {
   editorSymbolsTool,
 } from "./editor";
 import {
+  gitBranchTool,
   gitCommitTool,
   gitDiffTool,
   gitLogTool,
@@ -384,9 +385,8 @@ export function buildTools(
             "format_range",
             "organize_imports",
           ])
-          .describe("Action to perform. For renaming symbols, use rename_symbol instead."),
+          .describe("Action to perform"),
         file: z.string().optional().describe("Target file"),
-        symbol: z.string().optional().describe("Symbol name"),
         newName: z.string().optional().describe("New name for extracted symbol"),
         startLine: z.number().optional().describe("Start line for extraction or range formatting"),
         endLine: z.number().optional().describe("End line for extraction or range formatting"),
@@ -511,10 +511,20 @@ export function buildTools(
     git_stash: tool({
       description: gitStashTool.description,
       inputSchema: z.object({
-        pop: z.boolean().optional().describe("Pop the latest stash instead of stashing"),
-        message: z.string().optional().describe("Stash message"),
+        action: z.enum(["push", "pop", "list", "show", "drop"]).optional().describe("Stash action (default: push)"),
+        message: z.string().optional().describe("Stash message (for push)"),
+        index: z.number().optional().describe("Stash index (for show/drop, default 0)"),
       }),
       execute: deferExecute((args) => gitStashTool.execute(args)),
+    }),
+
+    git_branch: tool({
+      description: gitBranchTool.description,
+      inputSchema: z.object({
+        action: z.enum(["list", "create", "switch", "delete"]).optional().describe("Branch action (default: list)"),
+        name: z.string().optional().describe("Branch name (for create/switch/delete)"),
+      }),
+      execute: deferExecute((args) => gitBranchTool.execute(args)),
     }),
 
     ...(opts?.codeExecution
@@ -522,6 +532,36 @@ export function buildTools(
       : {}),
   };
 }
+
+/** Tool names allowed in restricted modes (architect, socratic, challenge).
+ *  Read/analysis + memory + editor read — NO edit/shell/git/refactor.
+ *  Used with activeTools to restrict without rebuilding the tool set. */
+export const RESTRICTED_TOOL_NAMES: string[] = [
+  "read_file",
+  "grep",
+  "glob",
+  "web_search",
+  "editor_read",
+  "editor_navigate",
+  "editor_diagnostics",
+  "editor_symbols",
+  "editor_hover",
+  "editor_references",
+  "editor_definition",
+  "editor_lsp_status",
+  "navigate",
+  "read_code",
+  "analyze",
+  "discover_pattern",
+  "memory_read",
+  "memory_write",
+  "memory_list",
+  "memory_search",
+  "dispatch",
+  "ask_user",
+  "plan",
+  "update_plan_step",
+];
 
 /** Read-only tools for restricted modes (architect, socratic, challenge).
  *  Includes all read/analysis + memory + editor read, but NO edit/shell/git/refactor.
@@ -942,10 +982,17 @@ export function wrapWithBusCache(
     return (async (args: Record<string, unknown>, opts: unknown) => {
       const key = keyFn(args);
       if (key) {
-        const cached = bus.acquireToolResult(agentId, key);
-        if (cached) {
+        const acquired = bus.acquireToolResult(agentId, key);
+        if (acquired.hit === true) {
           onExecute?.(args, true);
-          return cached;
+          return acquired.result;
+        }
+        if (acquired.hit === "waiting") {
+          const waited = await acquired.result;
+          if (waited != null) {
+            onExecute?.(args, true);
+            return waited;
+          }
         }
       }
       const result = await origExecute(args, opts);
@@ -998,7 +1045,17 @@ export function wrapWithBusCache(
             bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: true });
             return tagCacheHit(content, normalized);
           }
+          const reAcquired = bus.acquireFileRead(agentId, normalized);
+          if (reAcquired.cached === true && reAcquired.content != null) {
+            bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: true });
+            return tagCacheHit(reAcquired.content, normalized);
+          }
+          const fallbackGen = reAcquired.cached === false ? reAcquired.gen : -1;
           const result = await origExecute(args, opts);
+          if (fallbackGen >= 0) {
+            const text = typeof result === "string" ? result : JSON.stringify(result);
+            bus.releaseFileRead(normalized, text, fallbackGen);
+          }
           bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: false });
           return result;
         }

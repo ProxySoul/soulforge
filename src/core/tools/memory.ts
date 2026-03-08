@@ -13,7 +13,7 @@ const categorySchema = z
 export function createMemoryTools(manager: MemoryManager) {
   const memory_write = tool({
     description:
-      "Write or update a memory. Use for recording decisions, conventions, patterns, preferences, architecture notes, or facts.",
+      "Write or update a memory. Use for recording decisions, conventions, patterns, preferences, architecture notes, facts, or task checkpoints (progress snapshots for long multi-step work).",
     inputSchema: z.object({
       scope: scopeSchema.optional().describe("Memory scope (defaults to configured write scope)"),
       title: z.string().describe("Short descriptive title"),

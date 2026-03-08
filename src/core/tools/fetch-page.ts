@@ -5,6 +5,54 @@ import { getSecret } from "../secrets.js";
 
 const MAX_CONTENT_LENGTH = 16_000;
 
+export function isPrivateHostname(hostname: string): boolean {
+  if (
+    hostname === "localhost" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname.startsWith("127.") ||
+    hostname.startsWith("10.") ||
+    hostname.startsWith("192.168.") ||
+    hostname === "169.254.169.254" ||
+    hostname.endsWith(".internal") ||
+    hostname.endsWith(".local") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+  )
+    return true;
+  // IPv6 private ranges
+  const lower = hostname.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA fc00::/7
+  if (
+    lower.startsWith("fe8") ||
+    lower.startsWith("fe9") ||
+    lower.startsWith("fea") ||
+    lower.startsWith("feb")
+  )
+    return true; // link-local fe80::/10
+  if (lower.startsWith("::ffff:")) {
+    const mapped = lower.slice(7);
+    if (isPrivateHostname(mapped)) return true;
+  }
+  // Decimal IP (e.g. 2130706433 = 127.0.0.1)
+  if (/^\d{8,10}$/.test(hostname)) return true;
+  // Octal IP (e.g. 0177.0.0.1)
+  if (/^0\d+\./.test(hostname)) return true;
+  return false;
+}
+
+export function validateUrl(raw: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return "Invalid URL";
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) return `Blocked protocol: ${parsed.protocol}`;
+  const hostname = parsed.hostname.replace(/^\[|]$/g, "");
+  if (isPrivateHostname(hostname)) return `Blocked private/reserved address: ${hostname}`;
+  return null;
+}
+
 const pageCache = new Map<string, { content: string; ts: number; backend: string }>();
 const CACHE_TTL = 5 * 60_000;
 const MAX_CACHE_SIZE = 100;
@@ -102,6 +150,9 @@ export const fetchPageTool = {
   description:
     "Fetch a web page and extract its text content. Use after web_search to read full articles or documentation pages.",
   execute: async (args: { url: string }): Promise<ToolResult> => {
+    const urlError = validateUrl(args.url);
+    if (urlError) return { success: false, output: urlError, error: urlError };
+
     const cached = getCached(args.url);
     if (cached) {
       return { success: true, output: truncate(cached.content), backend: cached.backend };

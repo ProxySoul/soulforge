@@ -51,7 +51,7 @@ export class SessionManager {
     this.ensureDir();
     const sessionDir = join(this.dir, meta.id);
     if (!existsSync(sessionDir)) {
-      mkdirSync(sessionDir, { recursive: true });
+      mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
     }
 
     const allMessages: ChatMessage[] = [];
@@ -69,11 +69,14 @@ export class SessionManager {
 
     const updatedMeta: SessionMeta = { ...meta, tabs: updatedTabs };
     const metaPath = join(sessionDir, "meta.json");
-    writeFileSync(metaPath, JSON.stringify(updatedMeta, null, 2), "utf-8");
+    writeFileSync(metaPath, JSON.stringify(updatedMeta, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
 
     const jsonlPath = join(sessionDir, "messages.jsonl");
     const lines = allMessages.map((m) => JSON.stringify(m)).join("\n");
-    writeFileSync(jsonlPath, lines ? `${lines}\n` : "", "utf-8");
+    writeFileSync(jsonlPath, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
   }
 
   loadSession(id: string): { meta: SessionMeta; tabMessages: Map<string, ChatMessage[]> } | null {
