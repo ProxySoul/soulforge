@@ -27,51 +27,112 @@ beforeAll(() => mkdirSync(TMP, { recursive: true }));
 afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
 // ══════════════════════════════════════════════════════════════
-// replaceInCode — comment syntax that is NOT handled
+// replaceInCode — language-specific comment syntax (with filePath)
 // ══════════════════════════════════════════════════════════════
 
-describe("replaceInCode — unhandled comment syntax (known gaps)", () => {
-  it("Lua: -- line comment is NOT recognized (replaces inside comment)", () => {
+describe("replaceInCode — language-specific comment syntax", () => {
+  it("Lua: -- line comment is skipped", () => {
     const src = "-- foo is here\nfoo()";
-    // "--" is not handled, so "foo" inside the comment WILL be replaced
-    expect(replaceInCode(src, "foo", "bar")).toBe("-- bar is here\nbar()");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.lua")).toBe("-- foo is here\nbar()");
   });
 
-  it("Lua: --[[ block comment ]] is NOT recognized", () => {
+  it("Lua: --[[ block comment ]] is skipped", () => {
     const src = "--[[ foo ]] foo()";
-    expect(replaceInCode(src, "foo", "bar")).toBe("--[[ bar ]] bar()");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.lua")).toBe("--[[ foo ]] bar()");
   });
 
-  it("Haskell: -- line comment is NOT recognized", () => {
+  it("Haskell: -- line comment is skipped", () => {
     const src = "-- foo definition\nfoo = 42";
-    expect(replaceInCode(src, "foo", "bar")).toBe("-- bar definition\nbar = 42");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.hs")).toBe("-- foo definition\nbar = 42");
   });
 
-  it("Haskell: {- block comment -} is NOT recognized", () => {
+  it("Haskell: {- block comment -} is skipped", () => {
     const src = "{- foo -} foo = 42";
-    // "{-" is not "/*", so the block comment is treated as code with braces
-    expect(replaceInCode(src, "foo", "bar")).toBe("{- bar -} bar = 42");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.hs")).toBe("{- foo -} bar = 42");
   });
 
-  it("SQL: -- line comment is NOT recognized", () => {
+  it("SQL: -- line comment is skipped", () => {
     const src = "-- select foo\nSELECT foo FROM bar;";
-    expect(replaceInCode(src, "foo", "bar")).toBe("-- select bar\nSELECT bar FROM bar;");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.sql")).toBe(
+      "-- select foo\nSELECT bar FROM bar;",
+    );
   });
 
-  it("HTML: <!-- comment --> is NOT recognized", () => {
+  it("HTML: <!-- comment --> is skipped", () => {
     const src = "<!-- foo --> <div>foo</div>";
-    expect(replaceInCode(src, "foo", "bar")).toBe("<!-- bar --> <div>bar</div>");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.html")).toBe("<!-- foo --> <div>bar</div>");
   });
 
-  it("Erlang: % line comment is NOT recognized", () => {
+  it("Erlang: % line comment is skipped", () => {
     const src = "% foo module\nfoo() -> ok.";
-    // "%" is not "#" at line start
-    expect(replaceInCode(src, "foo", "bar")).toBe("% bar module\nbar() -> ok.");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.erl")).toBe("% foo module\nbar() -> ok.");
   });
 
-  it("OCaml: (* block comment *) is NOT recognized", () => {
+  it("OCaml: (* block comment *) is skipped", () => {
     const src = "(* foo *) let foo = 42";
-    expect(replaceInCode(src, "foo", "bar")).toBe("(* bar *) let bar = 42");
+    expect(replaceInCode(src, "foo", "bar", "/a/b.ml")).toBe("(* foo *) let bar = 42");
+  });
+
+  it("Clojure: ; line comment is skipped", () => {
+    const src = "; foo binding\n(def foo 42)";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.clj")).toBe("; foo binding\n(def bar 42)");
+  });
+
+  it("Scheme: ;; line comment is skipped", () => {
+    const src = ";; foo procedure\n(define foo 42)";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.scm")).toBe(";; foo procedure\n(define bar 42)");
+  });
+
+  it("Ruby: # line comment is skipped", () => {
+    const src = "# foo method\ndef foo; end";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.rb")).toBe("# foo method\ndef bar; end");
+  });
+
+  it("Shell: # line comment is skipped", () => {
+    const src = "# call foo\nfoo --flag";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.sh")).toBe("# call foo\nbar --flag");
+  });
+
+  it("YAML: # line comment is skipped", () => {
+    const src = "foo: value # foo is key\nbar: foo";
+    expect(replaceInCode(src, "foo", "baz", "/a/b.yaml")).toBe("baz: value # foo is key\nbar: baz");
+  });
+
+  it("Ada: -- line comment is skipped", () => {
+    const src = "-- foo declaration\nfoo : Integer;";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.ada")).toBe(
+      "-- foo declaration\nbar : Integer;",
+    );
+  });
+
+  it("-- is NOT treated as comment for JS files", () => {
+    const src = "x--;\nfoo()";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.js")).toBe("x--;\nbar()");
+  });
+
+  it("; is NOT treated as comment for JS files", () => {
+    const src = "foo; bar()";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.js")).toBe("bar; bar()");
+  });
+
+  it("# is NOT treated as comment for CSS files", () => {
+    const src = ".foo { color: #fff; }";
+    expect(replaceInCode(src, "foo", "bar", "/a/b.css")).toBe(".bar { color: #fff; }");
+  });
+
+  it("# is NOT treated as comment for C files (preprocessor)", () => {
+    const src = '#include "foo.h"\nfoo();';
+    expect(replaceInCode(src, "foo", "bar", "/a/b.c")).toBe('#include "foo.h"\nbar();');
+  });
+
+  it("without filePath, # comment still works (backward compat)", () => {
+    const src = "# foo comment\nfoo()";
+    expect(replaceInCode(src, "foo", "bar")).toBe("# foo comment\nbar()");
+  });
+
+  it("without filePath, // and /* comments still work", () => {
+    const src = "// foo\n/* foo */\nfoo()";
+    expect(replaceInCode(src, "foo", "bar")).toBe("// foo\n/* foo */\nbar()");
   });
 });
 

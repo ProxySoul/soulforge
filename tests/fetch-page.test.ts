@@ -59,6 +59,12 @@ describe("isPrivateHostname — bypass attempts", () => {
   it("blocks IPv6-mapped private (::ffff:10.0.0.1)", () => {
     expect(isPrivateHostname("::ffff:10.0.0.1")).toBe(true);
   });
+  it("blocks IPv6-mapped IPv4 hex-pair form (::ffff:7f00:1)", () => {
+    expect(isPrivateHostname("::ffff:7f00:1")).toBe(true);
+  });
+  it("blocks IPv6-mapped IPv4 hex-pair form (::ffff:a00:1)", () => {
+    expect(isPrivateHostname("::ffff:a00:1")).toBe(true);
+  });
   it("blocks decimal IP (2130706433 = 127.0.0.1)", () => {
     expect(isPrivateHostname("2130706433")).toBe(true);
   });
@@ -68,8 +74,14 @@ describe("isPrivateHostname — bypass attempts", () => {
   it("allows normal numeric-looking hostnames (short)", () => {
     expect(isPrivateHostname("1234567")).toBe(false); // 7 digits, below threshold
   });
-  it("GAP: doesn't block hex IP (0x7f000001)", () => {
-    expect(isPrivateHostname("0x7f000001")).toBe(false);
+  it("blocks hex IP (0x7f000001 = 127.0.0.1)", () => {
+    expect(isPrivateHostname("0x7f000001")).toBe(true);
+  });
+  it("blocks hex IP (0x0a000001 = 10.0.0.1)", () => {
+    expect(isPrivateHostname("0x0a000001")).toBe(true);
+  });
+  it("allows hex IP for public address", () => {
+    expect(isPrivateHostname("0x08080808")).toBe(false);
   });
   it("GAP: doesn't block DNS rebinding (attacker.com resolving to 127.0.0.1)", () => {
     expect(isPrivateHostname("attacker.com")).toBe(false);
@@ -133,9 +145,12 @@ describe("validateUrl", () => {
     const result = validateUrl("http://[::1]/api");
     expect(result).toContain("Blocked");
   });
-  it("GAP: IPv6-mapped IPv4 URL normalized by URL parser (::ffff:7f00:1)", () => {
-    // URL parser normalizes ::ffff:127.0.0.1 → ::ffff:7f00:1, bypassing the mapped-IPv4 check
+  it("blocks IPv6-mapped IPv4 URL normalized by URL parser (::ffff:7f00:1)", () => {
     const result = validateUrl("http://[::ffff:127.0.0.1]/api");
-    expect(result).toBeNull();
+    expect(result).toContain("Blocked");
+  });
+  it("blocks IPv6-mapped private 10.x URL", () => {
+    const result = validateUrl("http://[::ffff:10.0.0.1]/api");
+    expect(result).toContain("Blocked");
   });
 });

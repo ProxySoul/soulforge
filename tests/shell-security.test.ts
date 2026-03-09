@@ -7,10 +7,14 @@ import { describe, expect, it } from "bun:test";
  */
 
 function extractPathArgs(argsStr: string): string[] {
-  return argsStr
-    .split(/\s+/)
-    .filter((a) => !a.startsWith("-"))
-    .map((a) => a.replace(/['"]/g, ""));
+	const tokens = argsStr.match(/(?:'([^']*)'|"([^"]*)"|(\S+))/g) ?? [];
+	const re = /^'([^']*)'$|^"([^"]*)"$|^(\S+)$/;
+	return tokens.flatMap((t: string) => {
+		const m = t.match(re);
+		if (!m) return [];
+		const val = m[1] ?? m[2] ?? m[3] ?? "";
+		return val.startsWith("-") ? [] : [val];
+	});
 }
 
 function extractAllPathLikeArgs(command: string): string[] {
@@ -39,12 +43,15 @@ describe("extractPathArgs", () => {
     expect(extractPathArgs("-n --color=never file.ts")).toEqual(["file.ts"]);
   });
 
-  it("strips quotes", () => {
-    expect(extractPathArgs("'my file.ts' \"other.ts\"")).toEqual(["my", "file.ts", "other.ts"]);
+  it("preserves quoted paths with spaces", () => {
+    expect(extractPathArgs("'my file.ts' \"other.ts\"")).toEqual([
+      "my file.ts",
+      "other.ts",
+    ]);
   });
 
   it("handles empty string", () => {
-    expect(extractPathArgs("")).toEqual([""]);
+    expect(extractPathArgs("")).toEqual([]);
   });
 
   it("handles only flags", () => {

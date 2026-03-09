@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceRouter } from "../intelligence/index.js";
 import type { FileEdit } from "../intelligence/types.js";
@@ -13,26 +13,217 @@ function applyEdits(edits: FileEdit[]): void {
   }
 }
 
+interface CommentSyntax {
+  hash: boolean;
+  doubleDash: boolean;
+  semicolon: boolean;
+  percent: boolean;
+  luaBlock: boolean;
+  haskellBlock: boolean;
+  htmlBlock: boolean;
+  ocamlBlock: boolean;
+}
+
+const DOUBLE_DASH_EXTS = new Set([
+  ".lua",
+  ".sql",
+  ".hs",
+  ".lhs",
+  ".ada",
+  ".adb",
+  ".ads",
+  ".elm",
+  ".vhdl",
+  ".vhd",
+]);
+
+const SEMICOLON_EXTS = new Set([
+  ".clj",
+  ".cljs",
+  ".cljc",
+  ".edn",
+  ".scm",
+  ".ss",
+  ".rkt",
+  ".lisp",
+  ".lsp",
+  ".cl",
+  ".el",
+  ".asm",
+  ".s",
+  ".ini",
+]);
+
+const HASH_COMMENT_EXTS = new Set([
+  ".py",
+  ".rb",
+  ".pl",
+  ".pm",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".r",
+  ".jl",
+  ".coffee",
+  ".cr",
+  ".nim",
+  ".gd",
+  ".tf",
+  ".ex",
+  ".exs",
+  ".rake",
+  ".gemspec",
+  ".podspec",
+]);
+
+const PERCENT_EXTS = new Set([".erl", ".hrl", ".tex", ".sty", ".cls", ".pro", ".pl_prolog"]);
+
+function getCommentSyntax(filePath?: string): CommentSyntax {
+  if (!filePath) {
+    return {
+      hash: true,
+      doubleDash: false,
+      semicolon: false,
+      percent: false,
+      luaBlock: false,
+      haskellBlock: false,
+      htmlBlock: false,
+      ocamlBlock: false,
+    };
+  }
+  const ext = extname(filePath).toLowerCase();
+  return {
+    hash: HASH_COMMENT_EXTS.has(ext),
+    doubleDash: DOUBLE_DASH_EXTS.has(ext),
+    semicolon: SEMICOLON_EXTS.has(ext),
+    percent: PERCENT_EXTS.has(ext),
+    luaBlock: ext === ".lua",
+    haskellBlock: ext === ".hs" || ext === ".lhs",
+    htmlBlock:
+      ext === ".html" ||
+      ext === ".htm" ||
+      ext === ".xml" ||
+      ext === ".svg" ||
+      ext === ".vue" ||
+      ext === ".svelte",
+    ocamlBlock: ext === ".ml" || ext === ".mli" || ext === ".sml",
+  };
+}
+
+function isHashCommentStart(source: string, pos: number): boolean {
+  return (
+    source[pos] === "#" &&
+    (pos === 0 || source[pos - 1] === "\n" || source[pos - 1] === " " || source[pos - 1] === "\t")
+  );
+}
+
+function skipToEndOfLine(source: string, pos: number): number {
+  const end = source.indexOf("\n", pos);
+  return end === -1 ? source.length : end;
+}
+
 /**
  * Replace a symbol in code regions only — skips string literals and comments.
  * Uses a state machine to track whether we're inside a string or comment.
+ * Pass filePath to enable language-specific comment syntax detection.
  */
-export function replaceInCode(source: string, escapedSymbol: string, newName: string): string {
+export function replaceInCode(
+  source: string,
+  escapedSymbol: string,
+  newName: string,
+  filePath?: string,
+): string {
   const symbolRe = new RegExp(`\\b${escapedSymbol}\\b`, "g");
   const result: string[] = [];
+  const syntax = getCommentSyntax(filePath);
   let i = 0;
 
   while (i < source.length) {
-    // Single-line comment
-    if (source[i] === "/" && source[i + 1] === "/") {
-      const end = source.indexOf("\n", i);
-      const stop = end === -1 ? source.length : end;
+    // Lua --[[ block comment ]]
+    if (
+      syntax.luaBlock &&
+      source[i] === "-" &&
+      source[i + 1] === "-" &&
+      source[i + 2] === "[" &&
+      source[i + 3] === "["
+    ) {
+      const end = source.indexOf("]]", i + 4);
+      const stop = end === -1 ? source.length : end + 2;
       result.push(source.slice(i, stop));
       i = stop;
       continue;
     }
 
-    // Multi-line comment
+    // Haskell {- block comment -}
+    if (syntax.haskellBlock && source[i] === "{" && source[i + 1] === "-") {
+      const end = source.indexOf("-}", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // HTML <!-- block comment -->
+    if (
+      syntax.htmlBlock &&
+      source[i] === "<" &&
+      source[i + 1] === "!" &&
+      source[i + 2] === "-" &&
+      source[i + 3] === "-"
+    ) {
+      const end = source.indexOf("-->", i + 4);
+      const stop = end === -1 ? source.length : end + 3;
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // OCaml (* block comment *)
+    if (syntax.ocamlBlock && source[i] === "(" && source[i + 1] === "*") {
+      const end = source.indexOf("*)", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // -- line comment (Lua, SQL, Haskell, Ada)
+    if (syntax.doubleDash && source[i] === "-" && source[i + 1] === "-") {
+      const stop = skipToEndOfLine(source, i);
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // ; line comment (Clojure, Scheme, Lisp, Assembly)
+    if (syntax.semicolon && source[i] === ";") {
+      const stop = skipToEndOfLine(source, i);
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // % line comment (Erlang, LaTeX)
+    if (syntax.percent && source[i] === "%") {
+      const stop = skipToEndOfLine(source, i);
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // Single-line comment (//)
+    if (source[i] === "/" && source[i + 1] === "/") {
+      const stop = skipToEndOfLine(source, i);
+      result.push(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+
+    // Multi-line comment (/* */)
     if (source[i] === "/" && source[i + 1] === "*") {
       const end = source.indexOf("*/", i + 2);
       const stop = end === -1 ? source.length : end + 2;
@@ -41,13 +232,9 @@ export function replaceInCode(source: string, escapedSymbol: string, newName: st
       continue;
     }
 
-    // Python/bash # comment (at start of line or after whitespace)
-    if (
-      source[i] === "#" &&
-      (i === 0 || source[i - 1] === "\n" || source[i - 1] === " " || source[i - 1] === "\t")
-    ) {
-      const end = source.indexOf("\n", i);
-      const stop = end === -1 ? source.length : end;
+    // # line comment (at start of line or after whitespace)
+    if (syntax.hash && isHashCommentStart(source, i)) {
+      const stop = skipToEndOfLine(source, i);
       result.push(source.slice(i, stop));
       i = stop;
       continue;
@@ -92,7 +279,7 @@ export function replaceInCode(source: string, escapedSymbol: string, newName: st
             if (depth > 0) j++;
           }
           const expr = source.slice(exprStart, j);
-          result.push(replaceInCode(expr, escapedSymbol, newName));
+          result.push(replaceInCode(expr, escapedSymbol, newName, filePath));
           if (j < source.length) {
             result.push("}");
             j++;
@@ -117,15 +304,28 @@ export function replaceInCode(source: string, escapedSymbol: string, newName: st
       const ch = source[end] as string;
       if (ch === '"' || ch === "'" || ch === "`") break;
       if (ch === "/" && (source[end + 1] === "/" || source[end + 1] === "*")) break;
+      if (syntax.hash && isHashCommentStart(source, end)) break;
+      if (syntax.doubleDash && ch === "-" && source[end + 1] === "-") break;
+      if (syntax.semicolon && ch === ";") break;
+      if (syntax.percent && ch === "%") break;
       if (
-        ch === "#" &&
-        (end === 0 ||
-          source[end - 1] === "\n" ||
-          source[end - 1] === " " ||
-          source[end - 1] === "\t")
-      ) {
+        syntax.luaBlock &&
+        ch === "-" &&
+        source[end + 1] === "-" &&
+        source[end + 2] === "[" &&
+        source[end + 3] === "["
+      )
         break;
-      }
+      if (syntax.haskellBlock && ch === "{" && source[end + 1] === "-") break;
+      if (
+        syntax.htmlBlock &&
+        ch === "<" &&
+        source[end + 1] === "!" &&
+        source[end + 2] === "-" &&
+        source[end + 3] === "-"
+      )
+        break;
+      if (syntax.ocamlBlock && ch === "(" && source[end + 1] === "*") break;
       end++;
     }
 
@@ -299,7 +499,7 @@ export const renameSymbolTool = {
             const content = readFileSync(ref, "utf-8");
             const refBlocked = isForbidden(ref);
             if (refBlocked) continue;
-            const updated = replaceInCode(content, escaped, args.newName);
+            const updated = replaceInCode(content, escaped, args.newName, ref);
             if (updated !== content) {
               writeFileSync(ref, updated, "utf-8");
               textFixed.push(ref);

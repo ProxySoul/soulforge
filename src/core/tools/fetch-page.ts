@@ -5,6 +5,19 @@ import { getSecret } from "../secrets.js";
 
 const MAX_CONTENT_LENGTH = 16_000;
 
+function parseIpFromInt(n: number): string | null {
+  if (n < 0 || n > 0xffffffff) return null;
+  return `${(n >>> 24) & 0xff}.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
+}
+
+function extractMappedIPv4FromHexPairs(addr: string): string | null {
+  const match = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(addr);
+  if (!match?.[1] || !match[2]) return null;
+  const hi = Number.parseInt(match[1] as string, 16);
+  const lo = Number.parseInt(match[2] as string, 16);
+  return `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
+}
+
 export function isPrivateHostname(hostname: string): boolean {
   if (
     hostname === "localhost" ||
@@ -19,24 +32,35 @@ export function isPrivateHostname(hostname: string): boolean {
     /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
   )
     return true;
-  // IPv6 private ranges
+
   const lower = hostname.toLowerCase();
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA fc00::/7
+
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
   if (
     lower.startsWith("fe8") ||
     lower.startsWith("fe9") ||
     lower.startsWith("fea") ||
     lower.startsWith("feb")
   )
-    return true; // link-local fe80::/10
+    return true;
+
   if (lower.startsWith("::ffff:")) {
     const mapped = lower.slice(7);
     if (isPrivateHostname(mapped)) return true;
+    const extracted = extractMappedIPv4FromHexPairs(lower);
+    if (extracted && isPrivateHostname(extracted)) return true;
   }
-  // Decimal IP (e.g. 2130706433 = 127.0.0.1)
+
   if (/^\d{8,10}$/.test(hostname)) return true;
-  // Octal IP (e.g. 0177.0.0.1)
+
   if (/^0\d+\./.test(hostname)) return true;
+
+  if (/^0x[0-9a-f]+$/i.test(hostname)) {
+    const n = Number.parseInt(hostname, 16);
+    const ip = parseIpFromInt(n);
+    if (ip && isPrivateHostname(ip)) return true;
+  }
+
   return false;
 }
 

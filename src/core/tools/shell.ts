@@ -16,10 +16,14 @@ const INPUT_REDIR_RE = /<\s*([^\s|&;]+)/g;
 const OUTPUT_REDIR_RE = />{1,2}\s*([^\s|&;]+)/g;
 
 function extractPathArgs(argsStr: string): string[] {
-  return argsStr
-    .split(/\s+/)
-    .filter((a) => !a.startsWith("-"))
-    .map((a) => a.replace(/['"]/g, ""));
+  const tokens = argsStr.match(/(?:'([^']*)'|"([^"]*)"|(\S+))/g) ?? [];
+  const re = /^'([^']*)'$|^"([^"]*)"$|^(\S+)$/;
+  return tokens.flatMap((t) => {
+    const m = t.match(re);
+    if (!m) return [];
+    const val = m[1] ?? m[2] ?? m[3] ?? "";
+    return val.startsWith("-") ? [] : [val];
+  });
 }
 
 // Subshell / variable expansion patterns that could bypass direct path checks
