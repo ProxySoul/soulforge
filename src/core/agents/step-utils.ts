@@ -1,16 +1,21 @@
 import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
-import { type PrepareStepFunction, pruneMessages, type StopCondition } from "ai";
+import type { PrepareStepFunction, StopCondition } from "ai";
 import type { AgentBus } from "./agent-bus.js";
 
 const ANTHROPIC_CACHE: ProviderOptions = {
   anthropic: { cacheControl: { type: "ephemeral" } },
 };
 
+export type SymbolLookup = (
+  absPath: string,
+) => Array<{ name: string; kind: string; isExported: boolean }>;
+
 interface PrepareStepOptions {
   bus?: AgentBus;
   agentId?: string;
   role: "explore" | "code";
   allTools: Record<string, unknown>;
+  symbolLookup?: SymbolLookup;
 }
 
 const READ_TOOLS = new Set([
@@ -35,11 +40,143 @@ const BUDGET_WARNING_THRESHOLD_CODE = 120_000;
 const FORCE_DONE_THRESHOLD_EXPLORE = 70_000;
 const FORCE_DONE_THRESHOLD_CODE = 135_000;
 
+const KEEP_RECENT_MESSAGES = 6;
+
+const SUMMARIZABLE_TOOLS = new Set([
+  "read_file",
+  "read_code",
+  "grep",
+  "glob",
+  "navigate",
+  "analyze",
+  "web_search",
+  "fetch_page",
+  "shell",
+  "dispatch",
+]);
+
+const EDIT_TOOLS = new Set(["edit_file", "write_file", "create_file"]);
+
+function extractText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (output && typeof output === "object") {
+    const obj = output as Record<string, unknown>;
+    if (typeof obj.value === "string") return obj.value;
+    if (typeof obj.output === "string") return obj.output;
+    return JSON.stringify(output);
+  }
+  return String(output);
+}
+
+function buildSummary(toolName: string, text: string, symbolHint?: string): string | null {
+  const lineCount = text.split("\n").length;
+  const charCount = text.length;
+
+  if (charCount <= 200) return null;
+
+  if (toolName === "read_file" || toolName === "read_code") {
+    const parts = [`[pruned] ${String(lineCount)} lines`];
+    if (symbolHint) {
+      parts.push(symbolHint);
+    }
+    return parts.join(" — ");
+  }
+  if (toolName === "grep") {
+    const matchCount = (text.match(/\n/g) || []).length;
+    return `[pruned] ${String(matchCount)} matches`;
+  }
+  if (toolName === "glob") {
+    const fileCount = text.trim().split("\n").length;
+    return `[pruned] ${String(fileCount)} files`;
+  }
+  if (toolName === "shell") {
+    return `[pruned] ${String(lineCount)} lines of output`;
+  }
+  if (toolName === "dispatch") {
+    const filesMatch = text.match(/### Files Edited\n([\s\S]*?)(?:\n###|$)/);
+    if (filesMatch) return `[pruned] dispatch completed — ${filesMatch[1]?.trim()}`;
+    return `[pruned] dispatch completed — ${String(charCount)} chars of output`;
+  }
+  return `[pruned] ${String(lineCount)} lines, ${String(charCount)} chars`;
+}
+
+function buildToolCallPathMap(messages: ModelMessage[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || typeof msg.content === "string") continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (const part of msg.content) {
+      if (part.type !== "tool-call") continue;
+      if (part.toolName !== "read_file" && part.toolName !== "read_code") continue;
+      const input = part.input as Record<string, unknown>;
+      const path = input.path ?? input.file ?? input.filePath;
+      if (typeof path === "string") {
+        map.set(part.toolCallId, path);
+      }
+    }
+  }
+  return map;
+}
+
+function formatSymbolHint(symbols: Array<{ name: string; kind: string }>): string | undefined {
+  if (symbols.length === 0) return undefined;
+  const names = symbols.map((s) => s.name);
+  const display = names.length > 8 ? [...names.slice(0, 8), `+${String(names.length - 8)}`] : names;
+  return `exports: ${display.join(", ")}`;
+}
+
+function compactOldToolResults(
+  messages: ModelMessage[],
+  symbolLookup?: SymbolLookup,
+  pathMap?: Map<string, string>,
+): ModelMessage[] {
+  if (messages.length <= KEEP_RECENT_MESSAGES) return messages;
+
+  const cutoff = messages.length - KEEP_RECENT_MESSAGES;
+  const resolvedPathMap = pathMap ?? (symbolLookup ? buildToolCallPathMap(messages) : undefined);
+
+  return messages.map((msg, idx) => {
+    if (idx >= cutoff) return msg;
+    if (msg.role !== "tool" || typeof msg.content === "string") return msg;
+    if (!Array.isArray(msg.content)) return msg;
+
+    let changed = false;
+    const newContent = msg.content.map((part) => {
+      if (part.type !== "tool-result") return part;
+      if (EDIT_TOOLS.has(part.toolName)) return part;
+      if (!SUMMARIZABLE_TOOLS.has(part.toolName)) return part;
+      const text = extractText(part.output);
+
+      let symbolHint: string | undefined;
+      if (
+        symbolLookup &&
+        resolvedPathMap &&
+        (part.toolName === "read_file" || part.toolName === "read_code")
+      ) {
+        const absPath = resolvedPathMap.get(part.toolCallId);
+        if (absPath) {
+          try {
+            symbolHint = formatSymbolHint(symbolLookup(absPath));
+          } catch {}
+        }
+      }
+
+      const summary = buildSummary(part.toolName, text, symbolHint);
+      if (!summary) return part;
+      changed = true;
+      return { ...part, output: { type: "text" as const, value: summary } };
+    });
+
+    return changed ? { ...msg, content: newContent } : msg;
+  }) as ModelMessage[];
+}
+
 export function buildPrepareStep({
   bus,
   agentId,
   role,
   allTools,
+  symbolLookup,
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
 }: PrepareStepOptions): PrepareStepFunction<any> {
   const allToolNames = Object.keys(allTools);
@@ -54,6 +191,9 @@ export function buildPrepareStep({
       system?: string;
       messages?: ModelMessage[];
     } = {};
+
+    // Capture path map BEFORE sanitization wipes malformed inputs
+    const pathMap = symbolLookup ? buildToolCallPathMap(messages) : undefined;
 
     // Sanitize non-dict tool-call inputs to prevent Anthropic API rejections
     for (const msg of messages) {
@@ -85,22 +225,16 @@ export function buildPrepareStep({
       }
     }
 
+    // Compact old tool results before they accumulate
+    if (stepNumber >= 3) {
+      result.messages = compactOldToolResults(result.messages ?? messages, symbolLookup, pathMap);
+    }
+
     const totalTokens = steps.reduce((sum, s) => {
       return sum + (s.usage.inputTokens ?? 0) + (s.usage.outputTokens ?? 0);
     }, 0);
 
     if (totalTokens > trimThreshold) {
-      result.messages = pruneMessages({
-        messages,
-        reasoning: "before-last-message",
-        toolCalls: [
-          {
-            type: "before-last-4-messages",
-            tools: ["read_file", "read_code", "grep", "glob", "shell"],
-          },
-        ],
-      });
-
       if (bus && agentId) {
         result.system = buildBusSummary(bus, agentId, role);
       }
@@ -186,3 +320,19 @@ export function tokenBudget(maxTokens: number): StopCondition<any> {
     return total >= maxTokens;
   };
 }
+
+export function buildSymbolLookup(repoMap?: {
+  isReady: boolean;
+  getCwd(): string;
+  getFileSymbols(relPath: string): Array<{ name: string; kind: string; isExported: boolean }>;
+}): SymbolLookup | undefined {
+  if (!repoMap) return undefined;
+  return (absPath: string) => {
+    if (!repoMap.isReady) return [];
+    const cwd = repoMap.getCwd();
+    const rel = absPath.startsWith(cwd) ? absPath.slice(cwd.length + 1) : absPath;
+    return repoMap.getFileSymbols(rel);
+  };
+}
+
+export { compactOldToolResults, KEEP_RECENT_MESSAGES };

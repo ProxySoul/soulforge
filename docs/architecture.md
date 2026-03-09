@@ -164,9 +164,14 @@ Each agent step passes through `prepareStep()`:
 ```
 Step 0: toolChoice = "required" (force immediate tool use, no wasted text)
      ↓
-Each step: inject peer findings, check budget
+Each step: capture path map → sanitize inputs → inject peer findings → check budget
      ↓
-Trim threshold (50K explore, 80K code): prune old tool results
+Step 3+: compact old tool results (rolling window, last 6 messages full, older → one-line summaries)
+  - read_file/read_code: "[pruned] 245 lines — exports: Foo, Bar" (symbols from repo map)
+  - grep: "[pruned] 42 matches"  |  glob: "[pruned] 25 files"
+  - edit_file/write_file/create_file: always preserved
+     ↓
+Trim threshold (50K explore, 80K code): inject context recovery via AgentBus
      ↓
 Budget warning (60K explore, 120K code): inject "wrap up soon"
      ↓

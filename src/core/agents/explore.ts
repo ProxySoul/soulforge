@@ -6,7 +6,7 @@ import { buildToolGuidance } from "../context/manager.js";
 import { buildSubagentExploreTools, wrapWithBusCache } from "../tools/index.js";
 import type { AgentBus } from "./agent-bus.js";
 import { buildBusTools } from "./bus-tools.js";
-import { buildPrepareStep, tokenBudget } from "./step-utils.js";
+import { buildPrepareStep, buildSymbolLookup, tokenBudget } from "./step-utils.js";
 import { repairToolCall } from "./stream-options.js";
 
 function exploreBase(hasRepoMap: boolean): string {
@@ -99,7 +99,13 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
       providerOptions: ANTHROPIC_CACHE,
     },
     stopWhen: [stepCountIs(15), tokenBudget(80_000), hasToolCall("done")],
-    prepareStep: buildPrepareStep({ bus, agentId, role: "explore", allTools }),
+    prepareStep: buildPrepareStep({
+      bus,
+      agentId,
+      role: "explore",
+      allTools,
+      symbolLookup: buildSymbolLookup(options?.repoMap),
+    }),
     experimental_repairToolCall: repairToolCall,
     ...(options?.providerOptions && Object.keys(options.providerOptions).length > 0
       ? { providerOptions: options.providerOptions }

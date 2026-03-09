@@ -266,6 +266,10 @@ export class RepoMap {
     this.initSchema();
   }
 
+  getCwd(): string {
+    return this.cwd;
+  }
+
   private initSchema(): void {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS files (
@@ -1574,6 +1578,21 @@ export class RepoMap {
       return results.filter((r) => !r.path.endsWith(".d.ts"));
     }
     return results;
+  }
+
+  getFileSymbols(relPath: string): Array<{ name: string; kind: string; isExported: boolean }> {
+    return this.db
+      .query<{ name: string; kind: string; is_exported: number }, [string]>(
+        `SELECT s.name, s.kind, s.is_exported
+         FROM symbols s JOIN files f ON f.id = s.file_id
+         WHERE f.path = ?
+           AND s.kind IN ('interface','type','class','function','enum','method','constant')
+           AND s.is_exported = 1
+         ORDER BY s.line
+         LIMIT 15`,
+      )
+      .all(relPath)
+      .map((r) => ({ name: r.name, kind: r.kind, isExported: r.is_exported === 1 }));
   }
 
   /** Legacy single-result lookup. Returns the best match absolute path or null. */
