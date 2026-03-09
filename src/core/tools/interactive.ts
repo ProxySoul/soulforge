@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-import type { InteractiveCallbacks, Plan, PlanStepStatus } from "../../types/index.js";
+import type { InteractiveCallbacks, Plan, PlanDepth, PlanStepStatus } from "../../types/index.js";
 
 function planFileName(sessionId?: string): string {
   return sessionId ? `plan-${sessionId}.md` : "plan.md";
@@ -19,11 +19,15 @@ export function buildInteractiveTools(
     plan: tool({
       description:
         "Create an implementation plan. User confirms before execution. " +
-        "Research every file first — read_file, read_code, navigate. " +
-        "The plan is self-contained: file paths, symbols, code_snippets (current code), and edits (old→new diffs). " +
-        "The executor runs in a fresh context and only sees the plan markdown. " +
-        "Validation enforces: modified files must have code_snippets, steps with modify targets must have edits.",
+        'depth "light": fast checklist — just steps, files, and guidance. No code_snippets or diffs needed. ' +
+        'depth "full": self-contained plan with code_snippets and old→new diffs for Clear & Implement. ' +
+        "Follow the depth guidance in the Forge Mode instructions.",
       inputSchema: z.object({
+        depth: z
+          .enum(["light", "full"])
+          .describe(
+            '"light" = fast checklist (no code_snippets/diffs). "full" = self-contained with code_snippets and diffs.',
+          ),
         title: z.string().describe("Short plan title (2-6 words)"),
         context: z.string().describe("What problem this solves and why these changes are needed"),
         files: z
@@ -70,8 +74,8 @@ export function buildInteractiveTools(
                 .catch(undefined)
                 .describe(
                   "Current code from this file that the executor needs to see. " +
-                    "Paste the relevant sections you read during research — " +
-                    "the executor may have NO prior context (Clear & Implement clears everything).",
+                    'Required for depth "full" on modify files. ' +
+                    'Not needed for depth "light" — executor reads files on the fly.',
                 ),
             }),
           )
@@ -98,8 +102,8 @@ export function buildInteractiveTools(
                 .catch(undefined)
                 .describe(
                   "Concrete edit_file operations for this step. " +
-                    "old must be a verbatim substring of the current file content. " +
-                    "Omit only for create/delete/shell steps.",
+                    'Required for depth "full" on modify steps. ' +
+                    'Not needed for depth "light".',
                 ),
               shell: z
                 .string()
@@ -109,7 +113,7 @@ export function buildInteractiveTools(
                 .string()
                 .optional()
                 .default("")
-                .describe("Additional context if edits alone aren't sufficient"),
+                .describe("Additional context / guidance for the executor"),
             }),
           )
           .describe("Ordered implementation steps with full details"),
@@ -120,44 +124,50 @@ export function buildInteractiveTools(
           .describe("How to verify the changes work"),
       }),
       execute: async (args) => {
+        const depth = args.depth as PlanDepth;
+        const isFull = depth === "full";
         const errors: string[] = [];
-        const modifiedFiles = new Set(
-          args.files.filter((f) => f.action === "modify").map((f) => f.path),
-        );
 
-        for (const f of args.files) {
-          if (f.action === "modify" && (!f.code_snippets || f.code_snippets.length === 0)) {
-            errors.push(
-              `\`${f.path}\` is marked modify but has no code_snippets. Read the file and paste the relevant code.`,
-            );
+        if (isFull) {
+          const modifiedFiles = new Set(
+            args.files.filter((f) => f.action === "modify").map((f) => f.path),
+          );
+
+          for (const f of args.files) {
+            if (f.action === "modify" && (!f.code_snippets || f.code_snippets.length === 0)) {
+              errors.push(
+                `\`${f.path}\` is marked modify but has no code_snippets. Read the file and paste the relevant code.`,
+              );
+            }
+          }
+
+          const stepEditFiles = new Set<string>();
+          for (const s of args.steps) {
+            if (s.edits) {
+              for (const e of s.edits) stepEditFiles.add(e.file);
+            }
+          }
+          for (const path of modifiedFiles) {
+            if (!stepEditFiles.has(path)) {
+              errors.push(
+                `\`${path}\` is listed as modify but no step has edits for it. Add concrete old→new diffs.`,
+              );
+            }
           }
         }
 
-        const stepEditFiles = new Set<string>();
-        for (const s of args.steps) {
-          if (s.edits) {
-            for (const e of s.edits) stepEditFiles.add(e.file);
-          }
-        }
-        for (const path of modifiedFiles) {
-          if (!stepEditFiles.has(path)) {
-            errors.push(
-              `\`${path}\` is listed as modify but no step has edits for it. Add concrete old→new diffs.`,
-            );
-          }
-        }
+        const validationWarnings =
+          errors.length > 0
+            ? `\n\n## Validation Warnings\n${errors.map((e) => `- ${e}`).join("\n")}`
+            : "";
 
-        if (errors.length > 0) {
-          return {
-            success: false,
-            output:
-              `Plan rejected by validation (${String(errors.length)} issue${errors.length > 1 ? "s" : ""}):\n` +
-              errors.map((e) => `- ${e}`).join("\n") +
-              "\n\nResearch more, then call plan again with the missing data.",
-          };
+        const lines = [`# ${args.title}`, ""];
+        if (isFull) {
+          lines.push("_depth: full — self-contained plan_", "");
+        } else {
+          lines.push("_depth: light — executor keeps current context_", "");
         }
-
-        const lines = [`# ${args.title}`, "", `## Context`, "", args.context, "", `## Files`];
+        lines.push(`## Context`, "", args.context, "", `## Files`);
         for (const f of args.files) {
           lines.push(`- **${f.action}** \`${f.path}\` — ${f.description}`);
           if (f.symbols?.length) {
@@ -205,10 +215,12 @@ export function buildInteractiveTools(
 
         const dir = join(cwd, ".soulforge", "plans");
         if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, fname), lines.join("\n"));
+        const planContent = lines.join("\n") + validationWarnings;
+        writeFileSync(join(dir, fname), planContent);
 
         const plan: Plan = {
           title: args.title,
+          depth,
           steps: args.steps.map((s) => ({
             id: s.id,
             label: s.label,
@@ -218,11 +230,7 @@ export function buildInteractiveTools(
         };
         callbacks.onPlanCreate(plan);
 
-        const action = await callbacks.onPlanReview(
-          plan,
-          `.soulforge/plans/${fname}`,
-          lines.join("\n"),
-        );
+        const action = await callbacks.onPlanReview(plan, `.soulforge/plans/${fname}`, planContent);
 
         const planFile = `.soulforge/plans/${fname}`;
         if (action === "execute") {

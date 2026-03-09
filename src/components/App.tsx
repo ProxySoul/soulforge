@@ -273,6 +273,13 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
   const [routerScope, setRouterScope] = useState<ConfigScope>(() =>
     projectConfig && "taskRouter" in projectConfig ? "project" : "global",
   );
+  const modelScope = useMemo(
+    () =>
+      projConfig && "defaultModel" in projConfig
+        ? ("project" as ConfigScope)
+        : ("global" as ConfigScope),
+    [projConfig],
+  );
   const effectiveConfig = useMemo(
     () => mergeConfigs(globalConfig, projConfig),
     [globalConfig, projConfig],
@@ -295,7 +302,13 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
     sendKeys,
     sendMouse,
     error: nvimError,
-  } = useNeovim(editorOpen, effectiveConfig.nvimPath, effectiveConfig.nvimConfig, closeEditor);
+  } = useNeovim(
+    editorOpen,
+    effectiveConfig.nvimPath,
+    effectiveConfig.nvimConfig,
+    closeEditor,
+    effectiveConfig.vimHints !== false,
+  );
 
   const pendingEditorFileRef = useRef<string | null>(null);
 
@@ -332,6 +345,13 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
   useEffect(() => {
     if (editorOpen) setEditorVisible(true);
   }, [editorOpen]);
+
+  // Kick the renderer after layout-affecting transitions to prevent stale paints.
+  // requestRender() is a no-op if nothing is dirty — safe to call.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-run on layout transitions, not just renderer change
+  useEffect(() => {
+    renderer.requestRender();
+  }, [editorOpen, editorVisible, focusMode, renderer]);
 
   const handleEditorClosed = useCallback(() => {
     setEditorVisible(false);
@@ -651,6 +671,14 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
 
   const { displayProvider, displayModel, isGateway, isProxy } = useMemo(() => {
     const model = activeModelForHeader;
+    if (model === "none") {
+      return {
+        displayProvider: "none",
+        displayModel: "Ctrl+L to select",
+        isGateway: false,
+        isProxy: false,
+      };
+    }
     const isGw = model.startsWith("vercel_gateway/");
     const isPrx = model.startsWith("proxy/");
     if (isGw || isPrx) {
@@ -1094,6 +1122,7 @@ export function App({ config, projectConfig, resumeSessionId, bootProviders, boo
             activeChatRef.current?.setActiveModel(modelId);
             notifyProviderSwitch(modelId);
             setActiveModelForHeader(modelId);
+            saveToScope({ defaultModel: modelId }, modelScope);
           }
         }}
         onClose={closeLlmSelector}

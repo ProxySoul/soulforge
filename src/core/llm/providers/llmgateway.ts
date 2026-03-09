@@ -8,14 +8,14 @@ export const llmgateway: ProviderDefinition = {
   icon: "󰒍", // nf-md-cloud_sync U+F048D
   grouped: true,
 
-  createModel(modelId: string) {
+  createModel(modelId: LLMGatewayModelId): ReturnType<typeof createLLMGateway> {
     if (!process.env.LLM_GATEWAY_API_KEY) {
       throw new Error("LLM_GATEWAY_API_KEY is not set");
     }
     const provider = createLLMGateway({
       apiKey: process.env.LLM_GATEWAY_API_KEY,
     });
-    return provider(modelId as any); // Temporary workaround for type mismatch
+    return provider(modelId); // Temporary workaround for type mismatch
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

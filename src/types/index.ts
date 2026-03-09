@@ -51,10 +51,13 @@ export interface PlanStep {
   startedAt?: number;
 }
 
+export type PlanDepth = "light" | "full";
+
 export interface Plan {
   title: string;
   steps: PlanStep[];
   createdAt: number;
+  depth: PlanDepth;
 }
 
 export interface PlanSymbolChange {

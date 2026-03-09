@@ -774,13 +774,13 @@ export function buildSubagentTools(models: SubagentModels) {
             "Override all dispatch validation (overlap check, ≤4 file rejection, web task limit). Only set true AFTER reviewing all previous dispatch results and confirming they lack the specific information you need. If previous results contain the data, act on them instead.",
           ),
       }),
-      execute: async (args, { abortSignal, toolCallId }) => {
+      execute: async (rawArgs, { abortSignal, toolCallId }) => {
         const bus = new AgentBus(cacheRef.current);
         try {
           const WEB_MARKER = "web";
 
           if (models.agentFeatures?.targetFileValidation !== false) {
-            for (const t of args.tasks) {
+            for (const t of rawArgs.tasks) {
               const isWebTask =
                 t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER;
               if (isWebTask) continue;
@@ -792,6 +792,7 @@ export function buildSubagentTools(models: SubagentModels) {
             }
           }
 
+          let args = rawArgs;
           const MAX_TASKS = 5;
           if (args.tasks.length > MAX_TASKS) {
             const mergeable = args.tasks.filter(

@@ -7,7 +7,7 @@ const CONFIG_DIR = join(homedir(), ".soulforge");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 const DEFAULT_CONFIG: AppConfig = {
-  defaultModel: "anthropic/claude-3-haiku-20240307",
+  defaultModel: "none",
   routerRules: [],
   editor: {
     command: "nvim",

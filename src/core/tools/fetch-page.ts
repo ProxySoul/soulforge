@@ -197,8 +197,9 @@ function extractSiteLinks(content: string, baseUrl: string, isMarkdown: boolean)
   const seen = new Set<string>();
   const pattern = isMarkdown ? /\[([^\]]*)\]\(([^)]+)\)/g : /<a[^>]+href=["']([^"'#]+)["'][^>]*>/gi;
 
-  let m: RegExpExecArray | null;
-  while ((m = pattern.exec(content)) !== null) {
+  for (;;) {
+    const m = pattern.exec(content);
+    if (!m) break;
     const raw = isMarkdown ? m[2] : m[1];
     if (!raw || raw.startsWith("javascript:") || raw.startsWith("mailto:")) continue;
     try {

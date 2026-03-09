@@ -82,6 +82,9 @@ export function getActiveProviderId(): string | null {
  * Direct path:  "anthropic/claude-opus-4.6" → createAnthropic()("claude-opus-4.6")
  */
 export function resolveModel(modelId: string): LanguageModel {
+  if (modelId === "none") {
+    throw new Error("No model selected — use Ctrl+L or /model to choose a provider and model");
+  }
   const slashIdx = modelId.indexOf("/");
   if (slashIdx === -1) {
     throw new Error(`Invalid model ID "${modelId}" — expected "provider/model" format`);

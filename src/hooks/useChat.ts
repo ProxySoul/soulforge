@@ -383,6 +383,11 @@ export function useChat({
     setCoAuthorEnabled(coAuthorCommits);
   }, [coAuthorCommits]);
 
+  // Sync context window size to contextManager for plan depth decisions
+  useEffect(() => {
+    contextManager.setContextWindow(getModelContextWindow(activeModel));
+  }, [activeModel, contextManager]);
+
   const [tokenUsage, setTokenUsageRaw] = useState<TokenUsage>(
     initialState?.tokenUsage ?? { ...ZERO_USAGE },
   );
@@ -1004,6 +1009,18 @@ export function useChat({
 
   const handleSubmit = useCallback(
     async (input: string) => {
+      if (activeModelRef.current === "none") {
+        const hint: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            "No model selected. Press **Ctrl+L** or type **/model** to choose a provider and model.",
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, hint]);
+        return;
+      }
+
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -1780,14 +1797,22 @@ export function useChat({
                 setSidebarPlan(postAction.plan);
               }
               planExecutionRef.current = true;
-              const execPrompt =
-                `Execute this plan. The checklist is already live in the UI.\n` +
-                `Workflow per step:\n` +
-                `1. update_plan_step(stepId, "active")\n` +
-                `2. Apply edits: each step has old→new diffs — use edit_file with the exact old/new text.\n` +
-                `3. Run shell commands from the step if present.\n` +
-                `4. update_plan_step(stepId, "done")\n\n` +
-                `All file content is included in the code_snippets below. Edits are pre-validated against this content.\n\n${pContent}`;
+              const isFullPlan = postAction.plan?.depth !== "light";
+              const execPrompt = isFullPlan
+                ? `Execute this plan. The checklist is already live in the UI.\n` +
+                  `Workflow per step:\n` +
+                  `1. update_plan_step(stepId, "active")\n` +
+                  `2. Apply edits: each step has old→new diffs — use edit_file with the exact old/new text.\n` +
+                  `3. Run shell commands from the step if present.\n` +
+                  `4. update_plan_step(stepId, "done")\n\n` +
+                  `All file content is included in the code_snippets below. Edits are pre-validated against this content.\n\n${pContent}`
+                : `Execute this plan. The checklist is already live in the UI.\n` +
+                  `Workflow per step:\n` +
+                  `1. update_plan_step(stepId, "active")\n` +
+                  `2. Read the target files, then apply the changes described in the step details.\n` +
+                  `3. Run shell commands from the step if present.\n` +
+                  `4. update_plan_step(stepId, "done")\n\n` +
+                  `This is a light plan — read files as needed before editing.\n\n${pContent}`;
               setTimeout(() => handleSubmit(execPrompt), 0);
             }
           }

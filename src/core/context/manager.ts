@@ -156,6 +156,7 @@ export class ContextManager {
   private mentionedFiles = new Set<string>();
   private conversationTerms: string[] = [];
   private conversationTokens = 0;
+  private contextWindowTokens = 200_000;
   private repoMapCache: { content: string; at: number } | null = null;
   private taskRouter: TaskRouter | undefined;
   private isChild = false;
@@ -248,6 +249,17 @@ export class ContextManager {
   /** Set the current forge mode */
   setForgeMode(mode: ForgeMode): void {
     this.forgeMode = mode;
+  }
+
+  /** Set the context window size (in tokens) for the active model */
+  setContextWindow(tokens: number): void {
+    this.contextWindowTokens = tokens;
+  }
+
+  /** Get approximate context fill percentage */
+  getContextPercent(): number {
+    if (this.contextWindowTokens <= 0) return 0;
+    return Math.round((this.conversationTokens / this.contextWindowTokens) * 100);
   }
 
   /** Set which editor/LSP integrations are active */
@@ -609,7 +621,9 @@ export class ContextManager {
       active: memoryContext !== null,
     });
 
-    const modeInstructions = getModeInstructions(this.forgeMode);
+    const modeInstructions = getModeInstructions(this.forgeMode, {
+      contextPercent: this.getContextPercent(),
+    });
     sections.push({
       section: `Mode (${this.forgeMode})`,
       chars: modeInstructions?.length ?? 0,
@@ -776,7 +790,9 @@ export class ContextManager {
       parts.push("", "## Project Memory", memoryContext);
     }
 
-    const modeInstructions = getModeInstructions(this.forgeMode);
+    const modeInstructions = getModeInstructions(this.forgeMode, {
+      contextPercent: this.getContextPercent(),
+    });
     if (modeInstructions) {
       parts.push("", "## Forge Mode", modeInstructions);
     }

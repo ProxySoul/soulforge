@@ -42,6 +42,7 @@ export function useNeovim(
   nvimPath?: string,
   nvimConfig?: NvimConfigMode,
   onExit?: () => void,
+  showHints = true,
 ): UseNeovimReturn {
   const nvimRef = useRef<NvimInstance | null>(null);
   const mountedRef = useRef(true);
@@ -81,12 +82,14 @@ export function useNeovim(
     }
 
     // Compute dimensions to match the actual editor panel:
-    // Panel is 60% width with round border (2 chars horizontal, 2 rows vertical)
-    // Vertical: app header(1) + app footer(1) + border(2) + title(1) + sep(1) + sep(1) + bottom bar(1) = 8
+    // Horizontal: 60% width minus border (2 chars for left + right)
+    // Vertical fixed rows: app header(1) + app footer(1) + border top(1) + border bottom(1)
+    //   + title(1) + sep(1) + sep(1) + status bar(1) + hints(0 or 2) = 8 or 10
     const termCols = process.stdout.columns ?? 120;
     const termRows = process.stdout.rows ?? 40;
     const panelCols = Math.max(20, Math.floor(termCols * 0.6) - 2);
-    const panelRows = Math.max(6, termRows - 8);
+    const fixedRows = showHints ? 10 : 8;
+    const panelRows = Math.max(6, termRows - fixedRows);
 
     launchNeovim(nvimPath ?? "nvim", panelCols, panelRows, nvimConfig)
       .then((nvim) => {
@@ -160,7 +163,7 @@ export function useNeovim(
       .finally(() => {
         launchingRef.current = false;
       });
-  }, [active, nvimPath, nvimConfig]);
+  }, [active, nvimPath, nvimConfig, showHints]);
 
   // Resize neovim when terminal dimensions change
   useEffect(() => {
@@ -172,15 +175,17 @@ export function useNeovim(
       const termCols = process.stdout.columns ?? 120;
       const termRows = process.stdout.rows ?? 40;
       const cols = Math.max(20, Math.floor(termCols * 0.6) - 2);
-      const rows = Math.max(6, termRows - 8);
+      const fixed = showHints ? 10 : 8;
+      const rows = Math.max(6, termRows - fixed);
       nvim.api.request("nvim_ui_try_resize", [cols, rows]).catch(() => {});
     };
 
+    onResize();
     process.stdout.on("resize", onResize);
     return () => {
       process.stdout.removeListener("resize", onResize);
     };
-  }, [ready, active]);
+  }, [ready, active, showHints]);
 
   // Poll buffer name, cursor position, and visual selection (~2s) when ready
   useEffect(() => {

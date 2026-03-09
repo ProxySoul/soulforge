@@ -2053,6 +2053,45 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
         });
         break;
       }
+      if (cmd === "/model-scope") {
+        ctx.openCommandPicker({
+          title: "Model Scope",
+          icon: icon("settings"),
+          currentValue: ctx.detectScope("defaultModel"),
+          options: [
+            {
+              value: "global",
+              label: "Global",
+              description: "model choice applies to all projects",
+            },
+            {
+              value: "project",
+              label: "Project",
+              description: "model choice is specific to this project",
+            },
+          ],
+          onSelect: (value, _scope) => {
+            const current = ctx.chat.activeModel;
+            if (current !== "none") {
+              const from = ctx.detectScope("defaultModel");
+              const to = value as ConfigScope;
+              if (from !== to) {
+                ctx.saveToScope({ defaultModel: current }, to, from);
+              }
+            }
+            ctx.chat.setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "system",
+                content: `Model scope: ${value}`,
+                timestamp: Date.now(),
+              },
+            ]);
+          },
+        });
+        break;
+      }
       if (cmd === "/nerd-font" || cmd === "/nerdfont") {
         ctx.openCommandPicker({
           title: "Nerd Font",

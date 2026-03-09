@@ -65,6 +65,7 @@ const CMD_DEFS: Array<{ cmd: string; ic: string; desc: string }> = [
   { cmd: "/memory", ic: "memory", desc: "Manage memory scopes, view & clear" },
   { cmd: "/mode", ic: "cog", desc: "Switch forge mode" },
   { cmd: "/models", ic: "system", desc: "Switch LLM model (Ctrl+L)" },
+  { cmd: "/model-scope", ic: "cog", desc: "Set model scope (project/global)" },
   { cmd: "/nerd-font", ic: "ghost", desc: "Toggle Nerd Font icons" },
   { cmd: "/new-tab", ic: "tabs", desc: "Open new tab (Alt+T)" },
   { cmd: "/nvim-config", ic: "pencil", desc: "Switch neovim config mode" },
@@ -515,7 +516,17 @@ export function InputBox({
   };
 
   // Compute available width for text content (inside padding, no border)
-  const measuredWidth = containerRef.current?.width ?? 0;
+  // Read ref width as state so layout changes trigger re-render
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+  const measuredWidthRef = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reads from ref after every render to pick up layout width
+  useEffect(() => {
+    const w = containerRef.current?.width ?? 0;
+    if (w > 0 && w !== measuredWidthRef.current) {
+      measuredWidthRef.current = w;
+      setMeasuredWidth(w);
+    }
+  });
   const contentWidth = useMemo(
     () => Math.max(10, (measuredWidth > 0 ? measuredWidth - 2 : termWidth - 4) - 2),
     [measuredWidth, termWidth],

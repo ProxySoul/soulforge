@@ -154,6 +154,7 @@ export function getOpenRouterModelName(model: string): string | undefined {
  * No hardcoded model names — all labels come from API data or clean truncation.
  */
 export function getShortModelLabel(modelId: string): string {
+  if (modelId === "none") return "No model";
   const slashIdx = modelId.indexOf("/");
   const providerId = slashIdx >= 0 ? modelId.slice(0, slashIdx) : "";
   const bareModel = slashIdx >= 0 ? modelId.slice(slashIdx + 1) : modelId;

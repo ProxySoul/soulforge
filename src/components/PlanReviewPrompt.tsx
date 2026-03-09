@@ -1,6 +1,6 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { icon } from "../core/icons.js";
 import type { Plan } from "../types/index.js";
 
@@ -27,7 +27,7 @@ interface Option {
   description?: string;
 }
 
-const OPTIONS: Option[] = [
+const ALL_OPTIONS: Option[] = [
   {
     id: "implement",
     label: "Implement",
@@ -67,6 +67,13 @@ export function PlanReviewPrompt({
   plan,
   planFile,
 }: Props) {
+  const options = useMemo(() => {
+    if (plan.depth === "light") {
+      return ALL_OPTIONS.filter((o) => o.id !== "clear_implement");
+    }
+    return ALL_OPTIONS;
+  }, [plan.depth]);
+
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [reviseInput, setReviseInput] = useState("");
   const [typing, setTyping] = useState(false);
@@ -87,16 +94,16 @@ export function PlanReviewPrompt({
     }
 
     if (evt.name === "up") {
-      setSelectedIdx((prev) => (prev > 0 ? prev - 1 : OPTIONS.length - 1));
+      setSelectedIdx((prev) => (prev > 0 ? prev - 1 : options.length - 1));
       return;
     }
     if (evt.name === "down" || evt.name === "tab") {
-      setSelectedIdx((prev) => (prev + 1) % OPTIONS.length);
+      setSelectedIdx((prev) => (prev + 1) % options.length);
       return;
     }
 
     if (evt.name === "return") {
-      const opt = OPTIONS[selectedIdx];
+      const opt = options[selectedIdx];
       if (!opt) return;
       switch (opt.id) {
         case "implement":
@@ -164,7 +171,7 @@ export function PlanReviewPrompt({
           />
         </box>
       ) : (
-        OPTIONS.map((opt, i) => {
+        options.map((opt, i) => {
           const selected = i === selectedIdx;
           return (
             <box key={opt.id} gap={1} flexDirection="row">
