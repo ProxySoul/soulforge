@@ -490,6 +490,22 @@ function selectModel(task: AgentTask, models: SubagentModels): { model: Language
   return { model: base };
 }
 
+function stripContextManagement(opts?: ProviderOptions): ProviderOptions | undefined {
+  if (!opts) return opts;
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [provider, val] of Object.entries(opts)) {
+    if (val && typeof val === "object" && "contextManagement" in val) {
+      const { contextManagement: _, ...rest } = val as Record<string, unknown>;
+      out[provider] = rest;
+      changed = true;
+    } else {
+      out[provider] = val;
+    }
+  }
+  return changed ? (out as ProviderOptions) : opts;
+}
+
 function createAgent(
   task: AgentTask,
   models: SubagentModels,
@@ -499,10 +515,11 @@ function createAgent(
   const useExplore = task.role === "explore" || models.readOnly === true;
   const { model } = selectModel(task, models);
   const tier = detectTaskTier(task);
+  const subagentProviderOptions = stripContextManagement(models.providerOptions);
   const opts = {
     bus,
     agentId: task.agentId,
-    providerOptions: models.providerOptions,
+    providerOptions: subagentProviderOptions,
     headers: models.headers,
     webSearchModel: models.webSearchModel,
     onApproveWebSearch: models.onApproveWebSearch,

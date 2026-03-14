@@ -525,6 +525,7 @@ export function isProviderOptionsError(error: unknown): boolean {
     lower.includes("inputschema") ||
     lower.includes("thinking is not supported") ||
     lower.includes("adaptive thinking") ||
+    lower.includes("clear_thinking") ||
     lower.includes("context management") ||
     lower.includes("unknown parameter")
   );
