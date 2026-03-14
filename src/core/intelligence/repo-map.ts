@@ -1674,6 +1674,23 @@ export class RepoMap {
       .map((r) => ({ name: r.name, kind: r.kind, isExported: r.is_exported === 1 }));
   }
 
+  getFileSymbolRanges(
+    relPath: string,
+  ): Array<{ name: string; kind: string; line: number; endLine: number | null }> {
+    return this.db
+      .query<{ name: string; kind: string; line: number; end_line: number | null }, [string]>(
+        `SELECT s.name, s.kind, s.line, s.end_line
+         FROM symbols s JOIN files f ON f.id = s.file_id
+         WHERE f.path = ?
+           AND s.kind IN ('interface','type','class','function','enum','method','constant')
+           AND s.is_exported = 1
+         ORDER BY s.line
+         LIMIT 20`,
+      )
+      .all(relPath)
+      .map((r) => ({ name: r.name, kind: r.kind, line: r.line, endLine: r.end_line }));
+  }
+
   /** Legacy single-result lookup. Returns the best match absolute path or null. */
   findSymbol(name: string): string | null {
     const matches = this.findSymbols(name);

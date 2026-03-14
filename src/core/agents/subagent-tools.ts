@@ -911,7 +911,22 @@ export function buildSubagentTools(models: SubagentModels) {
           const tasks: AgentTask[] = args.tasks.map((t, i) => {
             const isWebTask =
               t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER;
-            const fileHint = isWebTask ? "" : `\nTarget files: ${t.targetFiles.join(", ")}`;
+            let fileHint = "";
+            if (!isWebTask) {
+              const enriched = t.targetFiles.map((f) => {
+                if (!models.repoMap) return f;
+                const ranges = models.repoMap.getFileSymbolRanges(f);
+                if (ranges.length === 0) return f;
+                const rangeStr = ranges
+                  .map((r) => {
+                    const end = r.endLine ? `-${String(r.endLine)}` : "";
+                    return `  ${r.name} (${r.kind}, lines ${String(r.line)}${end})`;
+                  })
+                  .join("\n");
+                return `${f}\n${rangeStr}`;
+              });
+              fileHint = `\nTarget files:\n${enriched.join("\n")}`;
+            }
             return {
               agentId: t.id ?? `agent-${String(i + 1)}`,
               role: t.role,
