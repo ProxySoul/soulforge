@@ -15,6 +15,7 @@ import {
 } from "../core/git/status.js";
 import { icon, setNerdFont } from "../core/icons.js";
 import { getIntelligenceStatus } from "../core/intelligence/index.js";
+
 import { getModelContextInfo, getShortModelLabel } from "../core/llm/models.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { clearTasks } from "../core/tools/task-list.js";
@@ -71,6 +72,7 @@ export interface CommandContext {
   openProviderSettings: () => void;
   openWebSearchSettings: () => void;
   openLspStatus: () => void;
+  openLspInstall: () => void;
   openCommandPicker: (config: CommandPickerConfig) => void;
   openInfoPopup: (config: InfoPopupConfig) => void;
   toggleChanges: () => void;
@@ -1464,8 +1466,8 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
       const breakdown = ctx.contextManager.getContextBreakdown();
       const totalChars = breakdown.reduce((sum, s) => sum + s.chars, 0);
       const modelId = ctx.chat.activeModel;
-      const ctxInfo = getModelContextInfo(modelId);
-      const ctxWindow = ctxInfo.tokens;
+      const storeWindow = useStatusBarStore.getState().contextWindow;
+      const ctxWindow = storeWindow > 0 ? storeWindow : getModelContextInfo(modelId).tokens;
       const tu: TokenUsage = ctx.chat.tokenUsage;
       const apiCtx = ctx.chat.contextTokens;
       const usedTokens = apiCtx > 0 ? apiCtx : Math.ceil(totalChars / 4);
@@ -1852,6 +1854,10 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
     case "/lsp":
       ctx.openLspStatus();
       break;
+    case "/lsp-install": {
+      ctx.openLspInstall();
+      break;
+    }
     case "/storage": {
       openStorageMenu(ctx);
       break;

@@ -32,6 +32,9 @@ o.pumheight = 12           -- max completion popup height
 o.cmdheight = 1
 o.fillchars = "eob: "     -- hide ~ on empty lines
 
+-- Make window separators visible in embedded mode
+vim.api.nvim_set_hl(0, "WinSeparator", { fg = "#333333", bg = "NONE" })
+
 -- ─── Indentation ───
 o.tabstop = 2
 o.shiftwidth = 2

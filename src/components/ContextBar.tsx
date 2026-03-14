@@ -1,7 +1,6 @@
 import { fg as fgStyle, StyledText, type TextRenderable } from "@opentui/core";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { ContextManager } from "../core/context/manager.js";
-import { getModelContextInfo } from "../core/llm/models.js";
 import { useStatusBarStore } from "../stores/statusbar.js";
 
 const BAR_WIDTH = 8;
@@ -96,11 +95,8 @@ interface Props {
   modelId: string;
 }
 
-export function ContextBar({ contextManager, modelId }: Props) {
+export function ContextBar({ contextManager }: Props) {
   const textRef = useRef<TextRenderable>(null);
-
-  const ctxInfo = useMemo(() => getModelContextInfo(modelId), [modelId]);
-  const windowLabel = formatWindow(ctxInfo.tokens);
 
   const targetRef = useRef<BarTarget>({
     pct: 0,
@@ -112,7 +108,13 @@ export function ContextBar({ contextManager, modelId }: Props) {
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const update = (state: { contextTokens: number; chatChars: number; subagentChars: number }) => {
+    const update = (state: {
+      contextTokens: number;
+      contextWindow: number;
+      chatChars: number;
+      subagentChars: number;
+    }) => {
+      const ctxWindow = state.contextWindow || 200_000;
       const isApi = state.contextTokens > 0;
       const breakdown = contextManager.getContextBreakdown();
       const systemChars = breakdown.reduce((sum, s) => sum + s.chars, 0);
@@ -121,7 +123,7 @@ export function ContextBar({ contextManager, modelId }: Props) {
         ? state.contextTokens + state.subagentChars / CHARS_PER_TOKEN
         : charEstimate;
       const live = isApi;
-      const rawPct = (totalTokens / ctxInfo.tokens) * 100;
+      const rawPct = (totalTokens / ctxWindow) * 100;
       const pct = totalTokens > 0 ? Math.min(100, Math.max(1, Math.round(rawPct))) : 0;
       const tokensX10 = Math.round(totalTokens / 100);
 
@@ -140,7 +142,7 @@ export function ContextBar({ contextManager, modelId }: Props) {
     // Fire immediately so the bar reflects current state (subscribe alone only fires on change)
     update(useStatusBarStore.getState());
     return useStatusBarStore.subscribe(update);
-  }, [contextManager, ctxInfo]);
+  }, [contextManager]);
 
   const currentPctRef = useRef(0);
   const currentTokensRef = useRef(0);
@@ -150,6 +152,7 @@ export function ContextBar({ contextManager, modelId }: Props) {
     const timer = setInterval(() => {
       const target = targetRef.current;
       const store = useStatusBarStore.getState();
+      const winLabel = formatWindow(store.contextWindow || 200_000);
       const isCompacting = store.compacting;
       if (isCompacting) compactFrameRef.current++;
       const pct = approach(currentPctRef.current, target.pct);
@@ -171,7 +174,7 @@ export function ContextBar({ contextManager, modelId }: Props) {
           textRef.current.content = buildContent(
             pct,
             (tok / 10).toFixed(1),
-            windowLabel,
+            winLabel,
             target.live,
             target.flash,
             {
@@ -185,8 +188,8 @@ export function ContextBar({ contextManager, modelId }: Props) {
       } catch {}
     }, STEP_MS);
     return () => clearInterval(timer);
-  }, [windowLabel]);
+  }, []);
 
-  const initial = buildContent(0, "0.0", windowLabel, false, false);
+  const initial = buildContent(0, "0.0", formatWindow(200_000), false, false);
   return <text ref={textRef} truncate content={initial} />;
 }

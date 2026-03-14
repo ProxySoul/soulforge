@@ -24,6 +24,7 @@ export const ZERO_USAGE: TokenUsage = {
 interface StatusBarState {
   tokenUsage: TokenUsage;
   contextTokens: number;
+  contextWindow: number;
   chatChars: number;
   subagentChars: number;
   rssMB: number;
@@ -34,6 +35,7 @@ interface StatusBarState {
   setTokenUsage: (usage: TokenUsage) => void;
   resetTokenUsage: () => void;
   setContext: (contextTokens: number, chatChars: number) => void;
+  setContextWindow: (tokens: number) => void;
   setSubagentChars: (chars: number) => void;
   setRssMB: (mb: number) => void;
   setCompacting: (v: boolean) => void;
@@ -44,6 +46,7 @@ interface StatusBarState {
 export const useStatusBarStore = create<StatusBarState>()((set) => ({
   tokenUsage: { ...ZERO_USAGE },
   contextTokens: 0,
+  contextWindow: 200_000,
   chatChars: 0,
   subagentChars: 0,
   rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
@@ -54,6 +57,7 @@ export const useStatusBarStore = create<StatusBarState>()((set) => ({
   setTokenUsage: (usage) => set({ tokenUsage: usage }),
   resetTokenUsage: () => set({ tokenUsage: { ...ZERO_USAGE } }),
   setContext: (contextTokens, chatChars) => set({ contextTokens, chatChars, subagentChars: 0 }),
+  setContextWindow: (tokens) => set({ contextWindow: tokens }),
   setSubagentChars: (chars) => set({ subagentChars: chars }),
   setRssMB: (mb) => set({ rssMB: mb }),
   setCompacting: (v) => set({ compacting: v }),

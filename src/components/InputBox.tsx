@@ -46,6 +46,7 @@ const CMD_DEFS: Array<{ cmd: string; ic: string; desc: string }> = [
   { cmd: "/lazygit", ic: "git", desc: "Launch lazygit" },
   { cmd: "/log", ic: "git", desc: "Show recent commits" },
   { cmd: "/lsp", ic: "brain", desc: "Language server status & diagnostics" },
+  { cmd: "/lsp-install", ic: "brain", desc: "Install & manage LSP servers (Mason registry)" },
   { cmd: "/memory", ic: "memory", desc: "Manage memory scopes, view & clear" },
   { cmd: "/mode", ic: "cog", desc: "Switch forge mode" },
   { cmd: "/models", ic: "system", desc: "Switch LLM model (Ctrl+L)" },

@@ -390,10 +390,12 @@ export function useChat({
     setCoAuthorEnabled(coAuthorCommits);
   }, [coAuthorCommits]);
 
-  // Sync context window size to contextManager for plan depth decisions
+  // Sync context window size to contextManager + status bar store
   useEffect(() => {
-    contextManager.setContextWindow(getModelContextWindow(activeModel));
-  }, [activeModel, contextManager]);
+    const windowTokens = getModelContextWindow(activeModel);
+    contextManager.setContextWindow(windowTokens);
+    if (visible) useStatusBarStore.getState().setContextWindow(windowTokens);
+  }, [activeModel, contextManager, visible]);
 
   const [tokenUsage, setTokenUsageRaw] = useState<TokenUsage>(
     initialState?.tokenUsage ?? { ...ZERO_USAGE },

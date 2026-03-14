@@ -484,6 +484,12 @@ export function buildTools(
         newName: z.string().optional().describe("New name for extracted symbol"),
         startLine: z.number().optional().describe("Start line for extraction or range formatting"),
         endLine: z.number().optional().describe("End line for extraction or range formatting"),
+        name: z
+          .string()
+          .optional()
+          .describe(
+            "Symbol name to extract (auto-resolves line range — use instead of startLine/endLine)",
+          ),
         apply: z.boolean().optional().describe("Apply changes to disk (default true)"),
       }),
       execute: deferExecute(async (args) => {

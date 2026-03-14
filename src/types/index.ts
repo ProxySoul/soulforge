@@ -268,6 +268,8 @@ export interface AppConfig {
   repoMap?: boolean;
   /** Semantic summary mode: "off" (default), "ast" (extract docstrings), "llm" (AI-generated). Boolean for backward compat: true → "llm", false → "off". */
   semanticSummaries?: "off" | "ast" | "llm" | boolean;
+  /** LSP servers to disable (by Mason package name). Scoped: project overrides global. */
+  disabledLspServers?: string[];
   agentFeatures?: AgentFeatures;
 }
 

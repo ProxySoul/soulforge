@@ -1,10 +1,26 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
-import { getIntelligenceRouter } from "../intelligence/index.js";
-import type { FileEdit, FormatEdit, RefactorResult } from "../intelligence/types.js";
+import { type CodeIntelligenceRouter, getIntelligenceRouter } from "../intelligence/index.js";
+import type { FileEdit, FormatEdit, Language, RefactorResult } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
 import { emitFileEdited } from "./file-events.js";
+
+async function resolveSymbolRange(
+  router: CodeIntelligenceRouter,
+  language: Language,
+  file: string,
+  name: string,
+): Promise<{ startLine: number; endLine: number } | null> {
+  const outline = await router.executeWithFallback(language, "getFileOutline", (b) =>
+    b.getFileOutline ? b.getFileOutline(file) : Promise.resolve(null),
+  );
+  if (!outline) return null;
+  const sym = outline.symbols.find((s) => s.name === name);
+  if (!sym) return null;
+  const endLine = sym.location.endLine ?? sym.location.line;
+  return { startLine: sym.location.line, endLine };
+}
 
 type RefactorAction =
   | "extract_function"
@@ -16,6 +32,7 @@ type RefactorAction =
 interface RefactorArgs {
   action: RefactorAction;
   file?: string;
+  name?: string;
   newName?: string;
   startLine?: number;
   endLine?: number;
@@ -106,8 +123,8 @@ export const refactorTool = {
 
       switch (args.action) {
         case "extract_function": {
-          const startLine = args.startLine;
-          const endLine = args.endLine;
+          let startLine = args.startLine;
+          let endLine = args.endLine;
           const newName = args.newName;
           if (!file) {
             return {
@@ -117,11 +134,25 @@ export const refactorTool = {
             };
           }
           if (!startLine || !endLine) {
-            return {
-              success: false,
-              output: "startLine and endLine are required for extract_function",
-              error: "missing range",
-            };
+            if (args.name) {
+              const resolved = await resolveSymbolRange(router, language, file, args.name);
+              if (!resolved) {
+                return {
+                  success: false,
+                  output: `Symbol "${args.name}" not found in ${file}`,
+                  error: "symbol not found",
+                };
+              }
+              startLine = resolved.startLine;
+              endLine = resolved.endLine;
+            } else {
+              return {
+                success: false,
+                output:
+                  "startLine and endLine are required for extract_function (or provide name to auto-resolve)",
+                error: "missing range",
+              };
+            }
           }
           if (!newName) {
             return {
@@ -158,8 +189,8 @@ export const refactorTool = {
         }
 
         case "extract_variable": {
-          const startLine = args.startLine;
-          const endLine = args.endLine;
+          let startLine = args.startLine;
+          let endLine = args.endLine;
           const newName = args.newName;
           if (!file) {
             return {
@@ -169,11 +200,25 @@ export const refactorTool = {
             };
           }
           if (!startLine || !endLine) {
-            return {
-              success: false,
-              output: "startLine and endLine are required for extract_variable",
-              error: "missing range",
-            };
+            if (args.name) {
+              const resolved = await resolveSymbolRange(router, language, file, args.name);
+              if (!resolved) {
+                return {
+                  success: false,
+                  output: `Symbol "${args.name}" not found in ${file}`,
+                  error: "symbol not found",
+                };
+              }
+              startLine = resolved.startLine;
+              endLine = resolved.endLine;
+            } else {
+              return {
+                success: false,
+                output:
+                  "startLine and endLine are required for extract_variable (or provide name to auto-resolve)",
+                error: "missing range",
+              };
+            }
           }
           if (!newName) {
             return {

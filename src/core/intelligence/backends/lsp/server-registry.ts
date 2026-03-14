@@ -4,6 +4,7 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadConfig, loadProjectConfig } from "../../../../config/index.js";
 import type { Language } from "../../types.js";
 
 export interface LspServerConfig {
@@ -26,10 +27,25 @@ const SERVER_CANDIDATES: Record<string, ServerCandidate[]> = {
   ],
   go: [{ command: "gopls", args: ["serve"] }],
   rust: [{ command: "rust-analyzer", args: [] }],
+  lua: [{ command: "lua-language-server", args: [] }],
+  c: [{ command: "clangd", args: [] }],
+  cpp: [{ command: "clangd", args: [] }],
+  ruby: [{ command: "solargraph", args: ["stdio"] }],
+  php: [{ command: "intelephense", args: ["--stdio"] }],
+  zig: [{ command: "zls", args: [] }],
+  bash: [{ command: "bash-language-server", args: ["start"] }],
+  css: [{ command: "vscode-css-language-server", args: ["--stdio"] }],
+  html: [{ command: "vscode-html-language-server", args: ["--stdio"] }],
+  json: [{ command: "vscode-json-language-server", args: ["--stdio"] }],
+  yaml: [{ command: "yaml-language-server", args: ["--stdio"] }],
+  dockerfile: [{ command: "docker-langserver", args: ["--stdio"] }],
 };
 
 /** Mason installs LSP servers here */
 const MASON_BIN_DIR = join(homedir(), ".local", "share", "nvim", "mason", "bin");
+
+/** SoulForge installs LSP servers here via /lsp-install */
+const SOULFORGE_BIN_DIR = join(homedir(), ".soulforge", "lsp-servers");
 
 function commandExists(cmd: string): boolean {
   try {
@@ -44,6 +60,17 @@ function commandExists(cmd: string): boolean {
 function commandExistsInMason(cmd: string): string | null {
   const fullPath = join(MASON_BIN_DIR, cmd);
   return existsSync(fullPath) ? fullPath : null;
+}
+
+/** Check SoulForge's own install directory */
+function findInSoulforge(cmd: string): string | null {
+  // npm-installed servers go to node_modules/.bin/
+  const npmBin = join(SOULFORGE_BIN_DIR, "node_modules", ".bin", cmd);
+  if (existsSync(npmBin)) return npmBin;
+  // pip/go/cargo-installed servers go to bin/
+  const directBin = join(SOULFORGE_BIN_DIR, "bin", cmd);
+  if (existsSync(directBin)) return directBin;
+  return null;
 }
 
 /** Cache of resolved commands: name → absolute path (or name if on PATH) */
@@ -64,7 +91,14 @@ function resolveCommand(cmd: string): string | null {
     return cmd;
   }
 
-  // 2. Check Mason's install directory
+  // 2. Check SoulForge's install directory
+  const sfPath = findInSoulforge(cmd);
+  if (sfPath) {
+    probeCache.set(cmd, sfPath);
+    return sfPath;
+  }
+
+  // 3. Check Mason's install directory
   const masonPath = commandExistsInMason(cmd);
   if (masonPath) {
     probeCache.set(cmd, masonPath);
@@ -75,15 +109,26 @@ function resolveCommand(cmd: string): string | null {
   return null;
 }
 
+/** Check if a server command is disabled by user config */
+function isServerDisabled(cmd: string): boolean {
+  const cwd = process.cwd();
+  const global = loadConfig();
+  const project = loadProjectConfig(cwd);
+  const disabled = project?.disabledLspServers ?? global.disabledLspServers ?? [];
+  return disabled.includes(cmd);
+}
+
 /**
  * Find an LSP server for the given language.
- * Probes $PATH first, then Mason's bin directory (~/.local/share/nvim/mason/bin/).
+ * Probes $PATH first, then SoulForge (~/.soulforge/lsp-servers/), then Mason.
+ * Skips servers that are disabled in user config.
  */
 export function findServerForLanguage(language: Language): LspServerConfig | null {
   const candidates = SERVER_CANDIDATES[language];
   if (!candidates) return null;
 
   for (const candidate of candidates) {
+    if (isServerDisabled(candidate.command)) continue;
     const resolved = resolveCommand(candidate.command);
     if (resolved) {
       return {

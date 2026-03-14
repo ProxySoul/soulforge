@@ -20,6 +20,7 @@ export type ModalName =
   | "setup"
   | "webSearchSettings"
   | "lspStatus"
+  | "lspInstall"
   | "compactionLog";
 
 type Modals = Record<ModalName, boolean>;
@@ -41,6 +42,7 @@ const INITIAL_MODALS: Modals = {
   setup: false,
   webSearchSettings: false,
   lspStatus: false,
+  lspInstall: false,
   compactionLog: false,
 };
 

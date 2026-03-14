@@ -49,6 +49,7 @@ import { GitMenu } from "./GitMenu.js";
 import { HelpPopup } from "./HelpPopup.js";
 import { InfoPopup } from "./InfoPopup.js";
 import { LlmSelector } from "./LlmSelector.js";
+import { LspInstallSearch } from "./LspInstallSearch.js";
 import { LspStatusPopup } from "./LspStatusPopup.js";
 import { ProviderSettings } from "./ProviderSettings.js";
 import { RepoMapStatusPopup } from "./RepoMapStatusPopup.js";
@@ -737,6 +738,7 @@ export function App({
         nvimOpen,
         exit: handleExit,
         openSkills: () => uiState.openModal("skillSearch"),
+        openLspInstall: () => uiState.openModal("lspInstall"),
         openGitCommit: () => uiState.openModal("gitCommit"),
         openSessions: () => uiState.openModal("sessionPicker"),
         openHelp: () => uiState.openModal("helpPopup"),
@@ -1119,6 +1121,16 @@ export function App({
         contextManager={contextManager}
         onClose={getCloser("skillSearch")}
         onSystemMessage={addSystemMessage}
+      />
+
+      <LspInstallSearch
+        visible={modals.lspInstall}
+        cwd={cwd}
+        onClose={getCloser("lspInstall")}
+        onSystemMessage={addSystemMessage}
+        saveToScope={saveToScope}
+        detectScope={detectScope}
+        disabledServers={effectiveConfig.disabledLspServers ?? []}
       />
 
       <HelpPopup visible={modals.helpPopup} onClose={getCloser("helpPopup")} />
