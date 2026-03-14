@@ -1,6 +1,8 @@
+import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getNvimInstance, waitForNvim } from "../editor/instance.js";
 import { isForbidden } from "../security/forbidden.js";
+import { emitFileEdited, emitFileRead } from "./file-events.js";
 
 const NO_EDITOR: ToolResult = {
   success: false,
@@ -27,7 +29,9 @@ export type EditorAction =
   | "open_file"
   | "highlight"
   | "cursor_context"
-  | "buffers";
+  | "buffers"
+  | "quickfix"
+  | "terminal_output";
 
 export interface EditorArgs {
   action: EditorAction;
@@ -43,12 +47,13 @@ export interface EditorArgs {
   jump?: boolean;
   text?: string;
   register?: string;
+  count?: number;
 }
 
 export const editorTool = {
   name: "editor" as const,
   description:
-    "Neovim editor integration. Actions: read, edit, navigate, diagnostics, symbols, hover, references, definition, actions, rename, lsp_status, format, select (visual select lines), goto_cursor (jump + center), yank (put text in register), open_file, highlight (ephemeral highlight), cursor_context (function/symbol at cursor), buffers (list open buffers).",
+    "Neovim editor integration. Actions: read, edit, navigate, diagnostics, symbols, hover, references, definition, actions, rename, lsp_status, format, select (visual select lines), goto_cursor (jump + center), yank (put text in register), open_file, highlight (ephemeral highlight), cursor_context (function/symbol at cursor), buffers (list open buffers), quickfix (read quickfix/location list), terminal_output (read last N lines from terminal buffers).",
   execute: async (args: EditorArgs): Promise<ToolResult> => {
     switch (args.action) {
       case "read":
@@ -118,6 +123,10 @@ export const editorTool = {
         return editorCursorContextTool.execute();
       case "buffers":
         return editorBuffersTool.execute();
+      case "quickfix":
+        return editorQuickfixTool.execute();
+      case "terminal_output":
+        return editorTerminalOutputTool.execute({ count: args.count });
       default:
         return {
           success: false,
@@ -193,6 +202,12 @@ export const editorReadTool = {
         end,
         strictIndexing: false,
       });
+
+      const bufName = await nvim.api.request("nvim_buf_get_name", [0]);
+      if (typeof bufName === "string" && bufName) {
+        emitFileRead(resolve(bufName));
+      }
+
       return { success: true, output: lines.join("\n") };
     } catch (err: unknown) {
       return { success: false, output: String(err), error: String(err) };
@@ -226,6 +241,14 @@ export const editorEditTool = {
         strictIndexing: false,
       });
       await nvim.api.command("write");
+
+      const bufName = await nvim.api.request("nvim_buf_get_name", [0]);
+      if (typeof bufName === "string" && bufName) {
+        const absPath = resolve(bufName);
+        const allLines = await buffer.getLines({ start: 0, end: -1, strictIndexing: false });
+        emitFileEdited(absPath, allLines.join("\n"));
+      }
+
       const count = replacementLines.length;
       return {
         success: true,
@@ -1148,6 +1171,128 @@ const editorBuffersTool = {
         return `${buf.current ? ">" : " "} ${buf.name}${flags ? ` (${flags})` : ""}`;
       });
       return { success: true, output: `${String(parsed.length)} buffer(s):\n${lines.join("\n")}` };
+    } catch (err: unknown) {
+      return { success: false, output: String(err), error: String(err) };
+    }
+  },
+};
+
+// ─── editor_quickfix — read the quickfix list ───
+
+const editorQuickfixTool = {
+  execute: async (): Promise<ToolResult> => {
+    const nvim = await requireNvim();
+    if (!nvim) return NO_EDITOR;
+    try {
+      const lua = `
+        local qf = vim.fn.getqflist()
+        if #qf == 0 then return '__EMPTY__' end
+        local items = {}
+        local sev_map = { E = 'error', W = 'warning', I = 'info', N = 'note' }
+        for _, entry in ipairs(qf) do
+          local fname = ''
+          if entry.bufnr > 0 then
+            fname = vim.api.nvim_buf_get_name(entry.bufnr)
+          end
+          table.insert(items, {
+            file = fname,
+            line = entry.lnum,
+            col = entry.col,
+            severity = sev_map[entry.type] or entry.type or '',
+            text = entry.text or '',
+          })
+        end
+        return vim.json.encode(items)
+      `;
+      const result = await nvim.api.executeLua(lua, []);
+      if (result === "__EMPTY__") {
+        return { success: true, output: "Quickfix list is empty" };
+      }
+      const parsed: unknown[] = safeJsonParse(result, []);
+      if (parsed.length === 0) {
+        return { success: true, output: "Quickfix list is empty" };
+      }
+      const lines = parsed.map((q: unknown) => {
+        const item = q as {
+          file: string;
+          line: number;
+          col: number;
+          severity: string;
+          text: string;
+        };
+        const loc = item.file
+          ? `${item.file}:${String(item.line)}:${String(item.col)}`
+          : `line ${String(item.line)}`;
+        const sev = item.severity ? `[${item.severity}] ` : "";
+        return `${sev}${loc}: ${item.text}`;
+      });
+      return {
+        success: true,
+        output: `${String(parsed.length)} quickfix item(s):\n${lines.join("\n")}`,
+      };
+    } catch (err: unknown) {
+      return { success: false, output: String(err), error: String(err) };
+    }
+  },
+};
+
+// ─── editor_terminal_output — read last N lines from terminal buffers ───
+
+const editorTerminalOutputTool = {
+  execute: async (args: { count?: number }): Promise<ToolResult> => {
+    const nvim = await requireNvim();
+    if (!nvim) return NO_EDITOR;
+    try {
+      const maxLines = args.count ?? 100;
+      const lua = `
+        local max_lines = ${String(maxLines)}
+        local term_bufs = {}
+        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == 'terminal' then
+            table.insert(term_bufs, buf)
+          end
+        end
+        if #term_bufs == 0 then return '__NO_TERMINAL__' end
+
+        local results = {}
+        for _, buf in ipairs(term_bufs) do
+          local name = vim.api.nvim_buf_get_name(buf)
+          local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+          -- Trim trailing empty lines
+          while #lines > 0 and lines[#lines]:match('^%s*$') do
+            table.remove(lines)
+          end
+
+          -- Take last N lines
+          local start = math.max(1, #lines - max_lines + 1)
+          local slice = {}
+          for i = start, #lines do
+            table.insert(slice, lines[i])
+          end
+
+          table.insert(results, {
+            name = name,
+            total_lines = #lines,
+            content = table.concat(slice, '\\n'),
+          })
+        end
+        return vim.json.encode(results)
+      `;
+      const result = await nvim.api.executeLua(lua, []);
+      if (result === "__NO_TERMINAL__") {
+        return { success: true, output: "No terminal buffers open" };
+      }
+      const parsed: unknown[] = safeJsonParse(result, []);
+      if (parsed.length === 0) {
+        return { success: true, output: "No terminal buffers open" };
+      }
+      const sections = parsed.map((t: unknown) => {
+        const term = t as { name: string; total_lines: number; content: string };
+        const label = term.name.replace(/^term:\/\/.*\/\/\d+:/, "") || "terminal";
+        return `── ${label} (${String(term.total_lines)} lines, showing last ${String(maxLines)}) ──\n${term.content}`;
+      });
+      return { success: true, output: sections.join("\n\n") };
     } catch (err: unknown) {
       return { success: false, output: String(err), error: String(err) };
     }

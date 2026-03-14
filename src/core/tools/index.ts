@@ -344,6 +344,8 @@ export function buildTools(
           "highlight",
           "cursor_context",
           "buffers",
+          "quickfix",
+          "terminal_output",
         ]),
         startLine: z
           .number()
@@ -372,6 +374,10 @@ export function buildTools(
           .string()
           .optional()
           .describe('For yank: neovim register (default: "+", system clipboard)'),
+        count: z
+          .number()
+          .optional()
+          .describe("For terminal_output: max lines to read (default: 100)"),
       }),
       execute: deferExecute((args) => editorTool.execute(args)),
     }),
