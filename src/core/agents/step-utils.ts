@@ -11,7 +11,7 @@ export type SymbolLookup = (
 export interface PrepareStepOptions {
   bus?: AgentBus;
   agentId?: string;
-  role: "explore" | "code";
+  role: import("./agent-bus.js").AgentRole;
   allTools: Record<string, unknown>;
   symbolLookup?: SymbolLookup;
 }

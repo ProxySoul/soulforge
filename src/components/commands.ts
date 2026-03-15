@@ -2032,7 +2032,7 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
       }
       if (cmd === "/nvim-config" || cmd.startsWith("/nvim-config ")) {
         const arg = trimmed.slice(13).trim().toLowerCase();
-        const validModes = ["auto", "default", "user", "none"] as const;
+        const validModes = ["default", "user", "none"] as const;
         const matched = validModes.find((m) => m === arg);
 
         const applyNvimConfig = (mode: (typeof validModes)[number], scope?: ConfigScope) => {
@@ -2054,15 +2054,10 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
           ctx.openCommandPicker({
             title: "Neovim Config",
             icon: icon("nvim"),
-            currentValue: ctx.effectiveNvimConfig ?? "auto",
+            currentValue: ctx.effectiveNvimConfig ?? "default",
             scopeEnabled: true,
             initialScope: ctx.detectScope("nvimConfig"),
             options: [
-              {
-                value: "auto",
-                label: "Auto",
-                description: "use user config if found, else shipped config",
-              },
               {
                 value: "default",
                 label: "Default",

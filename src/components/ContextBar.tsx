@@ -98,10 +98,17 @@ interface Props {
 export function ContextBar({ contextManager }: Props) {
   const textRef = useRef<TextRenderable>(null);
 
+  const initStore = useStatusBarStore.getState();
+  const initCtxTokens = initStore.contextTokens;
+  const initCtxWindow = initStore.contextWindow || 200_000;
+  const initPct = initCtxTokens > 0
+    ? Math.min(100, Math.max(1, Math.round((initCtxTokens / initCtxWindow) * 100)))
+    : 0;
+
   const targetRef = useRef<BarTarget>({
-    pct: 0,
-    tokensX10: 0,
-    live: false,
+    pct: initPct,
+    tokensX10: Math.round(initCtxTokens / 100),
+    live: initCtxTokens > 0,
     flash: false,
   });
   const prevTotalRef = useRef(0);
@@ -144,8 +151,8 @@ export function ContextBar({ contextManager }: Props) {
     return useStatusBarStore.subscribe(update);
   }, [contextManager]);
 
-  const currentPctRef = useRef(0);
-  const currentTokensRef = useRef(0);
+  const currentPctRef = useRef(initPct);
+  const currentTokensRef = useRef(Math.round(initCtxTokens / 100));
   const compactFrameRef = useRef(0);
   const prevV2SlotsRef = useRef(0);
   useEffect(() => {
@@ -190,6 +197,6 @@ export function ContextBar({ contextManager }: Props) {
     return () => clearInterval(timer);
   }, []);
 
-  const initial = buildContent(0, "0.0", formatWindow(200_000), false, false);
+  const initial = buildContent(initPct, (initCtxTokens / 1000).toFixed(1), formatWindow(initCtxWindow), initCtxTokens > 0, false);
   return <text ref={textRef} truncate content={initial} />;
 }

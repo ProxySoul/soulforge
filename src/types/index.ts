@@ -152,7 +152,7 @@ export interface ToolCall {
 
 // ─── Config Types ───
 
-export type NvimConfigMode = "auto" | "default" | "user" | "none";
+export type NvimConfigMode = "default" | "user" | "none";
 
 export interface CodeIntelligenceConfig {
   backend?: "auto" | "ts-morph" | "tree-sitter" | "regex";

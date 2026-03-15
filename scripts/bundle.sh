@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# SoulForge Bundle Script
+# Creates a self-contained distributable with all native dependencies.
+# Usage: ./scripts/bundle.sh [arch]
+#   arch: arm64 (default) or x64
+
+ARCH="${1:-arm64}"
+VERSION="1.0.0"
+BUNDLE_NAME="soulforge-${VERSION}-darwin-${ARCH}"
+STAGE_DIR="dist/bundle/${BUNDLE_NAME}"
+DEPS_DIR="${STAGE_DIR}/deps"
+
+NVIM_VERSION="0.11.1"
+RG_VERSION="14.1.1"
+FD_VERSION="10.2.0"
+LAZYGIT_VERSION="0.44.1"
+PROXY_VERSION="6.8.40"
+
+if [[ "$ARCH" == "arm64" ]]; then
+  NVIM_ASSET="nvim-macos-arm64.tar.gz"
+  RG_TRIPLET="aarch64-apple-darwin"
+  FD_TRIPLET="aarch64-apple-darwin"
+  LAZYGIT_SUFFIX="Darwin_arm64"
+  PROXY_SUFFIX="darwin_arm64"
+  BUN_TARGET="bun-darwin-aarch64"
+elif [[ "$ARCH" == "x64" ]]; then
+  NVIM_ASSET="nvim-macos-x86_64.tar.gz"
+  RG_TRIPLET="x86_64-apple-darwin"
+  FD_TRIPLET="x86_64-apple-darwin"
+  LAZYGIT_SUFFIX="Darwin_x86_64"
+  PROXY_SUFFIX="darwin_amd64"
+  BUN_TARGET="bun-darwin-x64"
+else
+  echo "Unknown arch: ${ARCH} (use arm64 or x64)"
+  exit 1
+fi
+
+echo "==> Bundling SoulForge ${VERSION} for darwin/${ARCH}"
+
+rm -rf "${STAGE_DIR}"
+mkdir -p "${DEPS_DIR}"
+
+# ── 1. Compile SoulForge ──
+echo "==> Compiling binary..."
+bun build src/boot.tsx --compile --outfile "${STAGE_DIR}/soulforge" --target="${BUN_TARGET}"
+echo "    ✓ soulforge binary"
+
+# ── 2. Download native dependencies ──
+download() {
+  local url="$1" dest="$2" label="$3"
+  if [[ -f "$dest" ]]; then
+    echo "    ✓ ${label} (cached)"
+    return
+  fi
+  echo "    ↓ ${label}..."
+  curl -fSL --retry 3 "$url" -o "$dest"
+}
+
+CACHE_DIR="dist/bundle/.cache"
+mkdir -p "$CACHE_DIR"
+
+# Neovim
+NVIM_URL="https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM_ASSET}"
+download "$NVIM_URL" "${CACHE_DIR}/nvim.tar.gz" "neovim ${NVIM_VERSION}"
+mkdir -p "${DEPS_DIR}/nvim"
+tar xzf "${CACHE_DIR}/nvim.tar.gz" -C "${DEPS_DIR}/nvim" --strip-components=1
+
+# ripgrep
+RG_ASSET="ripgrep-${RG_VERSION}-${RG_TRIPLET}.tar.gz"
+RG_URL="https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG_ASSET}"
+download "$RG_URL" "${CACHE_DIR}/rg.tar.gz" "ripgrep ${RG_VERSION}"
+mkdir -p "${DEPS_DIR}/rg-tmp"
+tar xzf "${CACHE_DIR}/rg.tar.gz" -C "${DEPS_DIR}/rg-tmp" --strip-components=1
+cp "${DEPS_DIR}/rg-tmp/rg" "${DEPS_DIR}/rg"
+rm -rf "${DEPS_DIR}/rg-tmp"
+
+# fd
+FD_ASSET="fd-v${FD_VERSION}-${FD_TRIPLET}.tar.gz"
+FD_URL="https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD_ASSET}"
+download "$FD_URL" "${CACHE_DIR}/fd.tar.gz" "fd ${FD_VERSION}"
+mkdir -p "${DEPS_DIR}/fd-tmp"
+tar xzf "${CACHE_DIR}/fd.tar.gz" -C "${DEPS_DIR}/fd-tmp" --strip-components=1
+cp "${DEPS_DIR}/fd-tmp/fd" "${DEPS_DIR}/fd"
+rm -rf "${DEPS_DIR}/fd-tmp"
+
+# lazygit
+LAZYGIT_ASSET="lazygit_${LAZYGIT_VERSION}_${LAZYGIT_SUFFIX}.tar.gz"
+LAZYGIT_URL="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/${LAZYGIT_ASSET}"
+download "$LAZYGIT_URL" "${CACHE_DIR}/lazygit.tar.gz" "lazygit ${LAZYGIT_VERSION}"
+mkdir -p "${DEPS_DIR}/lazygit-tmp"
+tar xzf "${CACHE_DIR}/lazygit.tar.gz" -C "${DEPS_DIR}/lazygit-tmp"
+cp "${DEPS_DIR}/lazygit-tmp/lazygit" "${DEPS_DIR}/lazygit"
+rm -rf "${DEPS_DIR}/lazygit-tmp"
+
+# cli-proxy-api
+PROXY_ASSET="CLIProxyAPI_${PROXY_VERSION}_${PROXY_SUFFIX}.tar.gz"
+PROXY_URL="https://github.com/router-for-me/CLIProxyAPI/releases/download/v${PROXY_VERSION}/${PROXY_ASSET}"
+download "$PROXY_URL" "${CACHE_DIR}/proxy.tar.gz" "cli-proxy-api ${PROXY_VERSION}"
+mkdir -p "${DEPS_DIR}/proxy-tmp"
+tar xzf "${CACHE_DIR}/proxy.tar.gz" -C "${DEPS_DIR}/proxy-tmp"
+cp "${DEPS_DIR}/proxy-tmp/cli-proxy-api" "${DEPS_DIR}/cli-proxy-api"
+rm -rf "${DEPS_DIR}/proxy-tmp"
+
+chmod +x "${DEPS_DIR}/nvim/bin/nvim" "${DEPS_DIR}/rg" "${DEPS_DIR}/fd" "${DEPS_DIR}/lazygit" "${DEPS_DIR}/cli-proxy-api"
+
+# Tree-sitter WASM runtime + grammars + OpenTUI syntax assets
+echo "    Bundling tree-sitter assets..."
+mkdir -p "${DEPS_DIR}/wasm"
+cp node_modules/web-tree-sitter/tree-sitter.wasm "${DEPS_DIR}/wasm/"
+cp node_modules/tree-sitter-wasms/out/*.wasm "${DEPS_DIR}/wasm/"
+cp -r node_modules/@opentui/core/assets "${DEPS_DIR}/opentui-assets"
+# Pre-bundle the worker with all deps (web-tree-sitter) into a single file
+bun build node_modules/@opentui/core/parser.worker.js --outdir "${DEPS_DIR}/opentui-assets" --target=bun --asset-naming="[name].[ext]"
+# Patch the worker to resolve tree-sitter.wasm from ~/.soulforge/wasm/ (absolute path)
+# instead of ./tree-sitter.wasm (relative to CWD which is the user's project)
+# Patch bare require() calls to use __require (bun's ESM-compatible CJS shim)
+sed -i '' 's|module2.exports = "./tree-sitter.wasm"|module2.exports = (__require("os").homedir() + "/.soulforge/wasm/tree-sitter.wasm")|' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+sed -i '' 's|var fs = require("fs")|var fs = __require("fs")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+sed -i '' 's|var nodePath = require("path")|var nodePath = __require("path")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+sed -i '' 's|require("url")|__require("url")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+cp src/core/editor/init.lua "${DEPS_DIR}/init.lua"
+
+# Nerd Font Symbols Only — enables icons without requiring a full Nerd Font
+NERD_SYMBOLS_URL="https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/NerdFontsSymbolsOnly.zip"
+if [[ ! -f "${CACHE_DIR}/NerdFontsSymbolsOnly.zip" ]]; then
+  echo "    ↓ Nerd Font Symbols Only..."
+  curl -fSL --retry 3 "$NERD_SYMBOLS_URL" -o "${CACHE_DIR}/NerdFontsSymbolsOnly.zip"
+else
+  echo "    ✓ Nerd Font Symbols Only (cached)"
+fi
+mkdir -p "${DEPS_DIR}/nerd-symbols"
+unzip -qo "${CACHE_DIR}/NerdFontsSymbolsOnly.zip" "*.ttf" -d "${DEPS_DIR}/nerd-symbols" 2>/dev/null || true
+
+echo "==> Dependencies ready"
+
+# ── 3. Create install script ──
+cat > "${STAGE_DIR}/install.sh" << 'INSTALL_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOULFORGE_DIR="${HOME}/.soulforge"
+BIN_DIR="${SOULFORGE_DIR}/bin"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+P='\033[38;2;155;48;255m'
+R='\033[38;2;255;0;64m'
+D='\033[2m'
+M='\033[38;2;85;85;85m'
+G='\033[38;2;74;167;74m'
+W='\033[38;2;170;170;170m'
+B='\033[1m'
+RST='\033[0m'
+SPINNER=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+
+spin() {
+  local msg="$1"
+  local pid="$2"
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r  ${P}${SPINNER[$((i % 10))]}${RST} ${M}%s${RST}  " "$msg"
+    i=$((i + 1))
+    sleep 0.08
+  done
+  wait "$pid" 2>/dev/null
+  printf "\r  ${G}✓${RST} ${W}%s${RST}  \n" "$msg"
+}
+
+step() {
+  printf "  ${G}✓${RST} ${W}%s${RST}\n" "$1"
+}
+
+clear
+printf "\033[?25l"
+
+sleep 0.1
+
+printf "\n"
+printf "  ${P}${B}░${RST}\n"
+sleep 0.05
+printf "\033[1A\r  ${P}${B}▒${RST}\n"
+sleep 0.05
+printf "\033[1A\r  ${P}${B}▓${RST}\n"
+sleep 0.05
+printf "\033[1A\r  ${P}${B}◆${RST}\n"
+sleep 0.1
+
+printf "  ${D}${P}~∿~${RST}\n"
+sleep 0.1
+
+printf "\n"
+WORDMARK_1="┌─┐┌─┐┬ ┬┬  ┌─┐┌─┐┬─┐┌─┐┌─┐"
+WORDMARK_2="└─┐│ ││ ││  ├┤ │ │├┬┘│ ┬├┤ "
+WORDMARK_3="└─┘└─┘└─┘┴─┘└  └─┘┴└─└─┘└─┘"
+
+GLITCH="░▒▓█▄▀▐▌┤├┼─│┌┐└┘"
+garble() {
+  local text="$1" out="" i ch
+  for ((i=0; i<${#text}; i++)); do
+    ch="${text:$i:1}"
+    if [[ "$ch" == " " ]]; then
+      out+=" "
+    else
+      out+="${GLITCH:$((RANDOM % ${#GLITCH})):1}"
+    fi
+  done
+  printf "%s" "$out"
+}
+
+printf "  ${M}$(garble "$WORDMARK_1")${RST}\n"
+sleep 0.03
+printf "\033[1A\r  ${P}${B}${WORDMARK_1}${RST}\n"
+printf "  ${M}$(garble "$WORDMARK_2")${RST}\n"
+sleep 0.03
+printf "\033[1A\r  ${P}${B}${WORDMARK_2}${RST}\n"
+printf "  ${M}$(garble "$WORDMARK_3")${RST}\n"
+sleep 0.03
+printf "\033[1A\r  ${P}${B}${WORDMARK_3}${RST}\n"
+
+sleep 0.1
+printf "\n"
+printf "  ${M}── ${D}AI-Powered Terminal IDE${RST}${M} ──${RST}\n"
+sleep 0.1
+
+BRAND="by "
+printf "\n  "
+for ((i=0; i<${#BRAND}; i++)); do
+  printf "${M}${BRAND:$i:1}${RST}"
+  sleep 0.02
+done
+PROXY="Proxy"
+for ((i=0; i<${#PROXY}; i++)); do
+  printf "${P}${PROXY:$i:1}${RST}"
+  sleep 0.02
+done
+SOUL="Soul"
+for ((i=0; i<${#SOUL}; i++)); do
+  printf "${R}${SOUL:$i:1}${RST}"
+  sleep 0.02
+done
+printf "${M}.com${RST}"
+sleep 0.1
+
+printf "\n\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "  ${P}${B}INSTALLING${RST}\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "\n"
+
+# Clean previous install
+if [[ -d "$SOULFORGE_DIR" ]]; then
+  rm -rf "${SOULFORGE_DIR}/bin" "${SOULFORGE_DIR}/installs" "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/opentui-assets" "${SOULFORGE_DIR}/init.lua" 2>/dev/null
+  printf "  ${G}✓${RST} ${W}Cleared previous installation${RST}\n"
+fi
+
+mkdir -p "$BIN_DIR"
+
+(cp "${SCRIPT_DIR}/soulforge" "${BIN_DIR}/soulforge" && chmod +x "${BIN_DIR}/soulforge") &
+spin "Forging the soul binary" $!
+
+(for bin in rg fd lazygit cli-proxy-api; do
+  cp "${SCRIPT_DIR}/deps/${bin}" "${BIN_DIR}/${bin}"
+  chmod +x "${BIN_DIR}/${bin}"
+done) &
+spin "Sharpening the search blades" $!
+
+(NVIM_DIR="${SOULFORGE_DIR}/installs/nvim-bundled"
+mkdir -p "${SOULFORGE_DIR}/installs"
+rm -rf "$NVIM_DIR"
+cp -r "${SCRIPT_DIR}/deps/nvim" "$NVIM_DIR"
+ln -sf "${NVIM_DIR}/bin/nvim" "${BIN_DIR}/nvim") &
+spin "Summoning the editor spirit" $!
+
+(mkdir -p "${SOULFORGE_DIR}/wasm"
+cp "${SCRIPT_DIR}/deps/wasm/"*.wasm "${SOULFORGE_DIR}/wasm/"
+rm -rf "${SOULFORGE_DIR}/opentui-assets"
+cp -r "${SCRIPT_DIR}/deps/opentui-assets" "${SOULFORGE_DIR}/opentui-assets"
+cp "${SCRIPT_DIR}/deps/init.lua" "${SOULFORGE_DIR}/init.lua") &
+spin "Inscribing the tree-sitter runes" $!
+
+(FONT_DIR="${HOME}/Library/Fonts"
+mkdir -p "$FONT_DIR"
+cp "${SCRIPT_DIR}/deps/nerd-symbols/"*.ttf "$FONT_DIR/" 2>/dev/null || true) &
+spin "Etching the sacred glyphs" $!
+
+(xattr -cr "${SOULFORGE_DIR}" 2>/dev/null || true) &
+spin "Warding off Gatekeeper curses" $!
+
+# Enable nerd font icons (Symbols Only font is always installed)
+CONFIG_FILE="${SOULFORGE_DIR}/config.json"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo '{"nerdFont":true}' > "$CONFIG_FILE"
+elif ! grep -q '"nerdFont"' "$CONFIG_FILE" 2>/dev/null; then
+  # Inject nerdFont into existing config
+  sed -i '' 's/^{/{\"nerdFont\":true,/' "$CONFIG_FILE" 2>/dev/null || true
+fi
+
+SHELL_RC=""
+if [[ -f "${HOME}/.zshrc" ]]; then
+  SHELL_RC="${HOME}/.zshrc"
+elif [[ -f "${HOME}/.bashrc" ]]; then
+  SHELL_RC="${HOME}/.bashrc"
+elif [[ -f "${HOME}/.bash_profile" ]]; then
+  SHELL_RC="${HOME}/.bash_profile"
+fi
+
+if [[ -n "$SHELL_RC" ]] && ! grep -q '.soulforge/bin' "$SHELL_RC" 2>/dev/null; then
+  echo '' >> "$SHELL_RC"
+  echo '# SoulForge' >> "$SHELL_RC"
+  echo 'export PATH="$HOME/.soulforge/bin:$PATH"' >> "$SHELL_RC"
+  step "Inscribed PATH into $(basename "$SHELL_RC")"
+else
+  step "PATH runes already inscribed"
+fi
+
+printf "\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "  ${G}${B}◆ FORGE COMPLETE${RST}\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "\n"
+printf "  ${W}Installed to ${P}~/.soulforge/bin/soulforge${RST}\n"
+printf "\n"
+printf "  ${W}Ignite the forge:${RST}\n"
+printf "    ${P}source ${SHELL_RC:-~/.zshrc} && soulforge${RST}\n"
+printf "\n"
+printf "\033[?25h"
+INSTALL_EOF
+chmod +x "${STAGE_DIR}/install.sh"
+
+# ── 4. Create uninstall script ──
+cat > "${STAGE_DIR}/uninstall.sh" << 'UNINSTALL_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOULFORGE_DIR="${HOME}/.soulforge"
+
+P='\033[38;2;155;48;255m'
+R='\033[38;2;255;0;64m'
+D='\033[2m'
+M='\033[38;2;85;85;85m'
+G='\033[38;2;74;167;74m'
+W='\033[38;2;170;170;170m'
+B='\033[1m'
+RST='\033[0m'
+SPINNER=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+
+spin() {
+  local msg="$1"
+  local pid="$2"
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r  ${R}${SPINNER[$((i % 10))]}${RST} ${M}%s${RST}  " "$msg"
+    i=$((i + 1))
+    sleep 0.08
+  done
+  wait "$pid" 2>/dev/null
+  printf "\r  ${G}✓${RST} ${W}%s${RST}  \n" "$msg"
+}
+
+clear
+printf "\033[?25l"
+printf "\n"
+
+printf "  ${P}${B}◆${RST}\n"
+printf "  ${D}${P}∿·∿${RST}\n"
+printf "\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "  ${R}${B}UNINSTALLING${RST}\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "\n"
+
+if [[ -d "$SOULFORGE_DIR" ]]; then
+  (rm -rf "${SOULFORGE_DIR}/bin") &
+  spin "Extinguishing the forge" $!
+
+  (rm -rf "${SOULFORGE_DIR}/installs") &
+  spin "Banishing the spirits" $!
+
+  (rm -rf "${SOULFORGE_DIR}/fonts" "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/opentui-assets" "${SOULFORGE_DIR}/init.lua") &
+  spin "Dissolving the runes" $!
+
+  (rm -rf "${SOULFORGE_DIR}/sessions" "${SOULFORGE_DIR}/memories") &
+  spin "Erasing the memories" $!
+
+  (rm -f "${SOULFORGE_DIR}/config.json"
+  rmdir "$SOULFORGE_DIR" 2>/dev/null || rm -rf "$SOULFORGE_DIR") &
+  spin "Scattering the ashes" $!
+else
+  printf "  ${M}Nothing to remove at ${SOULFORGE_DIR}${RST}\n"
+fi
+
+for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+  if [[ -f "$rc" ]] && grep -q '.soulforge/bin' "$rc" 2>/dev/null; then
+    sed -i '' '/# SoulForge/d' "$rc"
+    sed -i '' '/\.soulforge\/bin/d' "$rc"
+    printf "  ${G}✓${RST} ${W}Cleansed PATH from $(basename "$rc")${RST}\n"
+  fi
+done
+
+printf "\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "  ${R}${B}◆ SOUL RELEASED${RST}\n"
+printf "  ${M}──────────────────────────────${RST}\n"
+printf "\n"
+printf "  ${W}Restart your terminal or run:${RST}\n"
+printf "    ${P}source ~/.zshrc${RST}\n"
+printf "\n"
+printf "\033[?25h"
+UNINSTALL_EOF
+chmod +x "${STAGE_DIR}/uninstall.sh"
+
+# ── 5. Create tarball ──
+echo "==> Creating tarball..."
+cd dist/bundle
+tar czf "${BUNDLE_NAME}.tar.gz" "${BUNDLE_NAME}/"
+cd ../..
+
+SIZE=$(du -sh "dist/bundle/${BUNDLE_NAME}.tar.gz" | cut -f1)
+echo ""
+echo "==> Done! dist/bundle/${BUNDLE_NAME}.tar.gz (${SIZE})"
+echo "    Send to your friend:"
+echo "    tar xzf ${BUNDLE_NAME}.tar.gz && cd ${BUNDLE_NAME} && ./install.sh"

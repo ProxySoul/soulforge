@@ -28,10 +28,11 @@ export interface BusFinding {
 }
 
 export type TaskTier = "trivial" | "standard";
+export type AgentRole = "explore" | "code" | "investigate";
 
 export interface AgentTask {
   agentId: string;
-  role: "explore" | "code";
+  role: AgentRole;
   task: string;
   dependsOn?: string[];
   timeoutMs?: number;
@@ -40,7 +41,7 @@ export interface AgentTask {
 
 export interface AgentResult {
   agentId: string;
-  role: "explore" | "code";
+  role: AgentRole;
   task: string;
   result: string;
   success: boolean;

@@ -1,6 +1,6 @@
 {
   "name": "@proxysoul/soulforge",
-  "version": "3.0.0",
+  "version": "1.0.0",
   "description": "AI-Powered Terminal IDE by proxySoul",
   "repository": {
     "type": "git",
@@ -24,7 +24,9 @@
   "scripts": {
     "dev": "bun run src/boot.tsx",
     "build": "bun build src/boot.tsx --outdir dist --target bun --external react-devtools-core --entry-naming \"[dir]/index.[ext]\"",
-    "build:binary": "bun build src/index.tsx --compile --external react-devtools-core --outfile bin/soulforge",
+    "build:binary": "bun build src/boot.tsx --compile --external react-devtools-core --outfile bin/soulforge",
+    "bundle": "bash scripts/bundle.sh arm64",
+    "bundle:x64": "bash scripts/bundle.sh x64",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",

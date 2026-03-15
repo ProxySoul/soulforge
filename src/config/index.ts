@@ -16,7 +16,7 @@ const DEFAULT_CONFIG: AppConfig = {
   theme: {
     accentColor: "cyan",
   },
-  nvimConfig: "auto",
+  nvimConfig: "default",
   editorIntegration: {
     diagnostics: true,
     symbols: true,

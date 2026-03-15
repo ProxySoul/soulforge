@@ -41,6 +41,12 @@ const TOOL_GUIDANCE_LOW_LEVEL_WITH_MAP = [
   "- `soul_find` → fuzzy file/symbol discovery ranked by PageRank + cochange (faster than glob for exploration)",
   "- `soul_analyze` → identifier frequency, unused exports, file profile (deps/dependents/blast radius)",
   "- `soul_impact` → dependency graph queries: dependents, dependencies, cochanges, blast radius",
+  "",
+  "**Cross-cutting analysis** — audits, refactoring, architecture review:",
+  "- Start broad: `soul_grep` count mode to find repeated idioms, `soul_analyze` identifier_frequency for hotspots, unused_exports for dead code",
+  "- Then narrow: grep for specific multi-line patterns (error handling, guard clauses, cache setup) with occurrence counts",
+  "- Compare sibling constructs: read builder/factory functions side-by-side, diff similar implementations across files",
+  "- Dispatch investigation tasks for parallel scanning across directories — agents scan with soul tools, not just read files",
 ];
 
 const TOOL_GUIDANCE_LOW_LEVEL_NO_MAP = [
@@ -60,9 +66,10 @@ const DISPATCH_GUIDANCE_BASE = [
   "**For targeted reads** of known files (≤3): use read_code/read_file directly.",
   "**For edits** across 4+ files: dispatch with code agents owning distinct files.",
   "",
-  "**Task quality — extraction, not investigation:**",
-  "- Tasks are DATA EXTRACTION requests. Tell the agent exactly what to read and what to return.",
-  "- Every task requires `targetFiles` — exact file paths. The system rejects tasks without them.",
+  "**Task quality — two modes:**",
+  "- **Extraction tasks**: Tell the agent exactly what to read and return. Precise file paths, symbol names, line ranges.",
+  "- **Investigation tasks**: Tell the agent what to look for across a directory/area. Agent uses soul_grep/soul_analyze/grep to scan broadly, then reads specific hits. Example: 'Scan src/core/tools/ for repeated error-handling patterns. Use soul_grep count to find idioms appearing 5+ times, then read examples from top hits.'",
+  "- Every task requires `targetFiles` — exact file paths (extraction) or directory roots (investigation).",
   "- Split by file ownership, not by concept. Overlapping files = wasted cache.",
   "",
   "Previous dispatch results and tool returns are already in your context — act on them.",

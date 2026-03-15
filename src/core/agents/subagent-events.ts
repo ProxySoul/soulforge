@@ -24,7 +24,7 @@ export interface MultiAgentEvent {
     | "dispatch-done"
     | "dispatch-eval";
   agentId?: string;
-  role?: "explore" | "code";
+  role?: import("./agent-bus.js").AgentRole;
   task?: string;
   /** Total agents in the group */
   totalAgents?: number;

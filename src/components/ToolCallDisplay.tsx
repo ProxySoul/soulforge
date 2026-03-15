@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { icon } from "../core/icons.js";
 import {
   type AgentStatsEvent,
   type MultiAgentEvent,
@@ -77,14 +78,18 @@ function formatArgs(toolName: string, args?: string): string {
       return String(parsed.action);
     }
     if (toolName === "dispatch" && parsed.tasks) {
-      const tasks = parsed.tasks as Array<{ task: string }>;
+      const tasks = parsed.tasks as Array<{ task: string; role?: string }>;
+      const roles = new Set(tasks.map((t) => t.role ?? "explore"));
+      const roleTags = [...roles].map((r) => `[${r}]`).join("");
       if (tasks.length === 1 && tasks[0]) {
         const t = String(tasks[0].task);
-        return t.length > 50 ? `${t.slice(0, 47)}...` : t;
+        const trimmed = t.length > 45 ? `${t.slice(0, 42)}...` : t;
+        return `${roleTags} ${trimmed}`;
       }
       const obj = parsed.objective ? String(parsed.objective) : `${String(tasks.length)} agents`;
       const label = parsed.objective ? `${String(tasks.length)} agents — ${obj}` : obj;
-      return label.length > 60 ? `${label.slice(0, 57)}...` : label;
+      const trimmed = label.length > 55 ? `${label.slice(0, 52)}...` : label;
+      return `${roleTags} ${trimmed}`;
     }
     if (toolName === "editor" && parsed.action) {
       if (parsed.action === "read" && parsed.startLine)
@@ -741,8 +746,8 @@ const MultiAgentChildRow = memo(
     childSteps: SubagentStep[];
     liveStats?: AgentStatsEvent;
   }) {
-    const roleIcon = info.role === "explore" ? "\uDB80\uDE29" : "\uDB80\uDD69";
-    const roleColor = info.role === "code" ? "#FF6B2B" : "#9B30FF";
+    const roleIcon = info.role === "investigate" ? icon("investigate") : info.role === "explore" ? icon("explore") : icon("code");
+    const roleColor = info.role === "investigate" ? "#00CED1" : info.role === "code" ? "#FF6B2B" : "#9B30FF";
     const isDone = info.state === "done" || info.state === "error";
     const isPending = info.state === "pending";
     const taskStr = info.task.length > 40 ? `${info.task.slice(0, 37)}...` : info.task;
@@ -754,15 +759,12 @@ const MultiAgentChildRow = memo(
     const cacheHits = isDone ? info.cacheHits : liveStats?.cacheHits;
 
     const modelLabel = info.modelId ? shortModelId(info.modelId) : null;
-    const tierLabel = info.tier === "trivial" ? "⚡" : info.tier === "desloppify" ? "🧹" : null;
-
-    const statParts: string[] = [];
-    if (modelLabel) statParts.push(modelLabel);
-    if (toolUses != null && toolUses > 0) statParts.push(`${String(toolUses)} tool uses`);
-    if (tokenUsage && tokenUsage.total > 0)
-      statParts.push(`${humanizeTokens(tokenUsage.total)} tokens`);
-    if (cacheHits && cacheHits > 0) statParts.push(`${humanizeTokens(cacheHits)} cached`);
-    const statStr = statParts.length > 0 ? ` · ${statParts.join(" · ")}` : "";
+    const isTrivial = info.tier === "trivial";
+    const isDesloppify = info.tier === "desloppify";
+    const hasTier = isTrivial || isDesloppify;
+    const tierIcon = isTrivial ? icon("trivial") : isDesloppify ? icon("cleanup") : "";
+    const tierName = isTrivial ? "trivial" : isDesloppify ? "cleanup" : "";
+    const tierColor = isTrivial ? "#d9a020" : "#2dd4bf";
 
     return (
       <>
@@ -785,20 +787,24 @@ const MultiAgentChildRow = memo(
             >
               {agentId}
             </span>
-            <span fg={isDone ? "#333" : roleColor}>
-              {" "}
-              ({info.role}){tierLabel ? ` ${tierLabel}` : ""}
-            </span>
+            <span fg={isDone ? "#333" : roleColor}> [{info.role}]</span>
+            {hasTier ? (
+              <span fg={isDone ? "#444" : tierColor}>[{tierIcon} {tierName}]</span>
+            ) : null}
+            {modelLabel ? <span fg={isDone ? "#444" : "#5a9"}>[{icon("model")} {modelLabel}]</span> : null}
+            {toolUses != null && toolUses > 0 ? <span fg={isDone ? "#444" : "#8a6"}>[{icon("gear")} {String(toolUses)}]</span> : null}
+            {tokenUsage && tokenUsage.total > 0 ? <span fg={isDone ? "#444" : "#7a8"}>[{icon("gauge")} {humanizeTokens(tokenUsage.total)}]</span> : null}
+            {cacheHits && cacheHits > 0 ? <span fg={isDone ? "#444" : "#d9a020"}>[{icon("cache")} {humanizeTokens(cacheHits)}]</span> : null}
             {isPending && info.dependsOn && info.dependsOn.length > 0 ? (
               <span fg="#555"> waiting on {info.dependsOn.join(", ")}</span>
             ) : (
               <span fg={isDone ? "#333" : "#666"}> {taskStr}</span>
             )}
-            {statStr ? <span fg={isDone ? "#555" : "#666"}>{statStr}</span> : null}
           </text>
         </box>
         {(() => {
-          const MAX_VISIBLE = 6;
+          const agentDone = info.state === "done" || info.state === "error";
+          const MAX_VISIBLE = agentDone ? 3 : 6;
           const filtered = childSteps.filter((s) => !QUIET_TOOLS.has(s.toolName));
           const running = filtered.filter((s) => s.state === "running");
           const done = filtered.filter((s) => s.state !== "running");
@@ -984,7 +990,7 @@ const ToolRow = memo(
       steps: allChildSteps,
       progress: multiProgress,
       stats: liveStats,
-    } = useDispatchDisplay(dispatchId, 15, multiAgentInfo?.totalAgents ?? 0, multiAgentInfo?.tasks);
+    } = useDispatchDisplay(dispatchId, (multiAgentInfo?.totalAgents ?? 1) * 15, multiAgentInfo?.totalAgents ?? 0, multiAgentInfo?.tasks);
 
     const isRepoMapHit = useMemo(() => {
       if (!tc.result) return false;
@@ -1036,15 +1042,12 @@ const ToolRow = memo(
           ).length
         : 0;
       if (tc.state === "running") {
-        const agentLabel = total > 0 ? ` · ${String(done)}/${String(total)} agents` : "";
-        if (seconds != null && seconds > 0) {
-          suffix = ` ${formatDuration(seconds)}${agentLabel}`;
-        } else {
-          suffix = agentLabel;
-        }
-        if (multiProgress && multiProgress.findingCount > 0) {
-          suffix += ` · ${String(multiProgress.findingCount)} findings`;
-        }
+        const parts: string[] = [];
+        if (seconds != null && seconds > 0) parts.push(formatDuration(seconds));
+        if (total > 0) parts.push(`${String(done)}/${String(total)} agents`);
+        if (multiProgress && multiProgress.findingCount > 0)
+          parts.push(`${String(multiProgress.findingCount)} findings`);
+        suffix = parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
       } else if (tc.state === "done") {
         suffix = ` → ${String(done)}/${String(total)} agents`;
       }

@@ -1,8 +1,18 @@
 #!/usr/bin/env bun
 
-import { readFileSync } from "node:fs";
+globalThis.AI_SDK_LOG_WARNINGS = false;
+
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+const isCompiledBinary = import.meta.url.includes("$bunfs");
+if (isCompiledBinary) {
+  const bundledWorker = join(homedir(), ".soulforge", "opentui-assets", "parser.worker.js");
+  if (!process.env.OTUI_TREE_SITTER_WORKER_PATH && existsSync(bundledWorker)) {
+    process.env.OTUI_TREE_SITTER_WORKER_PATH = bundledWorker;
+  }
+}
 import { BRAND_SEGMENTS, garble, WISP_FRAMES, WORDMARK } from "./components/splash.js";
 import { logBackgroundError } from "./stores/errors.js";
 
@@ -71,9 +81,10 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 
 // Spinner runs in a child process so it stays alive even when the main
 // event loop is blocked by Bun's synchronous module resolution (~3s).
+// BUN_BE_BUN=1 makes compiled binaries act as the bun CLI (supports -e).
 const spinnerProc = Bun.spawn(
   [
-    "bun",
+    process.execPath,
     "-e",
     `
 const RST = "\\x1b[0m";
@@ -122,7 +133,7 @@ setInterval(() => {
 }, 80);
 `,
   ],
-  { stdin: "pipe", stdout: "inherit", stderr: "ignore" },
+  { stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { ...process.env, BUN_BE_BUN: "1" } },
 );
 
 function status(...msgs: string[]): void {

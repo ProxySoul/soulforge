@@ -1,4 +1,6 @@
-import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import {
   addDefaultParsers,
   type FiletypeParserOptions,
@@ -7,7 +9,19 @@ import {
   type ThemeTokenStyle,
 } from "@opentui/core";
 
-const coreAssetsDir = resolve(dirname(require.resolve("@opentui/core")), "assets");
+const IS_BUNDLED = import.meta.url.includes("$bunfs");
+const bundledAssets = join(homedir(), ".soulforge", "opentui-assets");
+let coreAssetsDir: string;
+if (IS_BUNDLED) {
+  coreAssetsDir = bundledAssets;
+} else {
+  try {
+    coreAssetsDir = resolve(dirname(require.resolve("@opentui/core")), "assets");
+  } catch {
+    coreAssetsDir = bundledAssets;
+  }
+  if (!existsSync(coreAssetsDir)) coreAssetsDir = bundledAssets;
+}
 
 const tsHighlights = [resolve(coreAssetsDir, "typescript/highlights.scm")];
 const tsWasm = resolve(coreAssetsDir, "typescript/tree-sitter-typescript.wasm");

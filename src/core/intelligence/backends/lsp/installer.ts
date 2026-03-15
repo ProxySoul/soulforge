@@ -362,8 +362,17 @@ export async function installPackage(
           : `${purl.name}@${purl.version}`;
         const extras = pkg.source.extra_packages ?? [];
         log(`Installing ${fullName} via bun...`);
-        // Use bun for npm packages since SoulForge users have it
-        await runCommand("bun", ["add", "--cwd", SOULFORGE_LSP_DIR, fullName, ...extras], log);
+        const bunBin = (() => {
+          try {
+            execSync("command -v bun", { stdio: "ignore" });
+            return "bun";
+          } catch {
+            return process.execPath;
+          }
+        })();
+        await runCommand(bunBin, ["add", "--cwd", SOULFORGE_LSP_DIR, fullName, ...extras], log, {
+          BUN_BE_BUN: "1",
+        });
         break;
       }
 

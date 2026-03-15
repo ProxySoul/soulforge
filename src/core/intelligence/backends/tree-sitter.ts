@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
+const BUNDLED_WASM_DIR = join(homedir(), ".soulforge", "wasm");
 import type { FileCache } from "../cache.js";
 import {
   type CodeBlock,
@@ -819,10 +822,30 @@ export class TreeSitterBackend implements IntelligenceBackend {
 
   // ─── Private helpers ───
 
+  private static readonly IS_BUNDLED = import.meta.url.includes("$bunfs");
+
+  private resolveWasm(filename: string): string {
+    const basename = filename.split("/").pop() ?? filename;
+    if (TreeSitterBackend.IS_BUNDLED) {
+      return join(BUNDLED_WASM_DIR, basename);
+    }
+    try {
+      return require.resolve(filename);
+    } catch {
+      return join(BUNDLED_WASM_DIR, basename);
+    }
+  }
+
   private async doInit(): Promise<void> {
+    const wasmPath = this.resolveWasm("tree-sitter.wasm");
+    if (!existsSync(wasmPath)) {
+      throw new Error(`tree-sitter.wasm not found at ${wasmPath}`);
+    }
     const mod = await import("web-tree-sitter");
     TSQueryClass = mod.Query;
-    await mod.Parser.init();
+    await mod.Parser.init({
+      locateFile: () => wasmPath,
+    });
     this.parser = new mod.Parser();
   }
 
@@ -835,7 +858,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
 
     try {
       const mod = await import("web-tree-sitter");
-      const wasmPath = require.resolve(`tree-sitter-wasms/out/${wasmFile}`);
+      const wasmPath = this.resolveWasm(`tree-sitter-wasms/out/${wasmFile}`);
       const lang = await mod.Language.load(wasmPath);
       this.languages.set(language, lang);
       return lang;

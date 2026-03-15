@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { attach } from "neovim";
 import type { NvimConfigMode } from "../../types/index.js";
@@ -27,11 +28,15 @@ export async function launchNeovim(
   nvimPath: string,
   cols: number = DEFAULT_COLS,
   rows: number = DEFAULT_ROWS,
-  configMode: NvimConfigMode = "auto",
+  configMode: NvimConfigMode = "default",
 ): Promise<NvimInstance> {
+  let effectivePath = nvimPath;
   const args = ["--embed", "-i", "NONE"];
 
-  const shippedInit = join(import.meta.dir, "init.lua");
+  const isBundled = import.meta.url.includes("$bunfs");
+  const bundledInit = join(homedir(), ".soulforge", "init.lua");
+  const devInit = join(import.meta.dir, "init.lua");
+  const shippedInit = isBundled ? bundledInit : (existsSync(devInit) ? devInit : bundledInit);
 
   switch (configMode) {
     case "none":
@@ -42,24 +47,18 @@ export async function launchNeovim(
         args.push("-u", shippedInit);
       }
       break;
-    case "user":
-      // Let nvim use its own config discovery
-      break;
-    default: {
-      const nvimConfigDir = join(
-        process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "", ".config"),
-        "nvim",
-      );
-      const hasUserConfig =
-        existsSync(join(nvimConfigDir, "init.lua")) || existsSync(join(nvimConfigDir, "init.vim"));
-      if (!hasUserConfig && existsSync(shippedInit)) {
-        args.push("-u", shippedInit);
+    case "user": {
+      const { findNvim } = await import("neovim");
+      const systemResult = findNvim({ orderBy: "desc", minVersion: "0.11.0" });
+      const systemNvim = systemResult.matches.find((m) => m.path && !m.path.includes(".soulforge"));
+      if (systemNvim?.path) {
+        effectivePath = systemNvim.path;
       }
       break;
     }
   }
 
-  const proc = spawn(nvimPath, args, {
+  const proc = spawn(effectivePath, args, {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
   });

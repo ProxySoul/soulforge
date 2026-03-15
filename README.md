@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-BSL%201.1-blue.svg" alt="License" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-3.0.0-brightgreen.svg" alt="Version" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-1.0.0-brightgreen.svg" alt="Version" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-blue.svg" alt="TypeScript" /></a>
   <a href="#testing"><img src="https://img.shields.io/badge/tests-1262%20passing-brightgreen.svg" alt="Tests" /></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6.svg" alt="Bun" /></a>

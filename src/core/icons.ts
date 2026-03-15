@@ -75,6 +75,13 @@ const NERD: Record<string, string> = {
   web_search: "󰖟",
   check_link: "󰄬",
   nvim: "\uDB80\uDFA9",
+  model: "󰧑",
+  gear: "󰣖",
+  gauge: "󰊕",
+  cache: "󰑮",
+  trivial: "󰓅",
+  cleanup: "󰤌",
+  investigate: "\uDB80\uDF50",
 };
 
 const ASCII: Record<string, string> = {
@@ -152,6 +159,13 @@ const ASCII: Record<string, string> = {
   web_search: "⊕",
   check_link: "✓",
   nvim: "✎",
+  model: "⚙",
+  gear: "⚙",
+  gauge: "◎",
+  cache: "⚡",
+  trivial: "↯",
+  cleanup: "♻",
+  investigate: "◎",
 };
 
 let _nerdFont: boolean | null = null;

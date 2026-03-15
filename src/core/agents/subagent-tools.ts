@@ -473,12 +473,13 @@ function detectTaskTier(task: AgentTask): "trivial" | "standard" {
   const targetFileCount = targetFileLine ? targetFileLine.split(",").length : 0;
   const isSingleFileRead = task.role === "explore" && targetFileCount <= 1 && t.length < 200;
   const isSmallEdit = task.role === "code" && targetFileCount <= 1 && t.length < 200;
+  if (task.role === "investigate") return "standard";
   return isSingleFileRead || isSmallEdit ? "trivial" : "standard";
 }
 
 function selectModel(task: AgentTask, models: SubagentModels): { model: LanguageModel } {
   const tier = detectTaskTier(task);
-  const useExplore = task.role === "explore" || models.readOnly === true;
+  const useExplore = task.role === "explore" || task.role === "investigate" || models.readOnly === true;
 
   if (tier === "trivial" && models.trivialModel && models.agentFeatures?.tierRouting !== false) {
     return { model: models.trivialModel };
@@ -512,7 +513,7 @@ function createAgent(
   bus: AgentBus,
   // biome-ignore lint/suspicious/noExplicitAny: explore/code agents have different tool generics
 ): { agent: any; modelId: string; tier: string } {
-  const useExplore = task.role === "explore" || models.readOnly === true;
+  const useExplore = task.role === "explore" || task.role === "investigate" || models.readOnly === true;
   const { model } = selectModel(task, models);
   const tier = detectTaskTier(task);
   const subagentProviderOptions = stripContextManagement(models.providerOptions);
@@ -771,9 +772,9 @@ export function buildSubagentTools(models: SubagentModels) {
                   "Exact file paths from the Repo Map that this task targets. Web search tasks use ['web'].",
                 ),
               role: z
-                .enum(["explore", "code"])
+                .enum(["explore", "code", "investigate"])
                 .default("explore")
-                .describe("Agent type (default: explore)"),
+                .describe("explore = targeted extraction, investigate = broad cross-cutting analysis (scans with soul_grep/soul_analyze/grep), code = edits"),
               id: z.string().optional().describe("Unique ID (auto-generated if omitted)"),
               dependsOn: z
                 .array(z.string())
@@ -817,10 +818,10 @@ export function buildSubagentTools(models: SubagentModels) {
           const MAX_TASKS = 8;
           if (args.tasks.length > MAX_TASKS) {
             const mergeable = args.tasks.filter(
-              (t) => t.role === "explore" && !t.dependsOn?.length,
+              (t) => (t.role === "explore" || t.role === "investigate") && !t.dependsOn?.length,
             );
             const pinned = args.tasks.filter(
-              (t) => t.role !== "explore" || (t.dependsOn?.length ?? 0) > 0,
+              (t) => (t.role !== "explore" && t.role !== "investigate") || (t.dependsOn?.length ?? 0) > 0,
             );
             if (pinned.length >= MAX_TASKS) {
               return `Dispatch rejected: ${String(args.tasks.length)} tasks (max ${String(MAX_TASKS)}). Merge related tasks — split by file ownership, not concept.`;
@@ -883,12 +884,13 @@ export function buildSubagentTools(models: SubagentModels) {
               for (const t of nonWebTasks) {
                 for (const f of t.targetFiles) uniqueFiles.add(normalizePath(f));
               }
+              const hasInvestigate = nonWebTasks.some((t) => t.role === "investigate");
               const allExplore = nonWebTasks.every((t) => t.role === "explore");
               const hasCode = nonWebTasks.some((t) => t.role === "code");
               const MAX_EXPLORE_FILES = 3;
               const MAX_CODE_FILES = 3;
 
-              if (allExplore && uniqueFiles.size > 0 && uniqueFiles.size <= MAX_EXPLORE_FILES) {
+              if (allExplore && !hasInvestigate && uniqueFiles.size > 0 && uniqueFiles.size <= MAX_EXPLORE_FILES) {
                 const fileList = [...uniqueFiles].map((f) => `\`${f}\``).join(", ");
                 return (
                   `Dispatch rejected: ${String(uniqueFiles.size)} file${uniqueFiles.size === 1 ? "" : "s"} (${fileList}) — read them directly with read_code or read_file. ` +

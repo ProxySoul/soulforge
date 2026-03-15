@@ -608,6 +608,9 @@ export class LspBackend implements IntelligenceBackend {
           const ds = s as unknown as LspDocumentSymbol;
           result.push({ name, kind, range: ds.range });
           if (ds.children) walk(ds.children);
+        } else if (s.location) {
+          const si = s as unknown as LspSymbolInformation;
+          result.push({ name, kind, range: si.location.range });
         }
       }
     }
