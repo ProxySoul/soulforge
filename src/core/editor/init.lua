@@ -80,15 +80,39 @@ vim.diagnostic.config({
   severity_sort = true,
 })
 
--- ─── Bootstrap plugin: clone if missing ───
+-- ─── Bootstrap plugin: clone if missing (async on first run) ───
+local pending_clones = {}
 local function ensure_plugin(name, url)
   local path = plugins_dir .. "/" .. name
   if not vim.uv.fs_stat(path) then
-    vim.fn.mkdir(plugins_dir, "p")
-    vim.fn.system({ "git", "clone", "--filter=blob:none", "--depth=1", url, path })
+    table.insert(pending_clones, { name = name, url = url, path = path })
+    return path
   end
   vim.opt.runtimepath:prepend(path)
   return path
+end
+
+-- Deferred clone: run all missing plugins after UI is ready
+local function run_pending_clones()
+  if #pending_clones == 0 then return end
+  vim.fn.mkdir(plugins_dir, "p")
+  local total = #pending_clones
+  vim.notify("SoulForge: installing " .. total .. " plugins (first run)...", vim.log.levels.INFO)
+  local completed = 0
+  for _, p in ipairs(pending_clones) do
+    vim.fn.jobstart({ "git", "clone", "--filter=blob:none", "--depth=1", p.url, p.path }, {
+      on_exit = function(_, code)
+        completed = completed + 1
+        if code == 0 then
+          vim.opt.runtimepath:prepend(p.path)
+        end
+        if completed == total then
+          vim.notify("SoulForge: " .. total .. " plugins installed. Restart editor (Ctrl+E twice) for full experience.", vim.log.levels.INFO)
+        end
+      end,
+    })
+  end
+  pending_clones = {}
 end
 
 -- ─── Catppuccin theme ───
@@ -513,3 +537,6 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 
 -- ─── Filetype detection (fallback) ───
 vim.cmd("filetype plugin indent on")
+
+-- ─── Async plugin bootstrap (first run) ───
+vim.defer_fn(run_pending_clones, 100)
