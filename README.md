@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL%203.0-blue.svg" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-BSL%201.1-blue.svg" alt="License" /></a>
   <a href="#"><img src="https://img.shields.io/badge/version-3.0.0-brightgreen.svg" alt="Version" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-blue.svg" alt="TypeScript" /></a>
   <a href="#testing"><img src="https://img.shields.io/badge/tests-1262%20passing-brightgreen.svg" alt="Tests" /></a>
@@ -523,7 +523,7 @@ SoulForge builds on ideas from projects we respect:
 
 ## License
 
-[AGPL-3.0-only](LICENSE). Third-party licenses in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+[Business Source License 1.1](LICENSE). Free for personal and internal use. Commercial use requires a [commercial license](COMMERCIAL_LICENSE.md). Converts to Apache 2.0 on March 15, 2030. Third-party licenses in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 <p align="center">
   <sub>Built with care by <a href="https://github.com/proxysoul">proxySoul</a></sub>
