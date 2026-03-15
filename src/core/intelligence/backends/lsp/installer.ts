@@ -5,7 +5,7 @@
 // Installs to ~/.soulforge/lsp-servers/ via bun (npm), curl+tar (github), pip, go, cargo.
 
 import { execSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -23,8 +23,8 @@ const MASON_REGISTRY_LOCAL = join(
   "mason-registry",
   "registry.json",
 );
-const MASON_REGISTRY_URL =
-  "https://raw.githubusercontent.com/mason-org/mason-registry/main/registry.json";
+const MASON_REGISTRY_RELEASE_URL =
+  "https://api.github.com/repos/mason-org/mason-registry/releases/latest";
 const REGISTRY_CACHE = join(homedir(), ".soulforge", "mason-registry.json");
 const MASON_BIN_DIR = join(homedir(), ".local", "share", "nvim", "mason", "bin");
 
@@ -156,14 +156,37 @@ export function loadRegistry(): MasonPackage[] {
   return [];
 }
 
-/** Download registry.json from GitHub and cache it */
+/** Download registry.json from GitHub releases (zipped since 2025) and cache it */
 export async function downloadRegistry(): Promise<MasonPackage[]> {
   mkdirSync(join(homedir(), ".soulforge"), { recursive: true });
   try {
-    const resp = await fetch(MASON_REGISTRY_URL);
-    if (!resp.ok) throw new Error(`HTTP ${String(resp.status)}`);
-    const text = await resp.text();
+    const releaseResp = await fetch(MASON_REGISTRY_RELEASE_URL, {
+      headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "SoulForge" },
+    });
+    if (!releaseResp.ok) throw new Error(`GitHub API HTTP ${String(releaseResp.status)}`);
+    const release = (await releaseResp.json()) as { assets?: Array<{ name: string; browser_download_url: string }> };
+    const asset = release.assets?.find((a) => a.name === "registry.json.zip");
+    if (!asset) throw new Error("registry.json.zip not found in latest release");
+
+    const zipResp = await fetch(asset.browser_download_url);
+    if (!zipResp.ok) throw new Error(`Download HTTP ${String(zipResp.status)}`);
+    const zipBuf = await zipResp.arrayBuffer();
+
+    const tmpZip = join(homedir(), ".soulforge", "mason-registry.zip");
+    writeFileSync(tmpZip, Buffer.from(zipBuf));
+
+    const { execSync } = await import("node:child_process");
+    execSync(`unzip -qo "${tmpZip}" registry.json -d "${join(homedir(), ".soulforge")}"`, {
+      stdio: "ignore",
+      timeout: 10_000,
+    });
+    unlinkSync(tmpZip);
+
+    const jsonPath = join(homedir(), ".soulforge", "registry.json");
+    const text = readFileSync(jsonPath, "utf-8");
     writeFileSync(REGISTRY_CACHE, text);
+    unlinkSync(jsonPath);
+
     registryCache = JSON.parse(text) as MasonPackage[];
     return registryCache;
   } catch (err) {
