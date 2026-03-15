@@ -515,8 +515,24 @@ bun run lint:fix      # auto-fix
 
 ## Roadmap
 
+**SoulForge beyond the TUI** — the intelligence layer is being extracted into reusable packages:
+
+```
+@soulforge/intelligence    Core library — repo map, tools, agent loop
+       ↑
+@soulforge/mcp             MCP server — plug into Claude Code, Cursor, Copilot
+       ↑
+sf --headless              CLI mode — CI/CD, scripts, automation
+       ↑
+SoulForge TUI              Full experience (what you're looking at now)
+```
+
+- **`@soulforge/intelligence`** — graph intelligence, 30+ tools, and agent orchestration as an importable package. Build your own AI tools on top of SoulForge's brain.
+- **`@soulforge/mcp`** — expose soul_grep, soul_find, soul_analyze, soul_impact, navigate, read_code as MCP tools. Any AI tool that supports MCP gets SoulForge's graph intelligence.
+- **`sf --headless`** — non-interactive mode. Pipe in a prompt, get back results. For CI/CD, automation, and benchmarks.
+
 **In progress:**
-- **MCP server support** — connect existing MCP tools (databases, APIs, custom servers) directly to SoulForge
+- **MCP support** — consume external MCP servers from within SoulForge + expose tools as an MCP server
 - **Repo Map visualization** — interactive dependency graph, PageRank heatmap, blast radius explorer
 - **GitHub CLI integration** — native `gh_pr`, `gh_issue`, `gh_status` tools with structured output
 - **Dispatch worktrees** — git worktree per code agent for conflict-free parallel edits
