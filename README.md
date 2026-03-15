@@ -334,8 +334,8 @@ SoulForge ships 30+ tools organized by capability:
 | [**Ollama**](https://ollama.ai) | Any local model | Auto-detected |
 | [**OpenRouter**](https://openrouter.ai) | 200+ models | `OPENROUTER_API_KEY` |
 | [**LLM Gateway**](https://llmgateway.io) | Multi-model gateway (OpenAI, Claude, Gemini, DeepSeek) | `LLM_GATEWAY_API_KEY` |
-| **Vercel Gateway** | Vercel AI Gateway | `VERCEL_GATEWAY_API_KEY` |
-| **Proxy** | Any OpenAI-compatible endpoint | `PROXY_API_KEY` |
+| [**Vercel AI Gateway**](https://vercel.com/ai-gateway) | Unified gateway for 15+ providers with caching, fallbacks, rate limiting | `AI_GATEWAY_API_KEY` |
+| [**Proxy**](https://github.com/router-for-me/CLIProxyAPI) | Local proxy with auto-lifecycle management — starts/stops with SoulForge | `PROXY_API_KEY` |
 
 ### Task Router
 
