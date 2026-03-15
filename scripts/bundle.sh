@@ -126,18 +126,14 @@ cp src/core/editor/init.lua "${DEPS_DIR}/init.lua"
 NERD_FONTS_VERSION="v3.4.0"
 NERD_FONTS_BASE="https://github.com/ryanoasis/nerd-fonts/releases/download/${NERD_FONTS_VERSION}"
 
-for FONT_PKG in NerdFontsSymbolsOnly JetBrainsMono; do
-  if [[ ! -f "${CACHE_DIR}/${FONT_PKG}.zip" ]]; then
-    echo "    ↓ ${FONT_PKG}..."
-    curl -fSL --retry 3 "${NERD_FONTS_BASE}/${FONT_PKG}.zip" -o "${CACHE_DIR}/${FONT_PKG}.zip"
-  else
-    echo "    ✓ ${FONT_PKG} (cached)"
-  fi
-done
-
+if [[ ! -f "${CACHE_DIR}/NerdFontsSymbolsOnly.zip" ]]; then
+  echo "    ↓ Nerd Font Symbols Only..."
+  curl -fSL --retry 3 "${NERD_FONTS_BASE}/NerdFontsSymbolsOnly.zip" -o "${CACHE_DIR}/NerdFontsSymbolsOnly.zip"
+else
+  echo "    ✓ Nerd Font Symbols Only (cached)"
+fi
 mkdir -p "${DEPS_DIR}/nerd-fonts"
 unzip -qo "${CACHE_DIR}/NerdFontsSymbolsOnly.zip" "*.ttf" -d "${DEPS_DIR}/nerd-fonts" 2>/dev/null || true
-unzip -qo "${CACHE_DIR}/JetBrainsMono.zip" "*.ttf" -d "${DEPS_DIR}/nerd-fonts" 2>/dev/null || true
 
 echo "==> Dependencies ready"
 
