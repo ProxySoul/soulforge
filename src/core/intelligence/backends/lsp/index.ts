@@ -9,13 +9,18 @@ import { dirname, join, resolve } from "node:path";
 import type {
   CallHierarchyResult,
   CodeAction,
+  CodeBlock,
   Diagnostic,
+  ExportInfo,
+  FileOutline,
   FormatEdit,
+  ImportInfo,
   IntelligenceBackend,
   Language,
   RefactorResult,
   SourceLocation,
   SymbolInfo,
+  SymbolKind,
   TypeHierarchyResult,
   TypeInfo,
 } from "../../types.js";
@@ -44,6 +49,18 @@ const SUPPORTED_LANGUAGES: Set<Language> = new Set([
   "python",
   "go",
   "rust",
+  "lua",
+  "c",
+  "cpp",
+  "ruby",
+  "php",
+  "zig",
+  "bash",
+  "css",
+  "html",
+  "json",
+  "yaml",
+  "dockerfile",
 ]);
 
 export class LspBackend implements IntelligenceBackend {
@@ -178,6 +195,396 @@ export class LspBackend implements IntelligenceBackend {
       /* fall through */
     }
     return null;
+  }
+
+  // ─── Imports & Exports (derived from documentSymbol + file content) ───
+
+  async findImports(file: string): Promise<ImportInfo[] | null> {
+    const absFile = resolve(file);
+    let content: string;
+    try {
+      content = readFileSync(absFile, "utf-8");
+    } catch {
+      return null;
+    }
+
+    const imports: ImportInfo[] = [];
+    const lines = content.split("\n");
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const trimmed = line.trim();
+
+      // JS/TS: import ... from '...' or import '...'
+      const jsImport = trimmed.match(
+        /^import\s+(?:(?:type\s+)?(?:\{[^}]*\}|[\w*]+(?:\s*,\s*\{[^}]*\})?)\s+from\s+)?['"]([^'"]+)['"]/,
+      );
+      if (jsImport) {
+        const specifiers: string[] = [];
+        let isDefault = false;
+        let isNamespace = false;
+        const specMatch = trimmed.match(/import\s+(\w+)/);
+        const namedMatch = trimmed.match(/\{([^}]+)\}/);
+        const nsMatch = trimmed.match(/\*\s+as\s+(\w+)/);
+        if (nsMatch) {
+          isNamespace = true;
+          specifiers.push(nsMatch[1]!);
+        } else if (specMatch && specMatch[1] !== "type") {
+          isDefault = true;
+          specifiers.push(specMatch[1]!);
+        }
+        if (namedMatch) {
+          specifiers.push(
+            ...namedMatch[1]!.split(",").map((s) => s.trim().split(/\s+as\s+/)[0]!).filter(Boolean),
+          );
+        }
+        imports.push({
+          source: jsImport[1]!,
+          specifiers,
+          isDefault,
+          isNamespace,
+          location: { file: absFile, line: i + 1, column: 1 },
+        });
+        continue;
+      }
+
+      // Python: import X / from X import Y
+      if (trimmed.startsWith("import ") || trimmed.startsWith("from ")) {
+        const pyFrom = trimmed.match(/^from\s+([\w.]+)\s+import\s+(.+)/);
+        const pyImport = trimmed.match(/^import\s+([\w.]+)/);
+        if (pyFrom) {
+          imports.push({
+            source: pyFrom[1]!,
+            specifiers: pyFrom[2]!.split(",").map((s) => s.trim().split(/\s+as\s+/)[0]!).filter(Boolean),
+            isDefault: false,
+            isNamespace: false,
+            location: { file: absFile, line: i + 1, column: 1 },
+          });
+        } else if (pyImport) {
+          imports.push({
+            source: pyImport[1]!,
+            specifiers: [],
+            isDefault: false,
+            isNamespace: true,
+            location: { file: absFile, line: i + 1, column: 1 },
+          });
+        }
+        continue;
+      }
+
+      // Go: import "pkg" or import ( "pkg" )
+      const goImport = trimmed.match(/^import\s+(?:(\w+)\s+)?["']([^"']+)["']/);
+      if (goImport) {
+        imports.push({
+          source: goImport[2]!,
+          specifiers: goImport[1] ? [goImport[1]] : [],
+          isDefault: false,
+          isNamespace: !!goImport[1],
+          location: { file: absFile, line: i + 1, column: 1 },
+        });
+        continue;
+      }
+      // Go: inside import block
+      if (trimmed === "import (") {
+        for (let j = i + 1; j < lines.length; j++) {
+          const inner = lines[j]!.trim();
+          if (inner === ")") break;
+          const goInner = inner.match(/^(?:(\w+)\s+)?["']([^"']+)["']/);
+          if (goInner) {
+            imports.push({
+              source: goInner[2]!,
+              specifiers: goInner[1] ? [goInner[1]] : [],
+              isDefault: false,
+              isNamespace: !!goInner[1],
+              location: { file: absFile, line: j + 1, column: 1 },
+            });
+          }
+        }
+        continue;
+      }
+
+      // Rust: use crate::... / use std::...
+      const rustUse = trimmed.match(/^use\s+([\w:]+)/);
+      if (rustUse) {
+        imports.push({
+          source: rustUse[1]!,
+          specifiers: [],
+          isDefault: false,
+          isNamespace: false,
+          location: { file: absFile, line: i + 1, column: 1 },
+        });
+        continue;
+      }
+
+      // C/C++: #include <...> or #include "..."
+      const cInclude = trimmed.match(/^#include\s+[<"]([^>"]+)[>"]/);
+      if (cInclude) {
+        imports.push({
+          source: cInclude[1]!,
+          specifiers: [],
+          isDefault: false,
+          isNamespace: false,
+          location: { file: absFile, line: i + 1, column: 1 },
+        });
+        continue;
+      }
+
+      // Ruby: require 'x' / require_relative 'x'
+      const rbRequire = trimmed.match(/^(?:require|require_relative)\s+['"]([^'"]+)['"]/);
+      if (rbRequire) {
+        imports.push({
+          source: rbRequire[1]!,
+          specifiers: [],
+          isDefault: false,
+          isNamespace: false,
+          location: { file: absFile, line: i + 1, column: 1 },
+        });
+        continue;
+      }
+
+      // PHP: use Namespace\Class
+      const phpUse = trimmed.match(/^use\s+([\w\\]+)/);
+      if (phpUse) {
+        imports.push({
+          source: phpUse[1]!,
+          specifiers: [],
+          isDefault: false,
+          isNamespace: false,
+          location: { file: absFile, line: i + 1, column: 1 },
+        });
+      }
+    }
+
+    return imports.length > 0 ? imports : null;
+  }
+
+  async findExports(file: string): Promise<ExportInfo[] | null> {
+    const absFile = resolve(file);
+    let content: string;
+    try {
+      content = readFileSync(absFile, "utf-8");
+    } catch {
+      return null;
+    }
+
+    // Get document symbols for richer data
+    const symbols = await this.findSymbols(file);
+    const exports: ExportInfo[] = [];
+    const lines = content.split("\n");
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const trimmed = line.trim();
+
+      // JS/TS: export ...
+      if (trimmed.startsWith("export ")) {
+        const isDefault = trimmed.startsWith("export default ");
+        let name = "";
+        let kind: SymbolKind = "variable";
+
+        const funcMatch = trimmed.match(/export\s+(?:default\s+)?(?:async\s+)?function\s+(\w+)/);
+        const classMatch = trimmed.match(/export\s+(?:default\s+)?class\s+(\w+)/);
+        const constMatch = trimmed.match(/export\s+(?:default\s+)?(?:const|let|var)\s+(\w+)/);
+        const typeMatch = trimmed.match(/export\s+(?:default\s+)?(?:type|interface)\s+(\w+)/);
+        const enumMatch = trimmed.match(/export\s+(?:default\s+)?enum\s+(\w+)/);
+
+        if (funcMatch) {
+          name = funcMatch[1]!;
+          kind = "function";
+        } else if (classMatch) {
+          name = classMatch[1]!;
+          kind = "class";
+        } else if (typeMatch) {
+          name = typeMatch[1]!;
+          kind = trimmed.includes("interface") ? "interface" : "type";
+        } else if (enumMatch) {
+          name = enumMatch[1]!;
+          kind = "enum";
+        } else if (constMatch) {
+          name = constMatch[1]!;
+          kind = "variable";
+        } else if (isDefault) {
+          name = "default";
+        }
+
+        // Try to enrich with symbol info from documentSymbol
+        if (name && symbols) {
+          const sym = symbols.find((s) => s.name === name);
+          if (sym?.kind) kind = sym.kind;
+        }
+
+        if (name) {
+          exports.push({
+            name,
+            isDefault,
+            kind,
+            location: { file: absFile, line: i + 1, column: 1 },
+          });
+        }
+        continue;
+      }
+
+      // Re-exports: export { ... } from '...'
+      const reExport = trimmed.match(/^export\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/);
+      if (reExport) {
+        const names = reExport[1]!.split(",").map((s) => s.trim().split(/\s+as\s+/).pop()!).filter(Boolean);
+        for (const n of names) {
+          exports.push({
+            name: n,
+            isDefault: false,
+            kind: "variable",
+            location: { file: absFile, line: i + 1, column: 1 },
+          });
+        }
+      }
+
+      // Python: __all__ = [...]
+      if (trimmed.startsWith("__all__")) {
+        const allMatch = content.slice(lines.slice(0, i).join("\n").length).match(/__all__\s*=\s*\[([^\]]+)\]/);
+        if (allMatch) {
+          const names = allMatch[1]!.match(/['"](\w+)['"]/g);
+          if (names) {
+            for (const n of names) {
+              exports.push({
+                name: n.replace(/['"]/g, ""),
+                isDefault: false,
+                kind: "variable",
+                location: { file: absFile, line: i + 1, column: 1 },
+              });
+            }
+          }
+        }
+      }
+
+      // Go: Exported names start with uppercase
+      // We don't parse Go exports from content — use symbols
+    }
+
+    // For Go: any symbol starting with uppercase is exported
+    if (symbols && exports.length === 0) {
+      const lang = detectLanguage(file);
+      if (lang === "go") {
+        for (const sym of symbols) {
+          if (sym.name[0] && sym.name[0] === sym.name[0].toUpperCase() && /[A-Z]/.test(sym.name[0])) {
+            exports.push({
+              name: sym.name,
+              isDefault: false,
+              kind: sym.kind,
+              location: sym.location ?? { file: absFile, line: 1, column: 1 },
+            });
+          }
+        }
+      }
+    }
+
+    return exports.length > 0 ? exports : null;
+  }
+
+  async getFileOutline(file: string): Promise<FileOutline | null> {
+    const symbols = await this.findSymbols(file);
+    if (!symbols) return null;
+
+    const imports = await this.findImports(file);
+    const exports = await this.findExports(file);
+    const lang = detectLanguage(file);
+
+    return {
+      file: resolve(file),
+      language: lang ?? "unknown",
+      symbols,
+      imports: imports ?? [],
+      exports: exports ?? [],
+    };
+  }
+
+  async readSymbol(
+    file: string,
+    symbolName: string,
+    symbolKind?: SymbolKind,
+  ): Promise<CodeBlock | null> {
+    // Get document symbols to find the range
+    const symbols = await this.getDocumentSymbolsWithRange(file);
+    if (!symbols) return null;
+
+    // Find matching symbol
+    const match = symbols.find(
+      (s) =>
+        s.name === symbolName &&
+        (!symbolKind || s.kind === symbolKind),
+    );
+    if (!match?.range) return null;
+
+    // Read the source at the range
+    const absFile = resolve(file);
+    let content: string;
+    try {
+      content = readFileSync(absFile, "utf-8");
+    } catch {
+      return null;
+    }
+
+    const lines = content.split("\n");
+    const startLine = match.range.start.line;
+    const endLine = match.range.end.line;
+    const block = lines.slice(startLine, endLine + 1).join("\n");
+    const lang = detectLanguage(file);
+
+    return {
+      content: block,
+      location: {
+        file: absFile,
+        line: startLine + 1,
+        column: match.range.start.character + 1,
+        endLine: endLine + 1,
+      },
+      symbolName,
+      symbolKind: match.kind,
+      language: lang ?? "unknown",
+    };
+  }
+
+  /**
+   * Get document symbols with their LSP range info preserved.
+   * Unlike findSymbols which returns SymbolInfo, this returns the raw range
+   * so readSymbol can extract the exact source text.
+   */
+  private async getDocumentSymbolsWithRange(
+    file: string,
+  ): Promise<Array<{ name: string; kind: SymbolKind; range: { start: { line: number; character: number }; end: { line: number; character: number } } }> | null> {
+    let raw: unknown[] | null = null;
+
+    if (nvimBridge.isNvimAvailable()) {
+      raw = await nvimBridge.documentSymbols(file);
+    } else {
+      const client = await this.getStandaloneClient(file);
+      if (!client) return null;
+      try {
+        raw = await client.textDocumentDocumentSymbol(file);
+      } catch {
+        return null;
+      }
+    }
+
+    if (!raw || raw.length === 0) return null;
+
+    const result: Array<{ name: string; kind: SymbolKind; range: { start: { line: number; character: number }; end: { line: number; character: number } } }> = [];
+
+    function walk(symbols: unknown[]): void {
+      for (const sym of symbols) {
+        const s = sym as Record<string, unknown>;
+        const name = s.name as string;
+        const kind = lspSymbolKindToSymbolKind(s.kind as number);
+
+        if (s.range) {
+          const ds = s as unknown as LspDocumentSymbol;
+          result.push({ name, kind, range: ds.range });
+          if (ds.children) walk(ds.children);
+        }
+      }
+    }
+
+    walk(raw);
+    return result;
   }
 
   // ─── Analysis ───

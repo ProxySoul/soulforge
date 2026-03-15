@@ -27,6 +27,8 @@ export type Language =
   | "html"
   | "json"
   | "toml"
+  | "yaml"
+  | "dockerfile"
   | "vue"
   | "rescript"
   | "solidity"
