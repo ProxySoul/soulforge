@@ -36,13 +36,13 @@ export const soulGrepTool = {
       if (wordBoundary) rgArgs.push("--word-regexp");
 
       if (count) {
-        rgArgs.push("--count");
+        rgArgs.push("--count", "--with-filename");
         if (args.glob) rgArgs.push("--glob", args.glob);
         rgArgs.push(pattern, searchPath);
         return runCount(rgBin, rgArgs);
       }
 
-      rgArgs.push("--line-number");
+      rgArgs.push("--line-number", "--with-filename");
       rgArgs.push(`--max-count=${String(args.maxCount ?? 50)}`);
       if (args.glob) rgArgs.push("--glob", args.glob);
       rgArgs.push(pattern, searchPath);

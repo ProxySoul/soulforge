@@ -188,6 +188,27 @@ function buildForgePrepareStep(
       result.messages = processed;
     }
 
+    // Cache breakpoint: mark the second-to-last message with cache_control.
+    // This tells the API "everything up to this point is a prefix — cache it."
+    // Same technique as Claude Code: append-only messages + breakpoint on penultimate.
+    if (stepNumber > 0) {
+      const msgs = result.messages ?? messages;
+      if (msgs.length >= 2) {
+        // Strip cache_control from all messages first (only one breakpoint allowed)
+        for (const msg of msgs) {
+          if (msg.providerOptions?.anthropic) {
+            const { anthropic: _, ...rest } = msg.providerOptions;
+            msg.providerOptions = Object.keys(rest).length > 0 ? rest : undefined;
+          }
+        }
+        // Place breakpoint on second-to-last message
+        const target = msgs[msgs.length - 2];
+        if (target) {
+          target.providerOptions = { ...target.providerOptions, ...EPHEMERAL_CACHE };
+        }
+      }
+    }
+
     if (isPlanMode && stepNumber >= PLAN_NUDGE_STEP && !hasPlanToolCall(messages)) {
       if (stepNumber >= PLAN_FORCE_STEP) {
         result.activeTools = ["plan", "ask_user"];
@@ -445,20 +466,11 @@ export function createForgeAgent({
     callOptionsSchema: z.object({
       userMessage: z.string().optional(),
     }),
-    instructions: (() => {
-      const prompt = contextManager.buildSystemPrompt();
-      return [
-        {
-          role: "system" as const,
-          content: prompt.static,
-          providerOptions: EPHEMERAL_CACHE,
-        },
-        {
-          role: "system" as const,
-          content: prompt.dynamic,
-        },
-      ];
-    })(),
+    instructions: {
+      role: "system" as const,
+      content: contextManager.buildSystemPrompt(),
+      providerOptions: EPHEMERAL_CACHE,
+    },
     prepareCall: ({ options: _options, ...settings }) => {
       return {
         ...settings,

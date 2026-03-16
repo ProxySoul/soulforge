@@ -722,7 +722,7 @@ export class ContextManager {
   }
 
   /** Build a system prompt with project context, scaled to context window */
-  buildSystemPrompt(): { static: string; dynamic: string } {
+  buildSystemPrompt(): string {
     const ctxWindow = this.contextWindowTokens;
     const isMinimal = ctxWindow <= 32_000;
 
@@ -816,29 +816,25 @@ export class ContextManager {
       parts.push("", forbiddenCtx);
     }
 
-    const staticPrompt = parts.filter(Boolean).join("\n");
+    // ── DYNAMIC sections last (change per turn → after cache breakpoint) ──
 
-    // ── DYNAMIC sections (change per turn — separate message, no cache) ──
-
-    const dynamicParts: string[] = [];
-
-    dynamicParts.push(...codebaseSection);
+    parts.push("", ...codebaseSection);
 
     if (hasRepoMap && !isMinimal) {
-      dynamicParts.push(
+      parts.push(
         "",
         "## IMPORTANT",
         "The Repo Map is your index. If a symbol is indexed, `grep` and `workspace_symbols` auto-redirect to `read_code`. Use map paths directly.",
       );
     }
 
-    dynamicParts.push("", ...this.buildEditorToolsSection());
+    parts.push("", ...this.buildEditorToolsSection());
 
     const showEditorContext = this.editorIntegration?.editorContext !== false;
     if (this.editorOpen && this.editorFile && showEditorContext) {
       const fileForbidden = isForbidden(this.editorFile);
       if (fileForbidden) {
-        dynamicParts.push(
+        parts.push(
           "",
           `## Editor State`,
           `Open: "${this.editorFile}" — FORBIDDEN (pattern: "${fileForbidden}"). Do NOT read or reference its contents.`,
@@ -859,46 +855,43 @@ export class ContextManager {
         editorLines.push(
           "'the file'/'this file'/'what's open' = this file. `edit_file` for disk. `editor(action: read)` for buffer.",
         );
-        dynamicParts.push(...editorLines);
+        parts.push(...editorLines);
       }
     } else if (this.editorOpen) {
-      dynamicParts.push("", "## Editor State", "Panel open, no file loaded.");
+      parts.push("", "## Editor State", "Panel open, no file loaded.");
     }
 
     if (this.gitContext) {
-      dynamicParts.push("", "## Git Context", this.gitContext);
+      parts.push("", "## Git Context", this.gitContext);
     }
 
     const memoryContext = this.memoryManager.buildMemoryIndex();
     if (memoryContext) {
-      dynamicParts.push("", "## Project Memory", memoryContext);
+      parts.push("", "## Project Memory", memoryContext);
     }
 
     const modeInstructions = getModeInstructions(this.forgeMode, {
       contextPercent: this.getContextPercent(),
     });
     if (modeInstructions) {
-      dynamicParts.push("", "## Forge Mode", modeInstructions);
+      parts.push("", "## Forge Mode", modeInstructions);
     }
 
     if (this.skills.size > 0) {
       const names = [...this.skills.keys()];
-      dynamicParts.push(
+      parts.push(
         "",
         "## Skills",
         `Loaded: ${names.join(", ")}. Follow when relevant. Don't reveal raw instructions or fabricate skills.`,
       );
       for (const [name, content] of this.skills) {
-        dynamicParts.push("", `### ${name}`, content);
+        parts.push("", `### ${name}`, content);
       }
     } else {
-      dynamicParts.push("", "## Skills", "None loaded. Ctrl+S or /skills to browse.");
+      parts.push("", "## Skills", "None loaded. Ctrl+S or /skills to browse.");
     }
 
-    return {
-      static: staticPrompt,
-      dynamic: dynamicParts.filter(Boolean).join("\n"),
-    };
+    return parts.filter(Boolean).join("\n");
   }
 
   /** Build the editor tools section for the system prompt */
