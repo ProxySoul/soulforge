@@ -1,6 +1,6 @@
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
-import { hasToolCall, stepCountIs, ToolLoopAgent, tool } from "ai";
+import { hasToolCall, Output, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
 import { buildSubagentCodeTools, wrapWithBusCache } from "../tools/index.js";
@@ -40,6 +40,27 @@ const codeDoneTool = tool({
     verified: z.boolean().describe("Whether changes were verified (lint/typecheck/test)"),
     verificationOutput: z.string().optional().describe("Output from verification commands"),
   }),
+});
+
+const codeOutputSchema = z.object({
+  summary: z.string().describe("What was accomplished and any decisions made"),
+  filesEdited: z
+    .array(z.object({ file: z.string(), changes: z.string() }))
+    .optional()
+    .describe("Files modified with change descriptions"),
+  filesExamined: z.array(z.string()).optional().describe("Files read during task"),
+  keyFindings: z
+    .array(z.object({ file: z.string(), detail: z.string() }))
+    .optional()
+    .describe("Key findings with code"),
+  verified: z.boolean().optional().describe("Whether changes were verified"),
+});
+
+const codeOutput = Output.object({
+  name: "code_result",
+  description:
+    "Structured result of code edits. Include file paths, changes, and verification status.",
+  schema: codeOutputSchema,
 });
 
 interface CodeAgentOptions {
@@ -89,6 +110,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
       })(),
       providerOptions: EPHEMERAL_CACHE,
     },
+    output: codeOutput,
     stopWhen: [stepCountIs(25), tokenBudget(150_000), hasToolCall("done")],
     prepareStep: buildPrepareStep({
       bus,

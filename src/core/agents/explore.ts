@@ -1,6 +1,6 @@
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
-import { hasToolCall, stepCountIs, ToolLoopAgent, tool } from "ai";
+import { hasToolCall, Output, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
 import { buildSubagentExploreTools, wrapWithBusCache } from "../tools/index.js";
@@ -44,6 +44,31 @@ const exploreDoneTool = tool({
       .describe("Each finding with pasteable code"),
   }),
 });
+
+const exploreOutputSchema = z.object({
+  summary: z.string().describe("Direct answer to the task question with key conclusions"),
+  filesExamined: z.array(z.string()).describe("File paths you examined"),
+  keyFindings: z
+    .array(
+      z.object({
+        file: z.string(),
+        detail: z
+          .string()
+          .describe("PASTE actual code: full function bodies, type definitions, relevant blocks"),
+        lineNumbers: z.string().optional(),
+      }),
+    )
+    .describe("Each finding with pasteable code"),
+});
+
+const exploreOutput = Output.object({
+  name: "research_result",
+  description:
+    "Structured research result. Paste full code in keyFindings — the parent is BLIND to your tool results.",
+  schema: exploreOutputSchema,
+});
+
+export type ExploreOutput = z.infer<typeof exploreOutputSchema>;
 
 interface ExploreAgentOptions {
   bus?: AgentBus;
@@ -92,7 +117,8 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
       })(),
       providerOptions: EPHEMERAL_CACHE,
     },
-    stopWhen: [stepCountIs(17), tokenBudget(80_000), hasToolCall("done")],
+    output: exploreOutput,
+    stopWhen: [stepCountIs(15), tokenBudget(80_000), hasToolCall("done")],
     prepareStep: buildPrepareStep({
       bus,
       agentId,

@@ -166,6 +166,7 @@ export interface DispatchOutput {
 
 type AgentResult = {
   text: string;
+  output?: unknown;
   steps: Array<{
     toolCalls?: Array<{ toolName: string; args?: Record<string, unknown> }>;
     toolResults?: Array<{
@@ -851,11 +852,36 @@ async function runAgentTask(
       const { agent } = createAgent(task, models, bus);
       const callbacks = buildStepCallbacks(parentToolCallId, task.agentId);
 
-      const result = await agent.generate({
-        prompt: enrichedPrompt,
-        abortSignal,
-        ...callbacks,
-      });
+      // biome-ignore lint/suspicious/noExplicitAny: agent.generate result type varies with Output generic
+      let result: any;
+      try {
+        result = await agent.generate({
+          prompt: enrichedPrompt,
+          abortSignal,
+          ...callbacks,
+        });
+      } catch (genErr: unknown) {
+        // Output schema can throw NoOutputGeneratedError if the model fails to
+        // produce valid structured JSON after the tool loop. The steps are done —
+        // extract them from the error and synthesize results.
+        const errWithSteps = genErr as { steps?: unknown[]; text?: string; totalUsage?: unknown };
+        if (errWithSteps.steps && Array.isArray(errWithSteps.steps)) {
+          result = {
+            text: errWithSteps.text ?? "",
+            output: undefined,
+            steps: errWithSteps.steps,
+            totalUsage: errWithSteps.totalUsage ?? { inputTokens: 0, outputTokens: 0 },
+          };
+          // Log the output schema failure for /errors
+          const { logBackgroundError } = await import("../../stores/errors.js");
+          logBackgroundError(
+            task.agentId,
+            `Output schema failed: ${genErr instanceof Error ? genErr.message : String(genErr)}`,
+          );
+        } else {
+          throw genErr;
+        }
+      }
 
       const toolUses =
         callbacks._acc.toolUses ||
@@ -868,15 +894,39 @@ async function runAgentTask(
       const cacheRead =
         callbacks._acc.cacheRead || (result.totalUsage.inputTokenDetails?.cacheReadTokens ?? 0);
 
-      let doneResult = extractDoneResult(result);
+      // Three sources for structured results (priority order):
+      // 1. Output schema (SDK-generated structured data after loop ends)
+      // 2. Done tool (agent explicitly called done with curated content)
+      // 3. Auto-synthesize from tool results + bus findings (guaranteed fallback)
       const agentFindings = bus.getFindings().filter((f) => f.agentId === task.agentId);
+      let doneResult: DoneToolResult | null = null;
+      let calledDone = false;
 
-      // Auto-synthesize done when agent exhausted steps without calling done
+      const outputData = result.output as
+        | {
+            summary?: string;
+            filesExamined?: string[];
+            keyFindings?: Array<{ file: string; detail: string }>;
+          }
+        | undefined;
+      if (outputData?.summary && outputData.keyFindings && outputData.keyFindings.length > 0) {
+        doneResult = {
+          summary: outputData.summary,
+          filesExamined: outputData.filesExamined,
+          keyFindings: outputData.keyFindings,
+        };
+        calledDone = true;
+      }
+
+      if (!doneResult) {
+        doneResult = extractDoneResult(result);
+        if (doneResult) calledDone = true;
+      }
+
       if (!doneResult) {
         doneResult = synthesizeDoneFromResults(result, agentFindings, task);
       }
 
-      const calledDone = extractDoneResult(result) !== null; // original check for UI indicator
       const resultText = formatDoneResult(doneResult);
 
       const agentResult: BusAgentResult = {
@@ -1203,42 +1253,6 @@ export function buildSubagentTools(models: SubagentModels) {
               }
             }
             args = { ...args, tasks: [...pinned, ...mergeable] };
-          }
-
-          // Auto-split tasks with too many files per agent (ensures agents call done within step budget)
-          const MAX_FILES_PER_AGENT = 5;
-          const splitTasks: typeof args.tasks = [];
-          for (const t of args.tasks) {
-            const isWebTask =
-              t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER;
-            if (
-              isWebTask ||
-              t.role === "code" ||
-              t.role === "investigate" ||
-              t.targetFiles.length <= MAX_FILES_PER_AGENT
-            ) {
-              splitTasks.push(t);
-              continue;
-            }
-            // Split explore tasks with >5 files into chunks
-            for (let i = 0; i < t.targetFiles.length; i += MAX_FILES_PER_AGENT) {
-              const chunk = t.targetFiles.slice(i, i + MAX_FILES_PER_AGENT);
-              const chunkId = t.id
-                ? `${t.id}-${String(Math.floor(i / MAX_FILES_PER_AGENT) + 1)}`
-                : undefined;
-              splitTasks.push({
-                ...t,
-                id: chunkId,
-                targetFiles: chunk,
-                task:
-                  i === 0
-                    ? t.task
-                    : `${t.task} (continued — files ${String(i + 1)}-${String(i + chunk.length)})`,
-              });
-            }
-          }
-          if (splitTasks.length !== args.tasks.length) {
-            args = { ...args, tasks: splitTasks };
           }
 
           if (!args.force && cacheRef.current) {

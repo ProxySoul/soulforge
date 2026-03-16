@@ -829,6 +829,7 @@ export function App({
       if (evt.ctrl && evt.name === "c") {
         handleExit();
       }
+      evt.stopPropagation();
       return;
     }
 
@@ -842,6 +843,8 @@ export function App({
         handleExit();
         return;
       }
+      // Prevent OpenTUI scrollbox from handling keys meant for Neovim (up/down/j/k etc.)
+      evt.stopPropagation();
       return;
     }
     if (evt.ctrl && evt.name === "o") {
