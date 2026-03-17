@@ -106,6 +106,11 @@ const TOOLS = {
 	done: {},
 };
 
+// Steps with enough tokens to trigger cache-aware pruning (explore: 35k, code: 60k)
+const STEPS_ABOVE_PRUNE_THRESHOLD = [
+	{ usage: { inputTokens: 35_000, outputTokens: 35_000 } },
+];
+
 function callPrepareStep(
 	opts: PrepareStepOptions,
 	stepArgs: {
@@ -141,7 +146,7 @@ describe("pruning rules", () => {
 		];
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe(LONG_CONTENT);
 	});
@@ -171,7 +176,7 @@ describe("pruning rules", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(result?.messages).toBeDefined();
 		expect(resultText(result!.messages!, 1)).toContain("[pruned]");
@@ -186,7 +191,7 @@ describe("pruning rules", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const lastToolIdx = result!.messages!.length - 1;
 		expect(resultText(result!.messages!, lastToolIdx)).toBe(LONG_CONTENT);
@@ -201,7 +206,7 @@ describe("pruning rules", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe("short");
 	});
@@ -221,7 +226,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe("[pruned] 100 lines");
 	});
@@ -242,7 +247,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe(
 			"[pruned] 100 lines — exports: Foo, bar",
@@ -258,7 +263,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe("[pruned] 100 lines");
 	});
@@ -273,7 +278,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const text = resultText(result!.messages!, 1);
 		expect(text).toStartWith("[pruned] 42 matches");
@@ -293,7 +298,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const text = resultText(result!.messages!, 1);
 		expect(text).toStartWith("[pruned] 25 files");
@@ -310,7 +315,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: { ...TOOLS, shell: {} } },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const text = resultText(result!.messages!, 1);
 		expect(text).toStartWith("[pruned]");
@@ -330,7 +335,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: { ...TOOLS, dispatch: {} } },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const text = resultText(result!.messages!, 1);
 		expect(text).toStartWith("[pruned] dispatch completed");
@@ -348,7 +353,7 @@ describe("summary formats", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: { ...TOOLS, dispatch: {} } },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const text = resultText(result!.messages!, 1);
 		expect(text).toStartWith("[pruned] dispatch completed");
@@ -373,7 +378,7 @@ describe("summary formats", () => {
 			});
 			const result = callPrepareStep(
 				{ role: "explore", allTools: { ...TOOLS, [toolName]: {} } },
-				{ stepNumber: 3, messages: msgs },
+				{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 			);
 			const text = resultText(result!.messages!, 1);
 			expect(text).toMatch(/^\[pruned\] \d+ lines, \d+ chars$/);
@@ -414,7 +419,7 @@ describe("summary formats", () => {
 		}
 		const result = callPrepareStep(
 			{ role: "explore", allTools: { ...TOOLS, shell: {} } },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toContain("[pruned]");
 	});
@@ -453,7 +458,7 @@ describe("summary formats", () => {
 		}
 		const result = callPrepareStep(
 			{ role: "explore", allTools: { ...TOOLS, shell: {} } },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toContain("[pruned]");
 	});
@@ -474,7 +479,7 @@ describe("preservation rules", () => {
 			});
 			const result = callPrepareStep(
 				{ role: "code", allTools: { ...TOOLS, [toolName]: {} } },
-				{ stepNumber: 3, messages: msgs },
+				{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 			);
 			expect(resultText(result!.messages!, 1)).toBe(LONG_CONTENT);
 		}
@@ -489,7 +494,7 @@ describe("preservation rules", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe(LONG_CONTENT);
 	});
@@ -555,7 +560,7 @@ describe("preservation rules", () => {
 
 		const result = callPrepareStep(
 			{ role: "code", allTools: TOOLS },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1, 0)).toBe("[pruned] 100 lines");
 		expect(resultText(result!.messages!, 1, 1)).toBe(LONG_CONTENT);
@@ -585,7 +590,7 @@ describe("symbol enrichment", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const text = resultText(result!.messages!, 1);
 		expect(text).toContain("Sym0");
@@ -606,7 +611,7 @@ describe("symbol enrichment", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe("[pruned] 100 lines");
 	});
@@ -624,7 +629,7 @@ describe("symbol enrichment", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe(
 			"[pruned] 100 lines — exports: User",
@@ -644,7 +649,7 @@ describe("symbol enrichment", () => {
 		});
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toBe(
 			"[pruned] 100 lines — exports: helper",
@@ -666,7 +671,7 @@ describe("symbol enrichment", () => {
 
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		expect(resultText(result!.messages!, 1)).toContain("exports: Foo");
 	});
@@ -715,7 +720,7 @@ describe("symbol enrichment", () => {
 
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS, symbolLookup },
-			{ stepNumber: 3, messages: msgs },
+			{ stepNumber: 3, messages: msgs, steps: STEPS_ABOVE_PRUNE_THRESHOLD },
 		);
 		const summary = resultText(result!.messages!, 1);
 		expect(summary).toBe("[pruned] 100 lines");
@@ -787,20 +792,19 @@ describe("buildPrepareStep — token budgets", () => {
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(61_000) },
 		);
-		expect(result?.system).toContain("running low on token budget");
+		expect(result?.system).toContain("Running low on token budget");
 		expect(result?.system).toContain("Wrap up");
 		expect(result?.activeTools).toBeDefined();
 		expect(result?.activeTools).not.toContain("edit_file");
 	});
 
-	it("explore: forces done at 70k tokens", () => {
+	it("explore: no forced done at 70k tokens (output schema handles it)", () => {
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(71_000) },
 		);
-		expect(result?.activeTools).toEqual(["done"]);
-		expect(result?.toolChoice).toBe("required");
-		expect(result?.system).toContain("Token budget exhausted");
+		// No longer forces done — output schema generates structured results after loop ends
+		expect(result?.activeTools).not.toEqual(["done"]);
 	});
 
 	it("code: warns at 120k tokens", () => {
@@ -808,17 +812,16 @@ describe("buildPrepareStep — token budgets", () => {
 			{ role: "code", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(121_000) },
 		);
-		expect(result?.system).toContain("running low on token budget");
+		expect(result?.system).toContain("Running low on token budget");
 		expect(result?.system).toContain("Finish your current edit");
 	});
 
-	it("code: forces done at 135k tokens", () => {
+	it("code: no forced done at 135k tokens (output schema handles it)", () => {
 		const result = callPrepareStep(
 			{ role: "code", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(136_000) },
 		);
-		expect(result?.activeTools).toEqual(["done"]);
-		expect(result?.toolChoice).toBe("required");
+		expect(result?.activeTools).not.toEqual(["done"]);
 	});
 
 	it("no warning below threshold", () => {
