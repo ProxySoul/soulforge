@@ -1,6 +1,6 @@
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
-import { Output, stepCountIs, ToolLoopAgent } from "ai";
+import { Output, ToolLoopAgent } from "ai";
 import { z } from "zod";
 import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
 import { buildSubagentExploreTools, wrapWithBusCache } from "../tools/index.js";
@@ -69,6 +69,7 @@ interface ExploreAgentOptions {
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
   repoMap?: import("../intelligence/repo-map.js").RepoMap;
+  contextWindow?: number;
 }
 
 export function createExploreAgent(model: LanguageModel, options?: ExploreAgentOptions) {
@@ -99,8 +100,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
     role: "explore",
     allTools,
     symbolLookup: buildSymbolLookup(options?.repoMap),
-    stepLimit: 15,
-    tokenBudgetMax: 95_000,
+    contextWindow: options?.contextWindow,
   });
 
   return new ToolLoopAgent({
@@ -118,7 +118,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
       providerOptions: EPHEMERAL_CACHE,
     },
     output: exploreOutput,
-    stopWhen: [stepCountIs(15), tokenStop],
+    stopWhen: tokenStop,
     prepareStep,
     experimental_repairToolCall: repairToolCall,
     ...(options?.providerOptions && Object.keys(options.providerOptions).length > 0

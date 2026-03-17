@@ -16,8 +16,7 @@ export interface PrepareStepOptions {
   role: import("./agent-bus.js").AgentRole;
   allTools: Record<string, unknown>;
   symbolLookup?: SymbolLookup;
-  stepLimit?: number;
-  tokenBudgetMax?: number;
+  contextWindow?: number;
 }
 
 const READ_TOOLS = new Set([
@@ -39,16 +38,13 @@ const READ_TOOLS = new Set([
   "done",
 ]);
 
-const CONTEXT_TRIM_THRESHOLD_EXPLORE = 50_000;
-const CONTEXT_TRIM_THRESHOLD_CODE = 80_000;
-const BUDGET_WARNING_THRESHOLD_EXPLORE = 60_000;
-const BUDGET_WARNING_THRESHOLD_CODE = 120_000;
-const OUTPUT_NUDGE_THRESHOLD_EXPLORE = 55_000;
-const OUTPUT_NUDGE_THRESHOLD_CODE = 110_000;
-// Cache-aware pruning: only compact old tool results when context exceeds this threshold.
-// Below this, caching handles the cost better than pruning (prefix stays stable → cache hits).
-const PRUNE_THRESHOLD_EXPLORE = 35_000;
-const PRUNE_THRESHOLD_CODE = 60_000;
+// Context-proportional thresholds (fraction of model's context window).
+// Agents run until done naturally; these are guardrails as context fills up.
+const PRUNE_PCT = 0.5;
+const BUDGET_WARNING_PCT = 0.7;
+const OUTPUT_NUDGE_PCT = 0.8;
+const HARD_STOP_PCT = 0.9;
+const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 const KEEP_RECENT_MESSAGES = 4;
 
@@ -438,14 +434,16 @@ export function buildPrepareStep({
   role,
   allTools,
   symbolLookup,
-  stepLimit,
-  tokenBudgetMax,
+  contextWindow: ctxWindow,
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
 }: PrepareStepOptions): PrepareStepResult {
+  const cw = ctxWindow ?? DEFAULT_CONTEXT_WINDOW;
+  const pruneThreshold = Math.floor(cw * PRUNE_PCT);
+  const warnThreshold = Math.floor(cw * BUDGET_WARNING_PCT);
+  const nudgeThreshold = Math.floor(cw * OUTPUT_NUDGE_PCT);
+  const hardStop = Math.floor(cw * HARD_STOP_PCT);
   const allToolNames = Object.keys(allTools);
   const readOnlyNames = allToolNames.filter((n) => READ_TOOLS.has(n));
-  const trimThreshold =
-    role === "explore" ? CONTEXT_TRIM_THRESHOLD_EXPLORE : CONTEXT_TRIM_THRESHOLD_CODE;
   const entity = { warnings: 0, prevReReadCount: 0, cleanSteps: 0 };
   const ENTITY_MAX_WARNINGS = 3;
   const ENTITY_REWARD_INTERVAL = 3;
@@ -549,34 +547,30 @@ export function buildPrepareStep({
       }
     }
 
-    const totalTokens = steps.reduce((sum, s) => {
-      return sum + (s.usage.inputTokens ?? 0) + (s.usage.outputTokens ?? 0);
-    }, 0);
+    // Use the last step's input tokens as actual context size (not cumulative sum).
+    // Each step re-sends the full message history, so inputTokens reflects real context window usage.
+    const lastStep = steps.length > 0 ? steps[steps.length - 1] : undefined;
+    const contextSize = lastStep?.usage.inputTokens ?? 0;
 
-    // Cache-aware pruning: only compact old tool results when context is under pressure.
-    // Below the threshold, caching handles cost better than pruning (stable prefix → cache hits).
-    const pruneThreshold = role === "explore" ? PRUNE_THRESHOLD_EXPLORE : PRUNE_THRESHOLD_CODE;
-    if (stepNumber >= 3 && totalTokens > pruneThreshold) {
+    // Pruning: compact old tool results to one-line summaries once context grows past 100k.
+    // Below this, caching handles cost better than pruning (stable prefix → cache hits).
+    if (stepNumber >= 3 && contextSize > pruneThreshold) {
       result.messages = compactOldToolResults(result.messages ?? messages, symbolLookup, pathMap);
     }
 
-    if (totalTokens > trimThreshold) {
+    if (contextSize > pruneThreshold) {
       if (bus && agentId) {
         result.system = buildBusSummary(bus, agentId, role);
       }
     }
 
-    const warnThreshold =
-      role === "explore" ? BUDGET_WARNING_THRESHOLD_EXPLORE : BUDGET_WARNING_THRESHOLD_CODE;
-
-    if (role === "explore" && totalTokens > warnThreshold) {
-      result.activeTools = [...readOnlyNames];
-      const existing = result.system ?? "";
-      result.system = `${existing}\nRunning low on token budget. Wrap up your research.`.trim();
-    } else if (role === "code" && totalTokens > warnThreshold) {
+    if (contextSize > warnThreshold) {
+      if (role === "explore") {
+        result.activeTools = [...readOnlyNames];
+      }
       const existing = result.system ?? "";
       result.system =
-        `${existing}\nRunning low on token budget. Finish your current edit and verify.`.trim();
+        `${existing}\nContext is filling up. Focus on completing your current task.`.trim();
     }
 
     if (bus && agentId) {
@@ -593,21 +587,17 @@ export function buildPrepareStep({
       result.system = `${result.system ?? ""}\n\n${taskBlock}`.trim();
     }
 
-    // Nudge structured output before stopWhen fires (vercel/ai#13075).
+    // Nudge structured output before tokenStop fires.
     // prepareStep runs BEFORE each step — removing tools forces a text-only
     // response, so the agent stops with finishReason:'stop' and Output.object()
-    // parses the text successfully. stopWhen is the safety net, not the enforcer.
-    const outputNudge =
-      role === "explore" ? OUTPUT_NUDGE_THRESHOLD_EXPLORE : OUTPUT_NUDGE_THRESHOLD_CODE;
-    const atStepLimit = stepLimit != null && stepNumber >= stepLimit - 2;
-    const atTokenLimit = totalTokens > outputNudge;
-    if (atStepLimit || atTokenLimit) {
+    // parses the text successfully. tokenStop is the safety net, not the enforcer.
+    if (contextSize > nudgeThreshold) {
       nudgeFired = true;
       if (parentToolCallId) {
         emitSubagentStep({
           parentToolCallId,
           toolName: "_nudge",
-          args: atStepLimit ? "step limit" : "token limit",
+          args: "token limit",
           state: "done",
           agentId,
         });
@@ -632,15 +622,13 @@ export function buildPrepareStep({
     return Object.keys(result).length > 0 ? result : undefined;
   };
 
-  // Nudge-aware token stop: if over budget but nudge hasn't fired yet,
-  // allow one more step so prepareStep can disable tools and force output.
-  // The nudge step is text-only (tools disabled) so it's cheap.
+  // Nudge-aware token stop: uses last step's input tokens (actual context window size).
+  // If over budget but nudge hasn't fired yet, allow one more step for graceful output.
   const tokenStop: StopCondition<any> = ({ steps }) => {
-    const total = steps.reduce((sum, s) => {
-      return sum + (s.usage.inputTokens ?? 0) + (s.usage.outputTokens ?? 0);
-    }, 0);
-    if (total >= (tokenBudgetMax ?? 0) && !nudgeFired) return false;
-    return total >= (tokenBudgetMax ?? 0);
+    const last = steps.length > 0 ? steps[steps.length - 1] : undefined;
+    const ctx = last?.usage.inputTokens ?? 0;
+    if (ctx >= hardStop && !nudgeFired) return false;
+    return ctx >= hardStop;
   };
 
   return { prepareStep, tokenStop };
@@ -682,7 +670,6 @@ function buildBusSummary(bus: AgentBus, agentId: string, role: string): string {
 
   return parts.length > 1 ? parts.join("\n") : "";
 }
-
 
 export function buildSymbolLookup(repoMap?: {
   isReady: boolean;

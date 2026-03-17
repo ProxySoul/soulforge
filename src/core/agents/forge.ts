@@ -1,6 +1,6 @@
 import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
-import { stepCountIs, ToolLoopAgent, tool } from "ai";
+import { ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import type {
   AgentFeatures,
@@ -477,7 +477,6 @@ export function createForgeAgent({
         ...(activeToolOverride ? { activeTools: activeToolOverride } : {}),
       };
     },
-    stopWhen: stepCountIs(500),
     prepareStep: buildForgePrepareStep(forgeMode === "plan", drainSteering, repoMap),
     experimental_repairToolCall: repairToolCall,
     ...(providerOptions && Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),

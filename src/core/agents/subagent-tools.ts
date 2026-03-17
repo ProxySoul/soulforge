@@ -5,6 +5,7 @@ import { z } from "zod";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AgentFeatures } from "../../types/index.js";
 import type { RepoMap } from "../intelligence/repo-map.js";
+import { getModelContextWindow } from "../llm/models.js";
 import { projectTool } from "../tools/project.js";
 import {
   AgentBus,
@@ -787,6 +788,9 @@ function createAgent(
   const { model } = selectModel(task, models);
   const tier = detectTaskTier(task);
   const subagentProviderOptions = stripContextManagement(models.providerOptions);
+  const modelId =
+    typeof model === "object" && "modelId" in model ? String(model.modelId) : "unknown";
+  const contextWindow = getModelContextWindow(modelId);
   const opts = {
     bus,
     agentId: task.agentId,
@@ -797,10 +801,9 @@ function createAgent(
     onApproveWebSearch: models.onApproveWebSearch,
     onApproveFetchPage: models.onApproveFetchPage,
     repoMap: models.repoMap,
+    contextWindow,
   };
   const agent = useExplore ? createExploreAgent(model, opts) : createCodeAgent(model, opts);
-  const modelId =
-    typeof model === "object" && "modelId" in model ? String(model.modelId) : "unknown";
   return { agent, modelId, tier };
 }
 

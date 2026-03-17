@@ -764,7 +764,6 @@ const MultiAgentChildRow = memo(
 
     const toolUses = isDone ? info.toolUses : liveStats?.toolUses;
     const stepCount = liveStats?.stepCount;
-    const stepMax = info.role === "code" ? 25 : 15;
     const tokenUsage = isDone ? info.tokenUsage : liveStats?.tokenUsage;
     const cacheHits = isDone ? info.cacheHits : liveStats?.cacheHits;
 
@@ -814,7 +813,7 @@ const MultiAgentChildRow = memo(
             ) : null}
             {stepCount != null && stepCount > 0 && !isDone ? (
               <span fg="#8a6">
-                [{icon("gear")} {String(stepCount)}/{String(stepMax)}]
+                [{icon("gear")} {String(stepCount)}]
               </span>
             ) : toolUses != null && toolUses > 0 ? (
               <span fg={isDone ? "#444" : "#8a6"}>
@@ -856,7 +855,10 @@ const MultiAgentChildRow = memo(
               {hiddenCount > 0 && (
                 <box height={1} flexShrink={0} marginLeft={3}>
                   <text truncate>
-                    <span fg="#333">{continuation} ├ </span>
+                    <span fg="#333">
+                      {continuation}
+                      {"  "}├{" "}
+                    </span>
                     <span fg="#444">+{hiddenCount} completed</span>
                   </text>
                 </box>
@@ -1217,25 +1219,28 @@ const ToolRow = memo(
             />
           </box>
         ) : null}
-        {isMultiAgent && multiProgress !== null && multiProgress.agents.size > 0 && (
-          <box flexDirection="column" marginLeft={2}>
-            {[...multiProgress.agents.entries()].map(([agentId, info], idx, arr) => {
-              const agentSteps = allChildSteps.filter((s) => s.agentId === agentId);
-              const isLastVisible = idx === arr.length - 1;
-              const allAccountedFor = arr.length >= (multiProgress.totalAgents ?? arr.length);
-              return (
-                <MultiAgentChildRow
-                  key={agentId}
-                  agentId={agentId}
-                  info={info}
-                  isLast={isLastVisible && allAccountedFor}
-                  childSteps={agentSteps}
-                  liveStats={liveStats.get(agentId)}
-                />
-              );
-            })}
-          </box>
-        )}
+        {isMultiAgent &&
+          multiProgress !== null &&
+          multiProgress.agents.size > 0 &&
+          !dispatchRejection && (
+            <box flexDirection="column" marginLeft={2}>
+              {[...multiProgress.agents.entries()].map(([agentId, info], idx, arr) => {
+                const agentSteps = allChildSteps.filter((s) => s.agentId === agentId);
+                const isLastVisible = idx === arr.length - 1;
+                const allAccountedFor = arr.length >= (multiProgress.totalAgents ?? arr.length);
+                return (
+                  <MultiAgentChildRow
+                    key={agentId}
+                    agentId={agentId}
+                    info={info}
+                    isLast={isLastVisible && allAccountedFor}
+                    childSteps={agentSteps}
+                    liveStats={liveStats.get(agentId)}
+                  />
+                );
+              })}
+            </box>
+          )}
         {isSubagent && !isMultiAgent && allChildSteps.length > 0 && (
           <box flexDirection="column">
             {(() => {

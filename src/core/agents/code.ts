@@ -1,6 +1,6 @@
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
-import { Output, stepCountIs, ToolLoopAgent } from "ai";
+import { Output, ToolLoopAgent } from "ai";
 import { z } from "zod";
 import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
 import { buildSubagentCodeTools, wrapWithBusCache } from "../tools/index.js";
@@ -51,6 +51,7 @@ interface CodeAgentOptions {
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
   repoMap?: import("../intelligence/repo-map.js").RepoMap;
+  contextWindow?: number;
 }
 
 export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions) {
@@ -81,8 +82,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
     role: "code",
     allTools,
     symbolLookup: buildSymbolLookup(options?.repoMap),
-    stepLimit: 25,
-    tokenBudgetMax: 170_000,
+    contextWindow: options?.contextWindow,
   });
 
   return new ToolLoopAgent({
@@ -100,7 +100,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
       providerOptions: EPHEMERAL_CACHE,
     },
     output: codeOutput,
-    stopWhen: [stepCountIs(25), tokenStop],
+    stopWhen: tokenStop,
     prepareStep,
     experimental_repairToolCall: repairToolCall,
     ...(options?.providerOptions && Object.keys(options.providerOptions).length > 0

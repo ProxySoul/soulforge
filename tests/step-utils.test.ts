@@ -106,15 +106,11 @@ const TOOLS = {
 	done: {},
 };
 
-// Steps with enough tokens to trigger cache-aware pruning (explore: 35k, code: 60k)
-// Explore: above prune (35k) but below output nudge (55k)
+// Steps with enough context (last step inputTokens) to trigger pruning (100k) but below nudge (160k)
 const STEPS_ABOVE_PRUNE_THRESHOLD = [
-	{ usage: { inputTokens: 20_000, outputTokens: 20_000 } },
+	{ usage: { inputTokens: 110_000, outputTokens: 5_000 } },
 ];
-// Code: above prune (60k) but below output nudge (110k)
-const STEPS_ABOVE_CODE_PRUNE = [
-	{ usage: { inputTokens: 31_000, outputTokens: 31_000 } },
-];
+const STEPS_ABOVE_CODE_PRUNE = STEPS_ABOVE_PRUNE_THRESHOLD;
 
 function callPrepareStep(
 	opts: PrepareStepOptions,
@@ -791,69 +787,46 @@ describe("buildPrepareStep — cache control", () => {
 // buildPrepareStep — token budgets
 // ---------------------------------------------------------------------------
 
-describe("buildPrepareStep — token budgets", () => {
-	it("explore: warns at 60k tokens", () => {
+describe("buildPrepareStep — token budgets (unified thresholds)", () => {
+	it("warns at 140k tokens", () => {
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 1, messages: [], steps: makeSteps(61_000) },
+			{ stepNumber: 1, messages: [], steps: makeSteps(141_000) },
 		);
-		expect(result?.system).toContain("Running low on token budget");
-		expect(result?.system).toContain("Wrap up");
+		expect(result?.system).toContain("Context is filling up");
 		expect(result?.activeTools).toBeDefined();
 		expect(result?.activeTools).not.toContain("edit_file");
 	});
 
-	it("explore: nudges structured output at 55k tokens", () => {
-		const result = callPrepareStep(
-			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 1, messages: [], steps: makeSteps(56_000) },
-		);
-		expect(result?.activeTools).toEqual([]);
-		const lastMsg = result!.messages![result!.messages!.length - 1];
-		const text = (lastMsg?.content as Array<{ text: string }>)[0]?.text;
-		expect(text).toContain("structured output");
-	});
-
-	it("code: warns at 120k tokens", () => {
+	it("code: warns at 140k without restricting tools", () => {
 		const result = callPrepareStep(
 			{ role: "code", allTools: TOOLS },
-			{ stepNumber: 1, messages: [], steps: makeSteps(121_000) },
+			{ stepNumber: 1, messages: [], steps: makeSteps(141_000) },
 		);
-		expect(result?.system).toContain("Running low on token budget");
-		expect(result?.system).toContain("Finish your current edit");
-	});
-
-	it("code: nudges structured output at 110k tokens", () => {
-		const result = callPrepareStep(
-			{ role: "code", allTools: TOOLS },
-			{ stepNumber: 1, messages: [], steps: makeSteps(111_000) },
-		);
-		expect(result?.activeTools).toEqual([]);
-		const lastMsg = result!.messages![result!.messages!.length - 1];
-		const text = (lastMsg?.content as Array<{ text: string }>)[0]?.text;
-		expect(text).toContain("structured output");
-	});
-
-	it("explore: nudges on step limit (stepLimit - 2)", () => {
-		const result = callPrepareStep(
-			{ role: "explore", allTools: TOOLS, stepLimit: 15 },
-			{ stepNumber: 13, messages: [] },
-		);
-		expect(result?.activeTools).toEqual([]);
-		const lastMsg = result!.messages![result!.messages!.length - 1];
-		const text = (lastMsg?.content as Array<{ text: string }>)[0]?.text;
-		expect(text).toContain("structured output");
-	});
-
-	it("explore: no nudge below both thresholds", () => {
-		const result = callPrepareStep(
-			{ role: "explore", allTools: TOOLS, stepLimit: 15 },
-			{ stepNumber: 5, messages: [], steps: makeSteps(50_000) },
-		);
+		expect(result?.system).toContain("Context is filling up");
 		expect(result?.activeTools).toBeUndefined();
 	});
 
-	it("no warning below threshold", () => {
+	it("nudges structured output at 160k tokens", () => {
+		const result = callPrepareStep(
+			{ role: "explore", allTools: TOOLS },
+			{ stepNumber: 1, messages: [], steps: makeSteps(161_000) },
+		);
+		expect(result?.activeTools).toEqual([]);
+		const lastMsg = result!.messages![result!.messages!.length - 1];
+		const text = (lastMsg?.content as Array<{ text: string }>)[0]?.text;
+		expect(text).toContain("structured output");
+	});
+
+	it("no nudge below 160k", () => {
+		const result = callPrepareStep(
+			{ role: "explore", allTools: TOOLS },
+			{ stepNumber: 5, messages: [], steps: makeSteps(150_000) },
+		);
+		expect(result?.activeTools).not.toEqual([]);
+	});
+
+	it("no warning below 140k", () => {
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(10_000) },
