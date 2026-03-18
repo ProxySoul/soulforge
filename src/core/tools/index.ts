@@ -651,6 +651,10 @@ export function buildTools(
           .describe(
             "Extra flags appended to the command (e.g. '--features async', '-k test_name')",
           ),
+        raw: z
+          .boolean()
+          .optional()
+          .describe("Skip preset fix flags — use only the flags you provide"),
         env: z
           .record(z.string(), z.string())
           .optional()

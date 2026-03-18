@@ -37,95 +37,6 @@ function hasPlanToolCall(messages: ModelMessage[]): boolean {
   return false;
 }
 
-const STRIP_TOOL_NAMES = new Set(["update_plan_step"]);
-
-function stripBookkeepingTools(messages: ModelMessage[]): ModelMessage[] {
-  const stripIds = new Set<string>();
-
-  for (const msg of messages) {
-    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-    for (const part of msg.content) {
-      if (
-        typeof part === "object" &&
-        part !== null &&
-        "type" in part &&
-        (part as { type: string }).type === "tool-call" &&
-        "toolName" in part &&
-        STRIP_TOOL_NAMES.has((part as { toolName: string }).toolName)
-      ) {
-        stripIds.add((part as { toolCallId: string }).toolCallId);
-      }
-    }
-  }
-
-  if (stripIds.size === 0) return messages;
-
-  const result = messages
-    .map((msg) => {
-      if (!Array.isArray(msg.content)) return msg;
-
-      if (msg.role === "assistant") {
-        const filtered = msg.content.filter((part) => {
-          if (
-            typeof part === "object" &&
-            part !== null &&
-            "type" in part &&
-            (part as { type: string }).type === "tool-call" &&
-            "toolCallId" in part
-          ) {
-            return !stripIds.has((part as { toolCallId: string }).toolCallId);
-          }
-          return true;
-        });
-        if (filtered.length === 0) return null;
-        if (filtered.length !== msg.content.length) return { ...msg, content: filtered };
-        return msg;
-      }
-
-      if (msg.role === "tool") {
-        const filtered = msg.content.filter((part) => {
-          if (
-            typeof part === "object" &&
-            part !== null &&
-            "type" in part &&
-            (part as { type: string }).type === "tool-result" &&
-            "toolCallId" in part
-          ) {
-            return !stripIds.has((part as { toolCallId: string }).toolCallId);
-          }
-          return true;
-        });
-        if (filtered.length === 0) return null;
-        if (filtered.length !== msg.content.length) return { ...msg, content: filtered };
-        return msg;
-      }
-
-      return msg;
-    })
-    .filter(Boolean) as ModelMessage[];
-
-  // Guard: stripping may leave a trailing assistant-only message (text without tool calls)
-  // when the model mixed text + bookkeeping tool calls in one response and all tool results
-  // were also stripped. This would cause "does not support assistant message prefill" errors.
-  const last = result[result.length - 1];
-  if (last?.role === "assistant") {
-    const hasToolCall =
-      Array.isArray(last.content) &&
-      last.content.some(
-        (p) =>
-          typeof p === "object" &&
-          p !== null &&
-          "type" in p &&
-          (p as { type: string }).type === "tool-call",
-      );
-    if (!hasToolCall) {
-      result.pop();
-    }
-  }
-
-  return result;
-}
-
 function hasToolCall(messages: ModelMessage[], toolName: string): boolean {
   for (const msg of messages) {
     if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
@@ -204,9 +115,8 @@ function buildForgePrepareStep(
       system?: string;
     } = {};
 
-    const processed = stripBookkeepingTools(sanitized);
-    if (processed !== messages) {
-      result.messages = processed;
+    if (sanitized !== messages) {
+      result.messages = sanitized;
     }
 
     // Cache breakpoint: mark the second-to-last message with cache_control.

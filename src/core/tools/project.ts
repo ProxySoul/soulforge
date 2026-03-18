@@ -15,6 +15,7 @@ interface ProjectArgs {
   fix?: boolean;
   script?: string;
   flags?: string;
+  raw?: boolean;
   env?: Record<string, string>;
   cwd?: string;
   timeout?: number;
@@ -548,7 +549,7 @@ export const projectTool = {
         break;
       case "lint": {
         command = profile.lint;
-        if (command && args.fix) {
+        if (command && args.fix && !args.raw) {
           if (command.includes("biome")) command += " --write";
           else if (command.includes("eslint")) command += " --fix";
           else if (command.includes("oxlint")) command += " --fix";
@@ -674,9 +675,13 @@ export const projectTool = {
           output: `${cmdLabel} — passed.\n${truncated}`,
         };
       }
+      const flagHint =
+        args.fix && !args.raw
+          ? " If the fix flags are wrong for your tool version, retry with raw: true and provide your own flags."
+          : "";
       return {
         success: false,
-        output: `${cmdLabel} — failed (exit ${String(exitCode)}).\n${truncated}`,
+        output: `${cmdLabel} — failed (exit ${String(exitCode)}).${flagHint}\n${truncated}`,
         error: `exit ${String(exitCode)}`,
       };
     } catch (err: unknown) {
