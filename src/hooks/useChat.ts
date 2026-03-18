@@ -1260,6 +1260,7 @@ export function useChat({
           pendingTokenUsage.current = newUsage;
           baseTokenUsageRef.current = newUsage;
           updateSubagentChars();
+          toolCallsDirty.current = true;
           queueMicrotaskFlush();
         }
       });
@@ -1268,11 +1269,15 @@ export function useChat({
         if (event.type === "agent-done" && event.agentId) {
           completedResultChars.set(event.agentId, event.resultChars ?? 0);
           updateSubagentChars();
+          toolCallsDirty.current = true;
+          queueMicrotaskFlush();
         }
         if (event.type === "dispatch-done") {
           completedResultChars.clear();
           subagentCumulative.clear();
           if (visibleRef.current) useStatusBarStore.getState().setSubagentChars(0);
+          toolCallsDirty.current = true;
+          queueMicrotaskFlush();
         }
       });
 
