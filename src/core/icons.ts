@@ -82,6 +82,8 @@ const NERD: Record<string, string> = {
   trivial: "󰓅",
   cleanup: "󰤌",
   investigate: "\uDB80\uDF50",
+  key: "\uF084",
+  key_missing: "\uF084",
 };
 
 const ASCII: Record<string, string> = {
@@ -166,6 +168,8 @@ const ASCII: Record<string, string> = {
   trivial: "↯",
   cleanup: "♻",
   investigate: "◎",
+  key: "⚷",
+  key_missing: "⚷",
 };
 
 let _nerdFont: boolean | null = null;

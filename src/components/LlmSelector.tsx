@@ -4,9 +4,31 @@ import { memo, useEffect, useState } from "react";
 import { icon, providerIcon } from "../core/icons.js";
 import { PROVIDER_CONFIGS } from "../core/llm/models.js";
 import { checkProviders, type ProviderStatus } from "../core/llm/provider.js";
+import { hasSecret, type SecretKey } from "../core/secrets.js";
 import { useGroupedModels } from "../hooks/useGroupedModels.js";
 import { useProviderModels } from "../hooks/useProviderModels.js";
 import { Overlay, POPUP_BG, POPUP_HL, PopupRow, SPINNER_FRAMES_FILLED } from "./shared.js";
+
+/** Map provider envVar → SecretKey for key-status lookup */
+const ENV_TO_SECRET_KEY: Record<string, SecretKey> = {
+  ANTHROPIC_API_KEY: "anthropic-api-key",
+  OPENAI_API_KEY: "openai-api-key",
+  GOOGLE_GENERATIVE_AI_API_KEY: "google-api-key",
+  XAI_API_KEY: "xai-api-key",
+  OPENROUTER_API_KEY: "openrouter-api-key",
+  LLM_GATEWAY_API_KEY: "llmgateway-api-key",
+  AI_GATEWAY_API_KEY: "vercel-gateway-api-key",
+};
+
+function keyStatus(envVar: string): { color: string; label: string } | null {
+  if (!envVar) return null; // ollama, proxy — no key needed
+  const secretKey = ENV_TO_SECRET_KEY[envVar];
+  if (!secretKey) return null;
+  const info = hasSecret(secretKey);
+  if (!info.set) return { color: "#FF0040", label: "" };
+  if (info.source === "env") return { color: "#00FF00", label: "env" };
+  return { color: "#00FF00", label: "sec" };
+}
 
 const MAX_POPUP_WIDTH = 60;
 
@@ -255,12 +277,19 @@ export const LlmSelector = memo(function LlmSelector({
             const isActive = i === providerCursor;
             const status = providerStatuses.find((s) => s.id === provider.id);
             const available = status?.available ?? false;
+            const ks = keyStatus(provider.envVar);
             const bg = isActive ? POPUP_HL : POPUP_BG;
             return (
               <PopupRow key={provider.id} bg={bg} w={innerW}>
                 <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
                   {isActive ? "› " : "  "}
                 </text>
+                {ks && (
+                  <text bg={bg} fg={ks.color}>
+                    {icon(ks.label ? "key" : "key_missing")}
+                    {ks.label ? `[${ks.label}]` : ""}{" "}
+                  </text>
+                )}
                 <text
                   bg={bg}
                   fg={isActive ? "#FF0040" : "#aaa"}

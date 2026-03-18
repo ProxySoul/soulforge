@@ -1225,11 +1225,11 @@ async function handleCommandInner(input: string, ctx: CommandContext): Promise<v
       ctx.openRouterSettings();
       break;
     case "/provider-settings":
-    case "/provider":
-    case "/providers":
     case "/perf":
       ctx.openProviderSettings();
       break;
+    case "/providers":
+    case "/provider":
     case "/models":
     case "/model":
       useUIStore.getState().openModal("llmSelector");
