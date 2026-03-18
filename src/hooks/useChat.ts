@@ -394,6 +394,8 @@ export function useChat({
   const messageQueueRef = useRef<QueuedMessage[]>([]);
   messageQueueRef.current = messageQueue;
   const steeringAbortedRef = useRef(false);
+  const abortedSegmentsSnapshot = useRef<StreamSegment[]>([]);
+  const abortedToolCallsSnapshot = useRef<LiveToolCall[]>([]);
 
   // LLM state
   const [activeModel, setActiveModel] = useState(
@@ -1943,7 +1945,11 @@ export function useChat({
         // Mark in-flight tool calls as interrupted so they don't show stuck spinners
         if (isAbort) {
           const completedIds = new Set(completedCalls.map((c) => c.id));
-          const liveBuf = liveToolCallsBuffer.current;
+          // Use snapshot saved before abort() cleared the buffers
+          const liveBuf =
+            abortedToolCallsSnapshot.current.length > 0
+              ? abortedToolCallsSnapshot.current
+              : liveToolCallsBuffer.current;
           for (const seg of finalSegments) {
             if (seg.type === "tools") {
               for (const id of seg.toolCallIds) {
@@ -1960,6 +1966,8 @@ export function useChat({
               }
             }
           }
+          abortedSegmentsSnapshot.current = [];
+          abortedToolCallsSnapshot.current = [];
         }
 
         const hasPlanPostAction = !!planPostActionRef.current;
@@ -2220,6 +2228,9 @@ export function useChat({
       }
       setActivePlan(null);
       steeringAbortedRef.current = true;
+      // Snapshot buffers before clearing so the catch block can reconstruct partial content
+      abortedSegmentsSnapshot.current = [...streamSegmentsBuffer.current];
+      abortedToolCallsSnapshot.current = [...liveToolCallsBuffer.current];
       abortRef.current.abort();
       abortRef.current = null;
       setIsLoading(false);
