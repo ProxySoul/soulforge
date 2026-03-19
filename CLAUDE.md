@@ -37,6 +37,7 @@ AI-Powered Terminal IDE by proxySoul.
 - `--headless --diff` — show files changed after run
 - `--headless --quiet` / `-q` — suppress header/footer
 - `--headless --cwd <dir>` — set working directory
+- `--headless --chat` — interactive multi-turn chat (auto-saves session on exit)
 - `--list-providers` — show providers and key status
 - `--list-models [provider]` — show available models
 - `--set-key <provider> <key>` — save API key

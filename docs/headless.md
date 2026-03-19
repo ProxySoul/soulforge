@@ -31,14 +31,18 @@ soulforge --headless --max-steps 20 --timeout 120000 --save-session "fix lint er
 
 # Resume a previous session
 soulforge --headless --session abc123 "now add tests for it"
+
+# Interactive multi-turn chat (session auto-saves on exit)
+soulforge --headless --chat
+
+# Chat with events for programmatic consumers
+soulforge --headless --chat --events
 ```
 
 ## CLI Flags
 
 ### Headless Execution
 
-| Flag | Description |
-|------|-------------|
 | Flag | Description |
 |------|-------------|
 | `--headless <prompt>` | Run without TUI. Prompt is all non-flag arguments joined. |
@@ -56,6 +60,7 @@ soulforge --headless --session abc123 "now add tests for it"
 | `--diff` | Show list of files changed after the run. |
 | `--session <id>` | Resume a previous session by ID (prefix match supported). |
 | `--save-session` | Save the conversation after completion for later resume. |
+| `--chat` | Interactive multi-turn chat. Reads prompts from stdin (Enter to submit, backslash for multiline). Session auto-saves on exit. Ctrl+C to quit. |
 | `--version` / `-v` | Print version and exit. |
 | `--help` / `-h` | Print usage and exit. |
 
@@ -154,6 +159,16 @@ Event types:
 - `session-saved` — session was saved (when `--save-session` is used)
 
 The `done` event includes a `filesEdited` array (also present in `--json` output). This is the format to use when building integrations — parse one line at a time, react to events as they arrive.
+
+### Chat mode events
+
+In `--chat --events` mode, additional event types are emitted:
+
+- `ready` — agent is ready for the next prompt (emitted between turns)
+- `turn-done` — a turn completed (per-turn stats, like `done` but with `turn` number)
+- `chat-done` — chat session ended (total stats across all turns, `sessionId` if saved)
+
+Session is always saved on exit (normal or Ctrl+C). The `chat-done` event and stderr both include a resume command.
 
 ## What's Available
 

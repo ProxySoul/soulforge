@@ -331,6 +331,52 @@ describe("parseHeadlessArgs", () => {
 		}
 	});
 
+	test("parses --chat mode", async () => {
+		const result = await parseHeadlessArgs(["--headless", "--chat"]);
+		expect(result!.type).toBe("chat");
+		if (result!.type === "chat") {
+			expect(result!.opts.json).toBe(false);
+			expect(result!.opts.events).toBe(false);
+		}
+	});
+
+	test("--chat with flags", async () => {
+		const result = await parseHeadlessArgs([
+			"--headless",
+			"--chat",
+			"--model",
+			"anthropic/claude-opus-4-6",
+			"--mode",
+			"architect",
+			"--events",
+			"--no-repomap",
+			"--session",
+			"abc123",
+			"--system",
+			"be concise",
+			"--max-steps",
+			"20",
+			"--timeout",
+			"60000",
+		]);
+		expect(result!.type).toBe("chat");
+		if (result!.type === "chat") {
+			expect(result!.opts.modelId).toBe("anthropic/claude-opus-4-6");
+			expect(result!.opts.mode).toBe("architect");
+			expect(result!.opts.events).toBe(true);
+			expect(result!.opts.noRepomap).toBe(true);
+			expect(result!.opts.sessionId).toBe("abc123");
+			expect(result!.opts.system).toBe("be concise");
+			expect(result!.opts.maxSteps).toBe(20);
+			expect(result!.opts.timeout).toBe(60000);
+		}
+	});
+
+	test("--chat takes priority over prompt (ignores positional args)", async () => {
+		const result = await parseHeadlessArgs(["--headless", "--chat", "some", "prompt"]);
+		expect(result!.type).toBe("chat");
+	});
+
 	test("unknown flags are ignored (not treated as prompt parts)", async () => {
 		const result = await parseHeadlessArgs(["--headless", "--unknown-flag", "test"]);
 		if (result!.type === "run") {

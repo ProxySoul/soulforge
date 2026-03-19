@@ -21,6 +21,7 @@ ${BOLD}Usage:${RST}
   soulforge --headless --diff <prompt>                   Show files changed after run
   soulforge --headless --session <id> <prompt>           Resume a previous session
   soulforge --headless --save-session <prompt>           Save session after completion
+  soulforge --headless --chat                            Interactive multi-turn chat
   echo "prompt" | soulforge --headless                   Pipe from stdin
 
 ${BOLD}Management:${RST}
@@ -71,6 +72,7 @@ export async function parseHeadlessArgs(argv: string[]): Promise<HeadlessAction 
   let json = false;
   let events = false;
   let quiet = false;
+  let chat = false;
   let maxSteps: number | undefined;
   let timeout: number | undefined;
   let cwd: string | undefined;
@@ -125,9 +127,30 @@ export async function parseHeadlessArgs(argv: string[]): Promise<HeadlessAction 
       include.push(argv[++i]!);
     } else if (arg === "--diff") {
       diff = true;
+    } else if (arg === "--chat") {
+      chat = true;
     } else if (arg && !arg.startsWith("--")) {
       promptParts.push(arg);
     }
+  }
+
+  if (chat) {
+    return {
+      type: "chat",
+      opts: {
+        modelId,
+        mode,
+        json,
+        events,
+        quiet,
+        maxSteps,
+        timeout,
+        cwd,
+        sessionId,
+        system,
+        noRepomap,
+      },
+    };
   }
 
   let prompt = promptParts.join(" ");

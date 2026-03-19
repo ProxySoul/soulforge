@@ -249,6 +249,8 @@ soulforge --headless --max-steps 10          # Limit steps
 soulforge --headless --timeout 60000         # Abort after 60s
 soulforge --headless --no-repomap "prompt"   # Skip repo map
 soulforge --headless --diff "fix the bug"    # Show changed files
+soulforge --headless --chat                  # Interactive multi-turn chat
+soulforge --headless --chat --events         # Chat with JSONL events
 echo "prompt" | soulforge --headless         # Pipe from stdin
 soulforge --list-providers                   # Provider status
 soulforge --list-models [provider]           # Available models
