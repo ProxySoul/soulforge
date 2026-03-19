@@ -27,7 +27,7 @@ export const soulAnalyzeTool = {
     "Actions:\n" +
     "- identifier_frequency: top N most referenced identifiers across the codebase (which files use them). " +
     "Answers 'most reused variable' instantly. Optional name param to check a specific identifier.\n" +
-    "- unused_exports: find exported symbols never imported by any other file. Dead code detection.\n" +
+    "- unused_exports: comprehensive dead code report — dead files, dead barrels, export clusters, test-only exports, scattered dead/unnecessary. Sorted by impact.\n" +
     "- file_profile: dependencies, dependents, blast radius, cochanges, and top symbols for a file. Requires file param.\n" +
     "- duplication: find duplicated code across the codebase. Three tiers: exact structural clones (AST shape hash), " +
     "near-duplicates (>70% token similarity via MinHash), and repeated code fragments (same token patterns across functions). " +
@@ -122,57 +122,190 @@ function identifierFrequency(
 }
 
 function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined): ToolResult {
-  const unused = repoMap.getUnusedExports();
-  if (unused.length === 0) {
+  const unused = repoMap.getUnusedExports(limit ?? 500);
+  const testOnly = repoMap.getTestOnlyExports();
+  const deadBarrels = repoMap.getDeadBarrels();
+
+  if (unused.length === 0 && testOnly.length === 0 && deadBarrels.length === 0) {
     return {
       success: true,
       output: "No unused exports found (all exports are referenced somewhere).",
     };
   }
 
-  const filtered = unused.filter((u) => isForbidden(u.path) === null).slice(0, limit ?? 50);
+  const filtered = unused.filter((u) => isForbidden(u.path) === null);
 
-  const deadCode = new Map<string, Array<{ name: string; kind: string }>>();
-  const unnecessaryExports = new Map<string, Array<{ name: string; kind: string }>>();
+  // Group by file
+  interface FileEntry {
+    dead: Array<{ name: string; kind: string }>;
+    unnecessary: Array<{ name: string; kind: string }>;
+    lineCount: number;
+  }
+  const byFile = new Map<string, FileEntry>();
 
   for (const u of filtered) {
     const rel = relative(cwd, `${cwd}/${u.path}`);
-    const bucket = u.usedInternally ? unnecessaryExports : deadCode;
-    const arr = bucket.get(rel) ?? [];
-    arr.push({ name: u.name, kind: u.kind });
-    bucket.set(rel, arr);
+    if (!byFile.has(rel)) byFile.set(rel, { dead: [], unnecessary: [], lineCount: u.lineCount });
+    const entry = byFile.get(rel);
+    if (!entry) continue;
+    if (u.usedInternally) {
+      entry.unnecessary.push({ name: u.name, kind: u.kind });
+    } else {
+      entry.dead.push({ name: u.name, kind: u.kind });
+    }
+  }
+
+  // Classify files: dead file = ALL exports are dead (none alive)
+  const deadFiles: Array<{
+    file: string;
+    symbols: Array<{ name: string; kind: string }>;
+    lineCount: number;
+  }> = [];
+  const exportGroups: Array<{
+    file: string;
+    dead: Array<{ name: string; kind: string }>;
+    unnecessary: Array<{ name: string; kind: string }>;
+    lineCount: number;
+  }> = [];
+  const scatteredDead: Array<{ file: string; symbols: Array<{ name: string; kind: string }> }> = [];
+  const scatteredUnnecessary: Array<{
+    file: string;
+    symbols: Array<{ name: string; kind: string }>;
+  }> = [];
+
+  for (const [file, entry] of byFile) {
+    const totalExported = repoMap.getFileExportCount(file);
+    const totalDead = entry.dead.length + entry.unnecessary.length;
+    const allDead = totalExported > 0 && totalDead >= totalExported;
+    const hasDependents = repoMap.getFileDependents(file).length > 0;
+
+    if (allDead && !hasDependents) {
+      deadFiles.push({
+        file,
+        symbols: [...entry.dead, ...entry.unnecessary],
+        lineCount: entry.lineCount,
+      });
+    } else if (entry.dead.length + entry.unnecessary.length >= 3) {
+      exportGroups.push({
+        file,
+        dead: entry.dead,
+        unnecessary: entry.unnecessary,
+        lineCount: entry.lineCount,
+      });
+    } else {
+      if (entry.dead.length > 0) scatteredDead.push({ file, symbols: entry.dead });
+      if (entry.unnecessary.length > 0)
+        scatteredUnnecessary.push({ file, symbols: entry.unnecessary });
+    }
+  }
+
+  // Sort dead files by line count (biggest cleanup wins first)
+  deadFiles.sort((a, b) => b.lineCount - a.lineCount);
+  exportGroups.sort(
+    (a, b) => b.dead.length + b.unnecessary.length - (a.dead.length + a.unnecessary.length),
+  );
+
+  // Test-only exports grouped by file
+  const testOnlyByFile = new Map<string, Array<{ name: string; kind: string }>>();
+  for (const t of testOnly) {
+    if (isForbidden(t.path) !== null) continue;
+    const rel = relative(cwd, `${cwd}/${t.path}`);
+    const arr = testOnlyByFile.get(rel) ?? [];
+    arr.push({ name: t.name, kind: t.kind });
+    testOnlyByFile.set(rel, arr);
   }
 
   const lines: string[] = [];
+  let totalDeadLines = 0;
 
-  if (deadCode.size > 0) {
-    const count = [...deadCode.values()].reduce((n, arr) => n + arr.length, 0);
-    lines.push(`Dead code (${String(count)} exports with no references anywhere):\n`);
-    for (const [file, symbols] of deadCode) {
-      lines.push(`  ${file}`);
-      for (const s of symbols) {
-        lines.push(`    ${s.kind} ${s.name}`);
-      }
+  // ── Dead Files ──
+  if (deadFiles.length > 0) {
+    lines.push(`Dead files (${String(deadFiles.length)} — all exports unused, no dependents):\n`);
+    for (const f of deadFiles) {
+      totalDeadLines += f.lineCount;
+      lines.push(`  ${f.file}  (${String(f.lineCount)}L, ${String(f.symbols.length)} exports)`);
+      for (const s of f.symbols) lines.push(`    ${s.kind} ${s.name}`);
     }
+    lines.push("");
   }
 
-  if (unnecessaryExports.size > 0) {
-    const count = [...unnecessaryExports.values()].reduce((n, arr) => n + arr.length, 0);
-    if (lines.length > 0) lines.push("");
-    lines.push(
-      `Unnecessary exports (${String(count)} — used internally but never imported by other files):\n`,
-    );
-    for (const [file, symbols] of unnecessaryExports) {
-      lines.push(`  ${file}`);
-      for (const s of symbols) {
-        lines.push(`    ${s.kind} ${s.name}`);
-      }
-    }
-  }
-
-  lines.push(
-    "\nNote: re-exports, dynamic imports, and external consumers are not tracked. Verify before removing.",
+  // ── Dead Barrels ──
+  const barrelPaths = new Set(deadFiles.map((f) => f.file));
+  const liveDeadBarrels = deadBarrels.filter(
+    (b) => !barrelPaths.has(relative(cwd, `${cwd}/${b.path}`)),
   );
+  if (liveDeadBarrels.length > 0) {
+    lines.push(
+      `Dead barrels (${String(liveDeadBarrels.length)} — nothing imports through them):\n`,
+    );
+    for (const b of liveDeadBarrels) {
+      const rel = relative(cwd, `${cwd}/${b.path}`);
+      lines.push(`  ${rel}  (${String(b.lineCount)}L)`);
+    }
+    lines.push("");
+  }
+
+  // ── Export Groups ──
+  if (exportGroups.length > 0) {
+    lines.push(
+      `Dead export clusters (${String(exportGroups.length)} files with 3+ dead exports):\n`,
+    );
+    for (const g of exportGroups) {
+      const total = g.dead.length + g.unnecessary.length;
+      lines.push(`  ${g.file}  (${String(total)} dead, ${String(g.lineCount)}L)`);
+      for (const s of g.dead) lines.push(`    ${s.kind} ${s.name}`);
+      for (const s of g.unnecessary) lines.push(`    ${s.kind} ${s.name}  (internal-only)`);
+    }
+    lines.push("");
+  }
+
+  // ── Test-Only ──
+  if (testOnlyByFile.size > 0) {
+    const testCount = [...testOnlyByFile.values()].reduce((n, a) => n + a.length, 0);
+    lines.push(`Test-only exports (${String(testCount)} — only imported by test files):\n`);
+    for (const [file, symbols] of testOnlyByFile) {
+      lines.push(`  ${file}`);
+      for (const s of symbols) lines.push(`    ${s.kind} ${s.name}`);
+    }
+    lines.push("");
+  }
+
+  // ── Scattered Dead ──
+  if (scatteredDead.length > 0) {
+    const count = scatteredDead.reduce((n, s) => n + s.symbols.length, 0);
+    lines.push(`Scattered dead exports (${String(count)}):\n`);
+    for (const s of scatteredDead) {
+      lines.push(`  ${s.file}`);
+      for (const sym of s.symbols) lines.push(`    ${sym.kind} ${sym.name}`);
+    }
+    lines.push("");
+  }
+
+  // ── Scattered Unnecessary ──
+  if (scatteredUnnecessary.length > 0) {
+    const count = scatteredUnnecessary.reduce((n, s) => n + s.symbols.length, 0);
+    lines.push(
+      `Unnecessary exports (${String(count)} — used internally, export keyword removable):\n`,
+    );
+    for (const s of scatteredUnnecessary) {
+      lines.push(`  ${s.file}`);
+      for (const sym of s.symbols) lines.push(`    ${sym.kind} ${sym.name}`);
+    }
+    lines.push("");
+  }
+
+  // ── Summary ──
+  const totalDead = filtered.filter((u) => !u.usedInternally).length;
+  const totalUnnecessary = filtered.filter((u) => u.usedInternally).length;
+  lines.push("───");
+  lines.push(
+    `Summary: ${String(deadFiles.length)} dead files (${String(totalDeadLines)}L removable), ` +
+      `${String(liveDeadBarrels.length)} dead barrels, ` +
+      `${String(totalDead)} dead exports, ` +
+      `${String(totalUnnecessary)} unnecessary exports, ` +
+      `${String(testOnlyByFile.size > 0 ? [...testOnlyByFile.values()].reduce((n, a) => n + a.length, 0) : 0)} test-only`,
+  );
+  lines.push("\nNote: dynamic imports not tracked. Verify before removing.");
 
   return { success: true, output: lines.join("\n") };
 }

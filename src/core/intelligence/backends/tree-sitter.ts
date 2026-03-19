@@ -419,7 +419,7 @@ function collectSpecifiers(node: TSNode, language: Language, out: string[]): voi
     if (type === "import_declaration" && node.text.includes("{")) {
       const braceMatch = node.text.match(/\{([^}]+)\}/);
       if (braceMatch) {
-        for (const item of braceMatch[1]!.split(",")) {
+        for (const item of braceMatch[1]?.split(",") ?? []) {
           const parts = item.trim().split(/\s+as\s+/);
           const name = (parts[1] || parts[0] || "").trim();
           if (name) out.push(name);

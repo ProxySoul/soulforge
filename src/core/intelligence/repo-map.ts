@@ -86,6 +86,12 @@ const MAX_DEPTH = 10;
 const MAX_REFS_PER_FILE = 5000;
 const PAGERANK_ITERATIONS = 20;
 const PAGERANK_DAMPING = 0.85;
+const BARREL_RE = /\/(index\.(ts|js|tsx|mts|mjs)|__init__\.py|mod\.rs)$/;
+
+function barrelToDir(barrelPath: string): string {
+  return barrelPath.replace(BARREL_RE, "");
+}
+
 const DEFAULT_TOKEN_BUDGET = 2500;
 const MIN_TOKEN_BUDGET = 1500;
 const MAX_TOKEN_BUDGET = 4000;
@@ -790,9 +796,9 @@ export class RepoMap {
           imp.source.startsWith(".") ||
           imp.source.startsWith("crate::") ||
           imp.source.startsWith("super::") ||
-          (this.getGoModulePrefix() && imp.source.startsWith(this.getGoModulePrefix()! + "/")) ||
+          (this.getGoModulePrefix() && imp.source.startsWith(`${this.getGoModulePrefix()}/`)) ||
           (this.getTsconfigPaths() &&
-            [...this.getTsconfigPaths()!.keys()].some((p) => imp.source.startsWith(p)));
+            [...(this.getTsconfigPaths()?.keys() ?? [])].some((p) => imp.source.startsWith(p)));
         const importSource = isResolvable ? imp.source : null;
         for (const s of imp.specifiers) {
           allRefNames.add(s);
@@ -978,22 +984,22 @@ export class RepoMap {
       // Python relative imports: ".utils" → "./utils", "..models.user" → "../models/user"
       const dotMatch = importSource.match(/^(\.+)(.*)/);
       if (dotMatch) {
-        const dots = dotMatch[1]!;
-        const rest = dotMatch[2]!.replace(/\./g, "/");
+        const dots = dotMatch[1] ?? "";
+        const rest = dotMatch[2]?.replace(/\./g, "/") ?? "";
         const levels = dots.length - 1;
         const prefix = levels === 0 ? "./" : "../".repeat(levels);
         normalized = prefix + rest;
       }
     } else if (importSource.startsWith("crate::")) {
       // Rust crate-relative: "crate::utils::foo" → "./utils/foo" (from src/)
-      normalized = "./" + importSource.slice(7).replace(/::/g, "/");
+      normalized = `./${importSource.slice(7).replace(/::/g, "/")}`;
     } else if (importSource.startsWith("super::")) {
       // Rust super-relative
-      normalized = "../" + importSource.slice(7).replace(/::/g, "/");
+      normalized = `../${importSource.slice(7).replace(/::/g, "/")}`;
     } else {
       // Try Go module prefix: "mymodule/pkg/utils" → "pkg/utils"
       const goPrefix = this.getGoModulePrefix();
-      if (goPrefix && importSource.startsWith(goPrefix + "/")) {
+      if (goPrefix && importSource.startsWith(`${goPrefix}/`)) {
         const relImport = importSource.slice(goPrefix.length + 1);
         return this.resolveRelPath(relImport);
       }
@@ -2286,16 +2292,17 @@ export class RepoMap {
       .all(limit);
   }
 
-  getUnusedExports(): Array<{
+  getUnusedExports(limit = 500): Array<{
     name: string;
     path: string;
     kind: string;
+    lineCount: number;
     usedInternally: boolean;
   }> {
     if (!this.ready) return [];
     const rows = this.db
-      .query<{ name: string; path: string; kind: string }, []>(
-        `SELECT s.name, f.path, s.kind FROM symbols s
+      .query<{ name: string; path: string; kind: string; line_count: number }, [number]>(
+        `SELECT s.name, f.path, s.kind, f.line_count FROM symbols s
          JOIN files f ON f.id = s.file_id
          WHERE s.is_exported = 1
          AND NOT EXISTS (
@@ -2309,16 +2316,15 @@ export class RepoMap {
            )
          )
          ORDER BY f.pagerank DESC
-         LIMIT 50`,
+         LIMIT ?`,
       )
-      .all();
+      .all(limit);
 
     const escaped = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return rows.map((row) => {
       let usedInternally = false;
       try {
         const raw = readFileSync(join(this.cwd, row.path), "utf-8");
-        // Strip single-line comments and strings to avoid false matches
         const content = raw
           .replace(/\/\/.*$/gm, "")
           .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -2329,8 +2335,172 @@ export class RepoMap {
       } catch {
         // file unreadable — assume not used internally
       }
-      return { ...row, usedInternally };
+      return {
+        name: row.name,
+        path: row.path,
+        kind: row.kind,
+        lineCount: row.line_count,
+        usedInternally,
+      };
     });
+  }
+
+  getTestOnlyExports(): Array<{
+    name: string;
+    path: string;
+    kind: string;
+  }> {
+    if (!this.ready) return [];
+    return this.db
+      .query<{ name: string; path: string; kind: string }, []>(
+        `SELECT s.name, f.path, s.kind FROM symbols s
+         JOIN files f ON f.id = s.file_id
+         WHERE s.is_exported = 1
+         AND EXISTS (
+           SELECT 1 FROM refs r
+           JOIN files rf ON rf.id = r.file_id
+           WHERE r.name = s.name AND r.file_id != s.file_id
+           AND (
+             r.source_file_id = s.file_id
+             OR (r.source_file_id IS NULL AND (
+               SELECT COUNT(*) FROM symbols s2
+               WHERE s2.name = s.name AND s2.is_exported = 1
+             ) = 1)
+           )
+           AND (rf.path LIKE 'tests/%' OR rf.path LIKE '%.test.%' OR rf.path LIKE '%.spec.%' OR rf.path LIKE '%/__tests__/%')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM refs r
+           JOIN files rf ON rf.id = r.file_id
+           WHERE r.name = s.name AND r.file_id != s.file_id
+           AND (
+             r.source_file_id = s.file_id
+             OR (r.source_file_id IS NULL AND (
+               SELECT COUNT(*) FROM symbols s2
+               WHERE s2.name = s.name AND s2.is_exported = 1
+             ) = 1)
+           )
+           AND rf.path NOT LIKE 'tests/%' AND rf.path NOT LIKE '%.test.%' AND rf.path NOT LIKE '%.spec.%' AND rf.path NOT LIKE '%/__tests__/%'
+         )
+         ORDER BY f.path`,
+      )
+      .all();
+  }
+
+  getDeadBarrels(): Array<{ path: string; lineCount: number; language: string }> {
+    if (!this.ready) return [];
+
+    // Barrel patterns by language ecosystem:
+    // JS/TS: index.ts, index.js, index.tsx, index.mts, index.mjs
+    // Python: __init__.py
+    // Rust: mod.rs, lib.rs
+    // Dart: barrel .dart files that only re-export
+    // C/C++: umbrella headers detected by edge analysis
+    // Ruby: lib/foo.rb for lib/foo/ directory (detected by edge analysis)
+    const barrels = this.db
+      .query<{ id: number; path: string; line_count: number; language: string }, []>(
+        `SELECT f.id, f.path, f.line_count, f.language FROM files f
+         WHERE f.path LIKE '%/index.ts'
+         OR f.path LIKE '%/index.js'
+         OR f.path LIKE '%/index.tsx'
+         OR f.path LIKE '%/index.mts'
+         OR f.path LIKE '%/index.mjs'
+         OR f.path LIKE '%/__init__.py'
+         OR f.path LIKE '%/mod.rs'`,
+      )
+      .all();
+    if (barrels.length === 0) return [];
+
+    const barrelDirMap = new Map<string, (typeof barrels)[0]>();
+    for (const b of barrels) {
+      barrelDirMap.set(barrelToDir(b.path), b);
+    }
+
+    // Check import_source refs for liveness
+    const allRefs = this.db
+      .query<{ file_path: string; import_source: string }, []>(
+        `SELECT DISTINCT f.path AS file_path, r.import_source FROM refs r
+         JOIN files f ON f.id = r.file_id
+         WHERE r.import_source IS NOT NULL AND r.import_source != ''`,
+      )
+      .all();
+
+    // Build basename → dir lookup for non-relative imports (Python packages, Rust crate::)
+    const barrelBasenames = new Map<string, string>();
+    for (const dir of barrelDirMap.keys()) {
+      const base = dir.substring(dir.lastIndexOf("/") + 1);
+      barrelBasenames.set(base, dir);
+    }
+
+    const liveDirs = new Set<string>();
+    for (const ref of allRefs) {
+      const importerDir = ref.file_path.substring(0, ref.file_path.lastIndexOf("/")) || ".";
+      let resolved = ref.import_source;
+      if (resolved.startsWith(".")) {
+        resolved = join(importerDir, resolved).replace(/\\/g, "/");
+      } else {
+        // Non-relative: Python `from pkg import X`, Rust `crate::mod::X`
+        // Extract the first meaningful segment and match against barrel directory basenames
+        const segments = resolved.replace(/^crate::/, "").split(/[:./]/);
+        for (const seg of segments) {
+          if (seg && barrelBasenames.has(seg)) {
+            const dir = barrelBasenames.get(seg);
+            if (dir) liveDirs.add(dir);
+          }
+        }
+      }
+      // Strip extensions for matching
+      resolved = resolved.replace(/\.(ts|js|tsx|mts|mjs|py|rs)$/, "");
+      if (barrelDirMap.has(resolved)) liveDirs.add(resolved);
+      // ./index, ./mod, ./__init__ patterns
+      const stripped = resolved.replace(/\/(index|mod|__init__)$/, "");
+      if (barrelDirMap.has(stripped)) liveDirs.add(stripped);
+    }
+
+    // Also check edges — if any file imports directly to the barrel
+    const liveByEdge = this.db
+      .query<{ path: string }, []>(
+        `SELECT f.path FROM files f
+         WHERE (f.path LIKE '%/index.ts' OR f.path LIKE '%/index.js' OR f.path LIKE '%/index.tsx'
+           OR f.path LIKE '%/index.mts' OR f.path LIKE '%/index.mjs'
+           OR f.path LIKE '%/__init__.py' OR f.path LIKE '%/mod.rs')
+         AND EXISTS (SELECT 1 FROM edges e WHERE e.target_file_id = f.id)`,
+      )
+      .all();
+    for (const f of liveByEdge) {
+      liveDirs.add(barrelToDir(f.path));
+    }
+
+    // Fallback: non-relative imports (Python packages, Rust crate::) don't store
+    // import_source or edges. Check if any external file has a ref whose name
+    // matches the barrel's directory basename (e.g., "live_pkg", "live_mod").
+    for (const [dir, barrel] of barrelDirMap) {
+      if (liveDirs.has(dir)) continue;
+      const basename = dir.substring(dir.lastIndexOf("/") + 1);
+      if (!basename) continue;
+      const hasExternalRef = this.db
+        .query<{ c: number }, [string, number]>(
+          `SELECT COUNT(*) AS c FROM refs r
+           WHERE r.name = ? AND r.file_id != ?`,
+        )
+        .get(basename, barrel.id);
+      if ((hasExternalRef?.c ?? 0) > 0) liveDirs.add(dir);
+    }
+
+    return barrels
+      .filter((b) => !liveDirs.has(barrelToDir(b.path)))
+      .map((b) => ({ path: b.path, lineCount: b.line_count, language: b.language }));
+  }
+
+  getFileExportCount(relPath: string): number {
+    if (!this.ready) return 0;
+    return (
+      this.db
+        .query<{ c: number }, [string]>(
+          "SELECT COUNT(*) AS c FROM symbols s JOIN files f ON f.id = s.file_id WHERE s.is_exported = 1 AND f.path = ?",
+        )
+        .get(relPath)?.c ?? 0
+    );
   }
 
   getFileBlastRadius(relPath: string): number {

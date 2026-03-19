@@ -265,7 +265,7 @@ export class RegexBackend implements IntelligenceBackend {
         const specifiers: string[] = [];
         const braceMatch = usePath.match(/\{([^}]+)\}/);
         if (braceMatch) {
-          for (const item of braceMatch[1]!.split(",")) {
+          for (const item of braceMatch[1]?.split(",") ?? []) {
             const parts = item.trim().split(/\s+as\s+/);
             const name = (parts[1] || parts[0] || "").trim();
             if (name && name !== "self") specifiers.push(name);

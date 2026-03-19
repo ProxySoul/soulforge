@@ -580,6 +580,153 @@ run();
 `,
   );
 
+  // ── Dead file: all exports unused, no dependents ──
+  write(
+    "src/dead-module/helpers.ts",
+    `export function orphanA(): void {}
+export function orphanB(): void {}
+export const ORPHAN_CONST = 99;
+`,
+  );
+
+  // ── Dead barrel: nothing imports through it ──
+  write(
+    "src/dead-barrel/widget.ts",
+    `export function widgetRender(): void {}
+`,
+  );
+  write(
+    "src/dead-barrel/index.ts",
+    `export { widgetRender } from "./widget";
+`,
+  );
+  // No consumer imports from src/dead-barrel or src/dead-barrel/index
+
+  // ── Live barrel: something imports through it ──
+  write(
+    "src/live-barrel/thing.ts",
+    `export function doThing(): string { return "thing"; }
+`,
+  );
+  write(
+    "src/live-barrel/index.ts",
+    `export { doThing } from "./thing";
+`,
+  );
+  write(
+    "src/live-barrel/consumer.ts",
+    `import { doThing } from "./index";
+console.log(doThing());
+`,
+  );
+
+  // ── Test-only exports: only imported by test files ──
+  write(
+    "src/test-helpers.ts",
+    `export function createMockUser(): { id: string } { return { id: "mock" }; }
+export function createMockOrder(): { id: string } { return { id: "order" }; }
+`,
+  );
+  write(
+    "tests/user.test.ts",
+    `import { createMockUser, createMockOrder } from "../src/test-helpers";
+const u = createMockUser();
+const o = createMockOrder();
+console.log(u, o);
+`,
+  );
+
+  // ── Export cluster: file with many dead exports but some alive ──
+  write(
+    "src/cluster/big-module.ts",
+    `export function alive(): void {}
+export function deadOne(): void {}
+export function deadTwo(): void {}
+export function deadThree(): void {}
+export function deadFour(): void {}
+`,
+  );
+  write(
+    "src/cluster/user.ts",
+    `import { alive } from "./big-module";
+alive();
+`,
+  );
+
+  // ── Python: dead __init__.py barrel ──
+  write(
+    "lib/dead_pkg/__init__.py",
+    `from .core import transform_input
+from .core import dead_export
+`,
+  );
+  write(
+    "lib/dead_pkg/core.py",
+    `def transform_input(x):
+    return x
+
+def dead_export():
+    pass
+`,
+  );
+  // Nobody imports from dead_pkg
+
+  // ── Python: live __init__.py barrel ──
+  write(
+    "lib/live_pkg/__init__.py",
+    `from .helpers import format_output
+`,
+  );
+  write(
+    "lib/live_pkg/helpers.py",
+    `def format_output(data):
+    return str(data)
+`,
+  );
+  write(
+    "lib/consumer.py",
+    `from live_pkg import format_output
+
+print(format_output("hello"))
+`,
+  );
+
+  // ── Rust: dead mod.rs barrel ──
+  write(
+    "src/dead_mod/mod.rs",
+    `pub mod utils;
+pub use utils::dead_util;
+`,
+  );
+  write(
+    "src/dead_mod/utils.rs",
+    `pub fn dead_util() -> i32 { 0 }
+`,
+  );
+  // Nobody imports from dead_mod
+
+  // ── Rust: live mod.rs barrel ──
+  write(
+    "src/live_mod/mod.rs",
+    `pub mod tools;
+pub use tools::live_tool;
+`,
+  );
+  write(
+    "src/live_mod/tools.rs",
+    `pub fn live_tool() -> String { String::from("ok") }
+`,
+  );
+  write(
+    "src/live_consumer.rs",
+    `use crate::live_mod::live_tool;
+
+fn main() {
+    live_tool();
+}
+`,
+  );
+
   repoMap = new RepoMap(TMP);
   await repoMap.scan();
 });
@@ -593,7 +740,7 @@ afterAll(() => {
 // Tests
 // ══════════════════════════════════════════════════════════════
 
-function getUnused(): Array<{ name: string; path: string; kind: string; usedInternally: boolean }> {
+function getUnused(): Array<{ name: string; path: string; kind: string; lineCount: number; usedInternally: boolean }> {
   return repoMap.getUnusedExports();
 }
 
@@ -883,5 +1030,142 @@ describe("unused exports — CommonJS module.exports", () => {
 
   it("does not flag formatName (imported via require)", () => {
     expect(unusedNames()).not.toContain("formatName");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Dead files, barrels, test-only, clusters
+// ══════════════════════════════════════════════════════════════
+
+describe("dead files — all exports unused with no dependents", () => {
+  it("detects all exports from dead-module/helpers.ts as unused", () => {
+    const unused = getUnused();
+    const deadModule = unused.filter((u) => u.path.includes("dead-module/helpers"));
+    expect(deadModule.length).toBe(3);
+    expect(deadModule.map((u) => u.name).sort()).toEqual(["ORPHAN_CONST", "orphanA", "orphanB"]);
+  });
+
+  it("includes lineCount in unused export results", () => {
+    const unused = getUnused();
+    const deadModule = unused.find((u) => u.path.includes("dead-module/helpers"));
+    expect(deadModule).toBeDefined();
+    expect(deadModule!.lineCount).toBeGreaterThan(0);
+  });
+
+  it("getFileExportCount returns correct count for dead file", () => {
+    const count = repoMap.getFileExportCount("src/dead-module/helpers.ts");
+    expect(count).toBe(3);
+  });
+
+  it("dead file has no dependents", () => {
+    const deps = repoMap.getFileDependents("src/dead-module/helpers.ts");
+    expect(deps.length).toBe(0);
+  });
+});
+
+describe("dead barrels — barrel files with no dependents", () => {
+  it("detects dead-barrel/index.ts as a dead barrel", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const deadBarrel = barrels.find((b) => b.path.includes("dead-barrel/index"));
+    expect(deadBarrel).toBeDefined();
+    expect(deadBarrel!.lineCount).toBeGreaterThan(0);
+  });
+
+  it("does not flag live-barrel/index.ts (consumer imports from ./index)", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const liveBarrel = barrels.find((b) => b.path.includes("live-barrel/index"));
+    expect(liveBarrel).toBeUndefined();
+  });
+
+  it("does not flag barrel/index.ts from original fixtures (consumer imports from ./index)", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const barrelIndex = barrels.find(
+      (b) => b.path === "src/barrel/index.ts",
+    );
+    expect(barrelIndex).toBeUndefined();
+  });
+
+  it("detects Python dead __init__.py barrel", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const pyBarrel = barrels.find((b) => b.path.includes("dead_pkg/__init__.py"));
+    expect(pyBarrel).toBeDefined();
+    expect(pyBarrel!.language).toBe("python");
+  });
+
+  it("does not flag Python live __init__.py barrel", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const liveBarrel = barrels.find((b) => b.path.includes("live_pkg/__init__.py"));
+    expect(liveBarrel).toBeUndefined();
+  });
+
+  it("detects Rust dead mod.rs barrel", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const rsBarrel = barrels.find((b) => b.path.includes("dead_mod/mod.rs"));
+    expect(rsBarrel).toBeDefined();
+    expect(rsBarrel!.language).toBe("rust");
+  });
+
+  it("does not flag Rust live mod.rs barrel", () => {
+    const barrels = repoMap.getDeadBarrels();
+    const liveBarrel = barrels.find((b) => b.path.includes("live_mod/mod.rs"));
+    expect(liveBarrel).toBeUndefined();
+  });
+
+  it("includes language field on all dead barrels", () => {
+    const barrels = repoMap.getDeadBarrels();
+    for (const b of barrels) {
+      expect(b.language).toBeDefined();
+      expect(typeof b.language).toBe("string");
+    }
+  });
+});
+
+describe("test-only exports — only imported by test files", () => {
+  it("detects createMockUser as test-only", () => {
+    const testOnly = repoMap.getTestOnlyExports();
+    expect(testOnly.some((t) => t.name === "createMockUser")).toBe(true);
+  });
+
+  it("detects createMockOrder as test-only", () => {
+    const testOnly = repoMap.getTestOnlyExports();
+    expect(testOnly.some((t) => t.name === "createMockOrder")).toBe(true);
+  });
+
+  it("does not flag formatDate as test-only (imported by production code)", () => {
+    const testOnly = repoMap.getTestOnlyExports();
+    expect(testOnly.some((t) => t.name === "formatDate")).toBe(false);
+  });
+
+  it("does not include dead exports in test-only (they have no refs at all)", () => {
+    const testOnly = repoMap.getTestOnlyExports();
+    expect(testOnly.some((t) => t.name === "deadHelper")).toBe(false);
+    expect(testOnly.some((t) => t.name === "orphanA")).toBe(false);
+  });
+});
+
+describe("export clusters — files with 3+ dead exports", () => {
+  it("detects dead exports in big-module.ts cluster", () => {
+    const unused = getUnused();
+    const cluster = unused.filter((u) => u.path.includes("cluster/big-module"));
+    expect(cluster.length).toBe(4);
+    expect(cluster.map((u) => u.name).sort()).toEqual(["deadFour", "deadOne", "deadThree", "deadTwo"]);
+  });
+
+  it("does not flag alive in big-module.ts", () => {
+    const unused = getUnused();
+    const alive = unused.find((u) => u.name === "alive" && u.path.includes("cluster/big-module"));
+    expect(alive).toBeUndefined();
+  });
+});
+
+describe("getUnusedExports limit parameter", () => {
+  it("respects custom limit", () => {
+    const limited = repoMap.getUnusedExports(3);
+    expect(limited.length).toBeLessThanOrEqual(3);
+  });
+
+  it("default limit is high enough to catch all test fixtures", () => {
+    const all = repoMap.getUnusedExports();
+    expect(all.length).toBeGreaterThan(10);
   });
 });
