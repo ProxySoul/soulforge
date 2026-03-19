@@ -18,7 +18,6 @@ const FORGE_STATUSES = [
 
 const ghostIcon = () => icon("ghost");
 const GHOST_SPEED = 400;
-const COMPLETED_DISPLAY_MS = 5000;
 
 function formatElapsed(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -69,7 +68,6 @@ export function LoadingStatus({ isLoading, isCompacting, queueCount }: LoadingSt
   const wasLoadingRef = useRef(false);
   const loadingStartRef = useRef(0);
   const completedTimeRef = useRef<string | null>(null);
-  const completedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const propsRef = useRef({ isLoading, isCompacting, queueCount });
   propsRef.current = { isLoading, isCompacting, queueCount };
 
@@ -80,29 +78,16 @@ export function LoadingStatus({ isLoading, isCompacting, queueCount }: LoadingSt
       Math.floor(Math.random() * FORGE_STATUSES.length)
     ] as string;
     loadingStartRef.current = Date.now();
-    if (completedTimerRef.current) {
-      clearTimeout(completedTimerRef.current);
-      completedTimerRef.current = null;
-    }
     completedTimeRef.current = null;
   }
 
   wasLoadingRef.current = isLoading;
 
-  // Move the "completed" timer into a useEffect so it doesn't fire during render
   useEffect(() => {
     if (isLoading || !loadingStartRef.current) return;
     const finalSec = Math.floor((Date.now() - loadingStartRef.current) / 1000);
     if (finalSec > 0) {
       completedTimeRef.current = formatElapsed(finalSec);
-      if (completedTimerRef.current) clearTimeout(completedTimerRef.current);
-      completedTimerRef.current = setTimeout(() => {
-        completedTimeRef.current = null;
-        completedTimerRef.current = null;
-        try {
-          if (textRef.current) textRef.current.content = new StyledText([]);
-        } catch {}
-      }, COMPLETED_DISPLAY_MS);
     }
   }, [isLoading]);
 
@@ -146,12 +131,6 @@ export function LoadingStatus({ isLoading, isCompacting, queueCount }: LoadingSt
     }, GHOST_SPEED);
     return () => clearInterval(timer);
   }, [showBusy]);
-
-  useEffect(() => {
-    return () => {
-      if (completedTimerRef.current) clearTimeout(completedTimerRef.current);
-    };
-  }, []);
 
   const initial = showBusy
     ? buildBusyContent(true, isCompacting, forgeStatusRef.current, 0, isLoading, queueCount)

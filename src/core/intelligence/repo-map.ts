@@ -187,6 +187,110 @@ const IDENTIFIER_KEYWORDS = new Set([
   "cap",
   "println",
   "fmt",
+  // Java/Kotlin/Scala
+  "val",
+  "fun",
+  "object",
+  "companion",
+  "internal",
+  "open",
+  "sealed",
+  "data",
+  "when",
+  "final",
+  "throws",
+  "synchronized",
+  "volatile",
+  "transient",
+  // Swift
+  "guard",
+  "protocol",
+  "extension",
+  "fileprivate",
+  "mutating",
+  "willSet",
+  "didSet",
+  // C#
+  "virtual",
+  "partial",
+  "using",
+  "event",
+  "delegate",
+  "async",
+  // C/C++
+  "void",
+  "int",
+  "char",
+  "float",
+  "double",
+  "long",
+  "short",
+  "unsigned",
+  "signed",
+  "sizeof",
+  "typedef",
+  "extern",
+  "inline",
+  "register",
+  "include",
+  "define",
+  "ifdef",
+  "ifndef",
+  "endif",
+  "template",
+  "typename",
+  "constexpr",
+  "nullptr",
+  "auto",
+  // PHP
+  "echo",
+  "print",
+  "require_once",
+  "include_once",
+  "isset",
+  "unset",
+  "foreach",
+  // Ruby
+  "end",
+  "begin",
+  "rescue",
+  "attr_accessor",
+  "attr_reader",
+  "attr_writer",
+  "puts",
+  // Elixir
+  "defmodule",
+  "defstruct",
+  "defp",
+  "defimpl",
+  // Lua
+  "local",
+  "then",
+  "elseif",
+  "repeat",
+  "until",
+  // Zig
+  "comptime",
+  "errdefer",
+  "unreachable",
+  // OCaml
+  "sig",
+  "rec",
+  "mutable",
+  // Solidity
+  "pragma",
+  "memory",
+  "storage",
+  "calldata",
+  "payable",
+  "view",
+  "pure",
+  "emit",
+  // Dart
+  "late",
+  "required",
+  "covariant",
+  "factory",
 ]);
 
 interface FileRow {
@@ -710,17 +814,52 @@ export class RepoMap {
     const ids = new Set<string>();
     const patterns: RegExp[] = [];
 
-    if (
-      language === "typescript" ||
-      language === "javascript" ||
-      language === "go" ||
-      language === "rust"
-    ) {
-      patterns.push(/\b([A-Z][a-zA-Z0-9_]*)\b/g);
-      patterns.push(/\b([a-z][a-zA-Z0-9_]{2,})\b/g);
-    } else if (language === "python") {
-      patterns.push(/\b([A-Z][a-zA-Z0-9_]*)\b/g);
-      patterns.push(/\b([a-z][a-z0-9_]{2,})\b/g);
+    switch (language) {
+      // camelCase + PascalCase
+      case "typescript":
+      case "javascript":
+      case "go":
+      case "rust":
+      case "java":
+      case "kotlin":
+      case "swift":
+      case "csharp":
+      case "dart":
+      case "scala":
+      case "objc":
+      case "solidity":
+        patterns.push(/\b([A-Z][a-zA-Z0-9_]*)\b/g);
+        patterns.push(/\b([a-z][a-zA-Z0-9_]{2,})\b/g);
+        break;
+      // snake_case + PascalCase
+      case "python":
+      case "ruby":
+      case "elixir":
+      case "php":
+        patterns.push(/\b([A-Z][a-zA-Z0-9_]*)\b/g);
+        patterns.push(/\b([a-z][a-z0-9_]{2,})\b/g);
+        break;
+      // Primarily snake_case/lowercase
+      case "c":
+      case "cpp":
+      case "zig":
+      case "lua":
+      case "bash":
+      case "ocaml":
+      case "rescript":
+        patterns.push(/\b([A-Z][a-zA-Z0-9_]*)\b/g);
+        patterns.push(/\b([a-z][a-z0-9_]{2,})\b/g);
+        break;
+      // Lisp-family (hyphenated identifiers)
+      case "elisp":
+        patterns.push(/\b([A-Z][a-zA-Z0-9_-]*)\b/g);
+        patterns.push(/\b([a-z][a-zA-Z0-9_-]{2,})\b/g);
+        break;
+      // TLA+, Vue, HTML, CSS, config — PascalCase at minimum
+      default:
+        patterns.push(/\b([A-Z][a-zA-Z0-9_]*)\b/g);
+        patterns.push(/\b([a-z][a-zA-Z0-9_]{2,})\b/g);
+        break;
     }
 
     for (const pattern of patterns) {
@@ -1862,9 +2001,14 @@ export class RepoMap {
       .all(limit);
   }
 
-  getUnusedExports(): Array<{ name: string; path: string; kind: string }> {
+  getUnusedExports(): Array<{
+    name: string;
+    path: string;
+    kind: string;
+    usedInternally: boolean;
+  }> {
     if (!this.ready) return [];
-    return this.db
+    const rows = this.db
       .query<{ name: string; path: string; kind: string }, []>(
         `SELECT s.name, f.path, s.kind FROM symbols s
          JOIN files f ON f.id = s.file_id
@@ -1876,6 +2020,20 @@ export class RepoMap {
          LIMIT 50`,
       )
       .all();
+
+    const pattern = (name: string) =>
+      new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+    return rows.map((row) => {
+      let usedInternally = false;
+      try {
+        const content = readFileSync(join(this.cwd, row.path), "utf-8");
+        const matches = content.match(pattern(row.name));
+        usedInternally = (matches?.length ?? 0) > 1;
+      } catch {
+        // file unreadable — assume not used internally
+      }
+      return { ...row, usedInternally };
+    });
   }
 
   getFileBlastRadius(relPath: string): number {

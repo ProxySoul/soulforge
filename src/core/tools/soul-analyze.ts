@@ -114,19 +114,41 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
 
   const filtered = unused.filter((u) => isForbidden(u.path) === null).slice(0, limit ?? 50);
 
-  const byFile = new Map<string, Array<{ name: string; kind: string }>>();
+  const deadCode = new Map<string, Array<{ name: string; kind: string }>>();
+  const unnecessaryExports = new Map<string, Array<{ name: string; kind: string }>>();
+
   for (const u of filtered) {
     const rel = relative(cwd, `${cwd}/${u.path}`);
-    const arr = byFile.get(rel) ?? [];
+    const bucket = u.usedInternally ? unnecessaryExports : deadCode;
+    const arr = bucket.get(rel) ?? [];
     arr.push({ name: u.name, kind: u.kind });
-    byFile.set(rel, arr);
+    bucket.set(rel, arr);
   }
 
-  const lines = [`${String(filtered.length)} potentially unused exports:\n`];
-  for (const [file, symbols] of byFile) {
-    lines.push(`  ${file}`);
-    for (const s of symbols) {
-      lines.push(`    ${s.kind} ${s.name}`);
+  const lines: string[] = [];
+
+  if (deadCode.size > 0) {
+    const count = [...deadCode.values()].reduce((n, arr) => n + arr.length, 0);
+    lines.push(`Dead code (${String(count)} exports with no references anywhere):\n`);
+    for (const [file, symbols] of deadCode) {
+      lines.push(`  ${file}`);
+      for (const s of symbols) {
+        lines.push(`    ${s.kind} ${s.name}`);
+      }
+    }
+  }
+
+  if (unnecessaryExports.size > 0) {
+    const count = [...unnecessaryExports.values()].reduce((n, arr) => n + arr.length, 0);
+    if (lines.length > 0) lines.push("");
+    lines.push(
+      `Unnecessary exports (${String(count)} — used internally but never imported by other files):\n`,
+    );
+    for (const [file, symbols] of unnecessaryExports) {
+      lines.push(`  ${file}`);
+      for (const s of symbols) {
+        lines.push(`    ${s.kind} ${s.name}`);
+      }
     }
   }
 

@@ -252,7 +252,9 @@ function collectSpecifiers(node: TSNode, language: Language, out: string[]): voi
       return;
     }
     if (type === "namespace_import") {
-      const name = node.namedChildren.find((c: TSNode | null) => c != null && c.type === "identifier");
+      const name = node.namedChildren.find(
+        (c: TSNode | null) => c != null && c.type === "identifier",
+      );
       if (name) out.push(name.text);
       return;
     }
@@ -288,11 +290,12 @@ function collectSpecifiers(node: TSNode, language: Language, out: string[]): voi
         return;
       }
     }
-    if (type === "identifier" && (
-      node.parent?.type === "use_list" ||
-      node.parent?.type === "scoped_use_list" ||
-      node.parent?.type === "use_declaration"
-    )) {
+    if (
+      type === "identifier" &&
+      (node.parent?.type === "use_list" ||
+        node.parent?.type === "scoped_use_list" ||
+        node.parent?.type === "use_declaration")
+    ) {
       out.push(node.text);
       return;
     }
@@ -377,18 +380,22 @@ function collectSpecifiers(node: TSNode, language: Language, out: string[]): voi
     }
   } else if (language === "dart") {
     // import "package:foo/bar.dart" show Baz, Qux
-    if (type === "identifier" && (
-      node.parent?.type === "combinator" ||
-      node.parent?.type === "show_combinator" ||
-      node.parent?.type === "hide_combinator"
-    )) {
+    if (
+      type === "identifier" &&
+      (node.parent?.type === "combinator" ||
+        node.parent?.type === "show_combinator" ||
+        node.parent?.type === "hide_combinator")
+    ) {
       out.push(node.text);
       return;
     }
     // Fallback: grab the filename from the import URI
     if (type === "string_literal" || type === "uri") {
       const raw = node.text.replace(/['"]/g, "");
-      const last = raw.split("/").pop()?.replace(/\.dart$/, "");
+      const last = raw
+        .split("/")
+        .pop()
+        ?.replace(/\.dart$/, "");
       if (last) out.push(last);
       return;
     }
@@ -428,6 +435,57 @@ function collectSpecifiers(node: TSNode, language: Language, out: string[]): voi
   for (let i = 0; i < childCount; i++) {
     const child = node.namedChild(i);
     if (child) collectSpecifiers(child, language, out);
+  }
+}
+
+const HEADER_EXTS = new Set([".h", ".hpp", ".hh", ".hxx"]);
+
+function isPublicSymbol(
+  name: string,
+  sourceLine: string,
+  language: Language,
+  filePath: string,
+): boolean {
+  const trimmed = sourceLine.trimStart();
+  switch (language) {
+    case "go":
+      return /^[A-Z]/.test(name);
+    case "rust":
+    case "zig":
+      return trimmed.startsWith("pub ");
+    case "python":
+    case "dart":
+      return !name.startsWith("_");
+    case "java":
+    case "kotlin":
+    case "scala":
+    case "swift":
+    case "csharp":
+      return !/\bprivate\b/.test(trimmed);
+    case "php":
+      return !/\b(?:private|protected)\b/.test(trimmed);
+    case "ruby":
+    case "lua":
+    case "bash":
+    case "tlaplus":
+    case "rescript":
+    case "ocaml":
+      return true;
+    case "elixir":
+      return !trimmed.startsWith("defp ");
+    case "elisp":
+      return !name.startsWith("--");
+    case "c":
+    case "cpp":
+    case "objc":
+      return HEADER_EXTS.has(filePath.slice(filePath.lastIndexOf(".")));
+    case "solidity":
+      return (
+        /\b(?:public|external)\b/.test(trimmed) ||
+        /\b(?:contract|event|struct|enum)\b/.test(trimmed)
+      );
+    default:
+      return true;
   }
 }
 
@@ -572,16 +630,17 @@ export class TreeSitterBackend implements IntelligenceBackend {
         if (!importNode) continue;
 
         const node = importNode.node;
-        const source = sourceNode
-          ? sourceNode.node.text.replace(/['"]/g, "")
-          : node.text;
+        const source = sourceNode ? sourceNode.node.text.replace(/['"]/g, "") : node.text;
         const specifiers = extractImportSpecifiers(node, language);
 
         imports.push({
           source,
           specifiers,
-          isDefault: specifiers.length > 0 && node.text.includes("import ") &&
-            !node.text.includes("{") && !node.text.includes("*"),
+          isDefault:
+            specifiers.length > 0 &&
+            node.text.includes("import ") &&
+            !node.text.includes("{") &&
+            !node.text.includes("*"),
           isNamespace: node.text.includes("* as "),
           location: {
             file: resolve(file),
@@ -592,9 +651,50 @@ export class TreeSitterBackend implements IntelligenceBackend {
       }
     } finally {
       tsQuery.delete();
-      tree.delete();
     }
 
+    // Also capture re-exports: export { X } from './y'
+    if (language === "typescript" || language === "javascript") {
+      const reExportQuery = createQuery(tsLang, `(export_statement) @export`);
+      try {
+        for (const match of reExportQuery.matches(tree.rootNode)) {
+          const cap = match.captures.find((c: TSQueryCapture) => c.name === "export");
+          if (!cap) continue;
+          const node = cap.node;
+          const source = node.childForFieldName("source");
+          if (!source) continue;
+          const clause = node.namedChildren.find(
+            (c: TSNode | null) => c != null && c.type === "export_clause",
+          );
+          if (!clause) continue;
+          const specifiers: string[] = [];
+          for (let ci = 0; ci < clause.namedChildCount; ci++) {
+            const spec = clause.namedChild(ci);
+            if (spec?.type === "export_specifier") {
+              const name = spec.childForFieldName("name");
+              if (name) specifiers.push(name.text);
+            }
+          }
+          if (specifiers.length > 0) {
+            imports.push({
+              source: source.text.replace(/['"]/g, ""),
+              specifiers,
+              isDefault: false,
+              isNamespace: false,
+              location: {
+                file: resolve(file),
+                line: node.startPosition.row + 1,
+                column: node.startPosition.column + 1,
+              },
+            });
+          }
+        }
+      } finally {
+        reExportQuery.delete();
+      }
+    }
+
+    tree.delete();
     return imports;
   }
 
@@ -605,7 +705,8 @@ export class TreeSitterBackend implements IntelligenceBackend {
     const language = this.detectLang(file);
     if (language !== "typescript" && language !== "javascript") {
       tree.delete();
-      return null;
+      const outline = await this.getFileOutline(file);
+      return outline?.exports ?? null;
     }
 
     const tsLang = this.languages.get(this.grammarKeyForFile(file));
@@ -663,6 +764,32 @@ export class TreeSitterBackend implements IntelligenceBackend {
               },
             });
           }
+        } else {
+          // Handle re-exports: export { X, Y } or export { X } from './y'
+          const clause = node.namedChildren.find(
+            (c: TSNode | null) => c != null && c.type === "export_clause",
+          );
+          if (clause) {
+            for (let ci = 0; ci < clause.namedChildCount; ci++) {
+              const spec = clause.namedChild(ci);
+              if (spec?.type === "export_specifier") {
+                const alias = spec.childForFieldName("alias");
+                const name = alias ?? spec.childForFieldName("name");
+                if (name) {
+                  exports.push({
+                    name: name.text,
+                    isDefault: false,
+                    kind: "variable",
+                    location: {
+                      file: resolve(file),
+                      line: node.startPosition.row + 1,
+                      column: node.startPosition.column + 1,
+                    },
+                  });
+                }
+              }
+            }
+          }
         }
       }
     } finally {
@@ -706,12 +833,13 @@ export class TreeSitterBackend implements IntelligenceBackend {
           // Handle imports
           if (patternCapture?.name === "import") {
             const node = patternCapture.node;
-            const source = sourceCapture
-              ? sourceCapture.node.text.replace(/['"]/g, "")
-              : node.text;
+            const source = sourceCapture ? sourceCapture.node.text.replace(/['"]/g, "") : node.text;
             const specifiers = extractImportSpecifiers(node, language);
-            const isDefault = specifiers.length > 0 && node.text.includes("import ") &&
-              !node.text.includes("{") && !node.text.includes("*");
+            const isDefault =
+              specifiers.length > 0 &&
+              node.text.includes("import ") &&
+              !node.text.includes("{") &&
+              !node.text.includes("*");
             const isNamespace = node.text.includes("* as ");
             imports.push({
               source,
@@ -763,6 +891,52 @@ export class TreeSitterBackend implements IntelligenceBackend {
                   },
                 });
               }
+            } else {
+              // Handle re-exports: export { X, Y } or export { X } from './y'
+              const clause = node.namedChildren.find(
+                (c: TSNode | null) => c != null && c.type === "export_clause",
+              );
+              if (clause) {
+                const reExportSource = node.childForFieldName("source");
+                const source = reExportSource
+                  ? reExportSource.text.replace(/['"]/g, "")
+                  : undefined;
+                const specNames: string[] = [];
+                for (let ci = 0; ci < clause.namedChildCount; ci++) {
+                  const spec = clause.namedChild(ci);
+                  if (spec?.type === "export_specifier") {
+                    const alias = spec.childForFieldName("alias");
+                    const name = alias ?? spec.childForFieldName("name");
+                    if (name) {
+                      specNames.push(name.text);
+                      exports.push({
+                        name: name.text,
+                        isDefault: false,
+                        kind: "variable",
+                        location: {
+                          file: absFile,
+                          line: node.startPosition.row + 1,
+                          column: node.startPosition.column + 1,
+                        },
+                      });
+                    }
+                  }
+                }
+                // Re-exports with a source are cross-file references (treat as imports)
+                if (source && specNames.length > 0) {
+                  imports.push({
+                    source,
+                    specifiers: specNames,
+                    isDefault: false,
+                    isNamespace: false,
+                    location: {
+                      file: absFile,
+                      line: node.startPosition.row + 1,
+                      column: node.startPosition.column + 1,
+                    },
+                  });
+                }
+              }
             }
             continue;
           }
@@ -788,6 +962,25 @@ export class TreeSitterBackend implements IntelligenceBackend {
     }
 
     tree.delete();
+
+    // Infer exports from visibility conventions for non-TS/JS languages
+    if (exports.length === 0 && language !== "typescript" && language !== "javascript") {
+      const content = this.readFileContent(file);
+      if (content) {
+        const lines = content.split("\n");
+        for (const sym of symbols) {
+          const line = lines[sym.location.line - 1] ?? "";
+          if (isPublicSymbol(sym.name, line, language, file)) {
+            exports.push({
+              name: sym.name,
+              isDefault: false,
+              kind: sym.kind,
+              location: sym.location,
+            });
+          }
+        }
+      }
+    }
 
     return {
       file: absFile,
