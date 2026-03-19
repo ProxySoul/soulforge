@@ -68,7 +68,7 @@ SQLite-backed codebase graph with PageRank ranking, cochange analysis, blast rad
 <td>
 
 ### 4-Tier Code Intelligence
-LSP → ts-morph → tree-sitter → regex fallback chain. 20+ languages. The agent always has structural understanding, from compiler-precise to best-effort. [Deep dive →](docs/architecture.md)
+LSP → ts-morph → tree-sitter → regex fallback chain. 30+ languages with convention-based visibility detection. The agent always has structural understanding, from compiler-precise to best-effort. [Deep dive →](docs/architecture.md)
 
 </td>
 </tr>
@@ -308,8 +308,8 @@ SoulForge ships 30+ tools organized by capability:
 | Tool | What it does |
 |------|-------------|
 | `soul_grep` | Count-mode ripgrep with repo map intercept |
-| `soul_find` | Fuzzy file/symbol search, PageRank-ranked |
-| `soul_analyze` | Identifier frequency, unused exports, file profile |
+| `soul_find` | Fuzzy file/symbol search, PageRank-ranked, signatures included |
+| `soul_analyze` | Identifier frequency, unused exports, file profiles, top files by PageRank, external package usage, symbol lookup by kind/name with signatures |
 | `soul_impact` | Dependency graph — dependents, cochanges, blast radius |
 
 ### Project Management
@@ -393,7 +393,11 @@ graph LR
     style BR fill:#47a,color:#fff
 ```
 
-**Powers:** `soul_find` (PageRank-ranked search), `soul_grep` (zero-cost identifier counts), `soul_analyze` (unused exports, file profiles), `soul_impact` (blast radius, dependency chains), dispatch enrichment (auto-injects symbol line ranges), AST semantic summaries (docstrings for top 500 symbols).
+**Powers:** `soul_find` (PageRank-ranked search with signatures), `soul_grep` (zero-cost identifier counts), `soul_analyze` (unused exports with dead code vs unnecessary export classification, file profiles, top files, external packages, symbol-by-kind queries with signatures), `soul_impact` (blast radius, dependency chains), dispatch enrichment (auto-injects symbol line ranges), AST semantic summaries (docstrings for top 500 symbols).
+
+**Language support:** Convention-based visibility detection for 30+ languages. Export inference via Go capitalization, Rust/Zig `pub`, Python/Dart underscore convention, Java/Kotlin/Swift/C#/Scala not-private, PHP, Elixir `def`/`defp`, C/C++/ObjC header files, Solidity, and more. Identifier extraction patterns cover camelCase, PascalCase, snake_case, and hyphenated (Elisp) naming conventions across all supported languages.
+
+**Monorepo support:** Partial. The repo map indexes files within the working directory. Cross-package dependencies within a monorepo are not yet tracked — each package is treated as an independent unit. The `project` tool handles monorepo workspace discovery separately.
 
 [Full reference →](docs/repo-map.md)
 
@@ -538,6 +542,7 @@ SoulForge TUI              Full experience (what you're looking at now)
 - **Dispatch worktrees** — git worktree per code agent for conflict-free parallel edits
 
 **Planned:**
+- **Monorepo graph support** — cross-package dependency tracking for pnpm/npm/yarn workspaces, Cargo workspaces, Go workspaces (`go.work`), Nx/Turborepo, and Bazel/Buck. Currently the repo map treats each workspace root as an isolated unit — cross-package imports resolve as external dependencies instead of internal edges. This means PageRank, blast radius, and unused export detection don't span package boundaries.
 - **Benchmarks** — side-by-side comparisons: tool calls, edit accuracy, token efficiency on large codebases
 - **Multi-tab coordination** — worktree isolation + shared awareness board across concurrent sessions
 - **Orchestrated workflows** — sequential agent handoffs (planner → TDD → reviewer → security)

@@ -187,3 +187,41 @@ CREATE VIRTUAL TABLE symbols_fts USING fts5(name, content=symbols, content_rowid
 | Budget management | Inverse-linear with conversation | Dynamic per-turn | N/A | N/A |
 | Blast radius tags | Yes ([R:N]) | No | No | No |
 | Cross-file edges | Import graph | Tag graph | N/A | N/A |
+| Clone detection | AST shape hash + MinHash | No | No | No |
+| Dead code detection | Unused exports (dead vs unnecessary) | No | No | No |
+| External package tracking | Yes (per-file specifiers) | No | No | No |
+
+## Language Support
+
+The repo map supports 30+ languages with convention-based visibility detection:
+
+| Convention | Languages | Rule |
+|---|---|---|
+| Name-based | Go | Capitalized = public |
+| Name-based | Python, Dart | No `_` prefix = public |
+| Name-based | Elisp | No `--` prefix = public |
+| Keyword-based | Rust, Zig | `pub` keyword |
+| Keyword-based | Java, Kotlin, Swift, C#, Scala | Not `private` = public |
+| Keyword-based | PHP | Not `private`/`protected` = public |
+| Keyword-based | Elixir | `def` (not `defp`) = public |
+| Keyword-based | Solidity | `public`/`external` or contract/event/struct |
+| File-based | C, C++, Objective-C | Header file (`.h`/`.hpp`/`.hh`) = public |
+| Default public | Ruby, Lua, Bash, OCaml, ReScript, TLA+ | All top-level symbols treated as public |
+
+Identifier extraction covers three naming families:
+- **camelCase + PascalCase**: TypeScript, JavaScript, Go, Rust, Java, Kotlin, Swift, C#, Dart, Scala, Objective-C, Solidity
+- **snake_case + PascalCase**: Python, Ruby, Elixir, PHP, C, C++, Zig, Lua, Bash, OCaml, ReScript
+- **Hyphenated**: Elisp
+
+IDENTIFIER_KEYWORDS filters ~190 reserved words across all supported languages to prevent noise in the reference graph.
+
+### Monorepo Support (Partial)
+
+The repo map currently indexes files within the working directory (`cwd`). In monorepo setups:
+
+- PageRank, blast radius, and dependency edges only span files within `cwd`
+- Cross-package imports (e.g., `@myorg/shared` in a pnpm workspace) resolve as external dependencies, not internal edges
+- Co-change analysis works across the full git history regardless of package boundaries
+- The `project` tool handles workspace discovery separately via `project(action: "list")`
+
+Full monorepo graph support (cross-package edge building, workspace-aware PageRank) is planned.
