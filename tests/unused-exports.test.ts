@@ -254,9 +254,9 @@ client.fetch(url: "https://example.com")
   // ── C: header = public ──
   write(
     "include/math_utils.h",
-    `int add(int a, int b);
-int multiply(int a, int b);
-int dead_function(void);
+    `int c_add(int a, int b);
+int c_multiply(int a, int b);
+int c_dead_function(void);
 `,
   );
 
@@ -264,9 +264,9 @@ int dead_function(void);
     "src/math_utils.c",
     `#include "math_utils.h"
 
-int add(int a, int b) { return a + b; }
-int multiply(int a, int b) { return a * b; }
-int dead_function(void) { return 0; }
+int c_add(int a, int b) { return a + b; }
+int c_multiply(int a, int b) { return a * b; }
+int c_dead_function(void) { return 0; }
 `,
   );
 
@@ -275,8 +275,8 @@ int dead_function(void) { return 0; }
     `#include "math_utils.h"
 
 int main() {
-    int sum = add(1, 2);
-    int prod = multiply(3, 4);
+    int sum = c_add(1, 2);
+    int prod = c_multiply(3, 4);
     return 0;
 }
 `,
@@ -410,6 +410,91 @@ module.exports = { formatName, deadLegacy };
     "legacy/app.js",
     `const { formatName } = require('./utils');
 console.log(formatName('John', 'Doe'));
+`,
+  );
+
+  // ── TypeScript: export * wildcard re-export ──
+  write(
+    "src/barrel/math.ts",
+    `export function add(a: number, b: number): number { return a + b; }
+export function subtract(a: number, b: number): number { return a - b; }
+export function deadMath(): number { return 0; }
+`,
+  );
+
+  write(
+    "src/barrel/index.ts",
+    `export * from "./math";
+`,
+  );
+
+  write(
+    "src/barrel/consumer.ts",
+    `import { add } from "./index";
+console.log(add(1, 2));
+`,
+  );
+
+  // ── TypeScript: tsconfig path aliases ──
+  write(
+    "tsconfig.json",
+    `{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@utils/*": ["src/alias-utils/*"]
+    }
+  }
+}
+`,
+  );
+
+  write(
+    "src/alias-utils/format.ts",
+    `export function formatCurrency(n: number): string { return "$" + n.toFixed(2); }
+export function deadFormat(): string { return ""; }
+`,
+  );
+
+  write(
+    "src/alias-consumer.ts",
+    `import { formatCurrency } from "@utils/format";
+console.log(formatCurrency(9.99));
+`,
+  );
+
+  // ── Go: module-relative imports ──
+  write(
+    "go.mod",
+    `module github.com/example/myproject
+
+go 1.21
+`,
+  );
+
+  write(
+    "internal/service.go",
+    `package service
+
+func Process(data string) string {
+    return data
+}
+
+func UnusedService() string {
+    return ""
+}
+`,
+  );
+
+  write(
+    "cmd/server.go",
+    `package main
+
+import "github.com/example/myproject/internal/service"
+
+func main() {
+    service.Process("hello")
+}
 `,
   );
 
@@ -562,7 +647,11 @@ describe("unused exports — duplicate symbol names", () => {
 });
 
 describe("unused exports — Python", () => {
-  it.todo("detects dead_function as unused — blocked on Python tree-sitter def extraction");
+  it("detects dead_function as unused", () => {
+    const unused = getUnused();
+    const found = unused.find((u) => u.name === "dead_function" && u.path.includes(".py"));
+    expect(found).toBeDefined();
+  });
 
   it("does not flag parse_json as unused", () => {
     expect(unusedNames()).not.toContain("parse_json");
@@ -683,13 +772,7 @@ describe("unused exports — re-exports", () => {
   });
 });
 
-describe("unused exports — legacy JavaScript (CommonJS)", () => {
-  it.todo("detects deadLegacy as unused — blocked on CommonJS module.exports parsing");
-
-  it("does not flag formatName as unused", () => {
-    expect(unusedNames()).not.toContain("formatName");
-  });
-});
+// CommonJS tests moved to dedicated section at end of file
 
 describe("unused exports — deep relative imports", () => {
   it("does not flag deepHelper (imported via ./nested/helper)", () => {
@@ -748,5 +831,57 @@ describe("unused exports — default exports", () => {
 
   it("detects createLogger as unused (never imported)", () => {
     expect(unusedNames()).toContain("createLogger");
+  });
+});
+
+describe("unused exports — export * wildcard re-exports", () => {
+  it("does not flag add in barrel math.ts (re-exported via export * and imported by consumer)", () => {
+    const unused = getUnused();
+    const barrelAdd = unused.find(
+      (u) => u.name === "add" && u.path.includes("barrel/math"),
+    );
+    expect(barrelAdd).toBeUndefined();
+  });
+
+  it("does not flag add in barrel index.ts (re-export of math.ts)", () => {
+    const unused = getUnused();
+    const indexAdd = unused.find(
+      (u) => u.name === "add" && u.path.includes("barrel/index"),
+    );
+    expect(indexAdd).toBeUndefined();
+  });
+
+  it("detects deadMath as unused (in barrel source, never imported)", () => {
+    expect(unusedNames()).toContain("deadMath");
+  });
+});
+
+describe("unused exports — TypeScript path aliases (tsconfig)", () => {
+  it("does not flag formatCurrency (imported via @utils/format alias)", () => {
+    expect(unusedNames()).not.toContain("formatCurrency");
+  });
+
+  it("detects deadFormat as unused (in aliased module, never imported)", () => {
+    expect(unusedNames()).toContain("deadFormat");
+  });
+});
+
+describe("unused exports — Go module-relative imports", () => {
+  it("does not flag Process (imported via module path)", () => {
+    expect(unusedNames()).not.toContain("Process");
+  });
+
+  it("detects UnusedService as unused", () => {
+    expect(unusedNames()).toContain("UnusedService");
+  });
+});
+
+describe("unused exports — CommonJS module.exports", () => {
+  it("detects deadLegacy as unused", () => {
+    expect(unusedNames()).toContain("deadLegacy");
+  });
+
+  it("does not flag formatName (imported via require)", () => {
+    expect(unusedNames()).not.toContain("formatName");
   });
 });

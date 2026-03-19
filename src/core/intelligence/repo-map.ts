@@ -785,12 +785,15 @@ export class RepoMap {
       const extImports = new Map<string, Set<string>>();
       for (const imp of outline.imports) {
         const sourceFileId = this.resolveImportSource(imp.source, absPath);
-        const importSource =
+        // Store import_source for any import we might resolve (relative, crate, Go module, tsconfig alias)
+        const isResolvable =
           imp.source.startsWith(".") ||
           imp.source.startsWith("crate::") ||
-          imp.source.startsWith("super::")
-            ? imp.source
-            : null;
+          imp.source.startsWith("super::") ||
+          (this.getGoModulePrefix() && imp.source.startsWith(this.getGoModulePrefix()! + "/")) ||
+          (this.getTsconfigPaths() &&
+            [...this.getTsconfigPaths()!.keys()].some((p) => imp.source.startsWith(p)));
+        const importSource = isResolvable ? imp.source : null;
         for (const s of imp.specifiers) {
           allRefNames.add(s);
           resolvedRefs.push({ name: s, sourceFileId, importSource });
@@ -917,19 +920,62 @@ export class RepoMap {
    * Works for relative imports (./foo, ../bar) across all languages.
    * Returns null for package/external imports or unresolvable paths.
    */
+  private goModulePrefix: string | null | undefined = undefined;
+  private tsconfigPaths: Map<string, string> | null | undefined = undefined;
+
+  private getGoModulePrefix(): string | null {
+    if (this.goModulePrefix !== undefined) return this.goModulePrefix;
+    try {
+      const goMod = readFileSync(join(this.cwd, "go.mod"), "utf-8");
+      const match = goMod.match(/^module\s+(\S+)/m);
+      this.goModulePrefix = match?.[1] ?? null;
+    } catch {
+      this.goModulePrefix = null;
+    }
+    return this.goModulePrefix;
+  }
+
+  private getTsconfigPaths(): Map<string, string> | null {
+    if (this.tsconfigPaths !== undefined) return this.tsconfigPaths;
+    this.tsconfigPaths = null;
+    for (const name of ["tsconfig.json", "jsconfig.json"]) {
+      try {
+        const raw = readFileSync(join(this.cwd, name), "utf-8");
+        const config = JSON.parse(raw);
+        const paths = config?.compilerOptions?.paths;
+        if (paths && typeof paths === "object") {
+          const map = new Map<string, string>();
+          for (const [pattern, targets] of Object.entries(paths)) {
+            const target = Array.isArray(targets) ? targets[0] : undefined;
+            if (typeof target !== "string") continue;
+            // Convert glob patterns: "@/*" → "@/", "src/*" → "src/"
+            const prefix = pattern.replace(/\*$/, "");
+            const replacement = target.replace(/\*$/, "");
+            map.set(prefix, replacement);
+          }
+          if (map.size > 0) this.tsconfigPaths = map;
+          break;
+        }
+      } catch {
+        // No tsconfig or invalid JSON
+      }
+    }
+    return this.tsconfigPaths;
+  }
+
   private resolveImportSource(importSource: string, importerAbsPath: string): number | null {
-    // Only resolve relative imports
-    if (!importSource.startsWith(".")) return null;
-
     const importerDir = dirname(importerAbsPath);
+    let normalized: string | null = null;
 
-    // Python relative imports: ".utils" → "./utils", "..models.user" → "../models/user"
-    let normalized = importSource;
-    if (
+    if (importSource.startsWith("./") || importSource.startsWith("../")) {
+      // Direct relative import
+      normalized = importSource;
+    } else if (
       importSource.startsWith(".") &&
       !importSource.startsWith("./") &&
       !importSource.startsWith("../")
     ) {
+      // Python relative imports: ".utils" → "./utils", "..models.user" → "../models/user"
       const dotMatch = importSource.match(/^(\.+)(.*)/);
       if (dotMatch) {
         const dots = dotMatch[1]!;
@@ -938,31 +984,53 @@ export class RepoMap {
         const prefix = levels === 0 ? "./" : "../".repeat(levels);
         normalized = prefix + rest;
       }
-    }
-
-    // Rust crate-relative imports: "crate::utils" → "./utils"
-    if (importSource.startsWith("crate::")) {
+    } else if (importSource.startsWith("crate::")) {
+      // Rust crate-relative: "crate::utils::foo" → "./utils/foo" (from src/)
       normalized = "./" + importSource.slice(7).replace(/::/g, "/");
     } else if (importSource.startsWith("super::")) {
+      // Rust super-relative
       normalized = "../" + importSource.slice(7).replace(/::/g, "/");
+    } else {
+      // Try Go module prefix: "mymodule/pkg/utils" → "pkg/utils"
+      const goPrefix = this.getGoModulePrefix();
+      if (goPrefix && importSource.startsWith(goPrefix + "/")) {
+        const relImport = importSource.slice(goPrefix.length + 1);
+        return this.resolveRelPath(relImport);
+      }
+
+      // Try TypeScript path aliases: "@/utils" → "src/utils"
+      const paths = this.getTsconfigPaths();
+      if (paths) {
+        for (const [prefix, replacement] of paths) {
+          if (importSource.startsWith(prefix)) {
+            const aliasResolved = replacement + importSource.slice(prefix.length);
+            return this.resolveRelPath(aliasResolved);
+          }
+        }
+      }
+
+      return null;
     }
 
+    if (!normalized) return null;
     const base = resolve(importerDir, normalized);
+    const relBase = relative(this.cwd, base);
+    if (relBase.startsWith("..")) return null;
+    return this.resolveRelPath(relBase);
+  }
 
-    // Try exact path first, then common extensions
+  private resolveRelPath(relBase: string): number | null {
+    const base = join(this.cwd, relBase);
     const candidates = [base];
     const ext = extname(base);
     if (!ext) {
       for (const tryExt of Object.keys(INDEXABLE_EXTENSIONS)) {
         candidates.push(base + tryExt);
       }
-      // index files
       for (const tryExt of [".ts", ".tsx", ".js", ".jsx", ".py", ".rb"]) {
         candidates.push(join(base, `index${tryExt}`));
       }
-      // __init__.py for Python packages
       candidates.push(join(base, "__init__.py"));
-      // mod.rs for Rust modules
       candidates.push(join(base, "mod.rs"));
     }
 
@@ -974,7 +1042,6 @@ export class RepoMap {
         .get(relPath);
       if (row) return row.id;
     }
-
     return null;
   }
 
@@ -995,6 +1062,13 @@ export class RepoMap {
     );
     const update = this.db.prepare("UPDATE refs SET source_file_id = ? WHERE rowid = ?");
 
+    const insertRef = this.db.prepare(
+      "INSERT INTO refs (file_id, name, source_file_id, import_source) VALUES (?, ?, ?, ?)",
+    );
+    const insertSymbol = this.db.prepare(
+      "INSERT INTO symbols (file_id, name, kind, line, end_line, is_exported, signature) VALUES (?, ?, ?, 1, 1, 1, NULL)",
+    );
+
     const tx = this.db.transaction(() => {
       for (const ref of unresolved) {
         const fileRow = getFilePath.get(ref.file_id);
@@ -1003,6 +1077,33 @@ export class RepoMap {
         const resolved = this.resolveImportSource(ref.import_source, absPath);
         if (resolved !== null) {
           update.run(resolved, ref.rowid);
+        }
+      }
+
+      // Expand export * refs: copy exported symbols from target to re-exporting file
+      const starRefs = this.db
+        .query<{ file_id: number; source_file_id: number }, []>(
+          "SELECT file_id, source_file_id FROM refs WHERE name = '*' AND source_file_id IS NOT NULL",
+        )
+        .all();
+      for (const star of starRefs) {
+        const targetSymbols = this.db
+          .query<{ name: string; kind: string }, [number]>(
+            "SELECT name, kind FROM symbols WHERE file_id = ? AND is_exported = 1",
+          )
+          .all(star.source_file_id);
+        for (const sym of targetSymbols) {
+          // Add the symbol as a re-export of the barrel file
+          const existing = this.db
+            .query<{ id: number }, [number, string]>(
+              "SELECT id FROM symbols WHERE file_id = ? AND name = ?",
+            )
+            .get(star.file_id, sym.name);
+          if (!existing) {
+            insertSymbol.run(star.file_id, sym.name, sym.kind);
+          }
+          // Add a ref in the barrel file pointing to the target
+          insertRef.run(star.file_id, sym.name, star.source_file_id, null);
         }
       }
     });

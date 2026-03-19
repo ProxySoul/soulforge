@@ -936,6 +936,27 @@ export class TreeSitterBackend implements IntelligenceBackend {
                     },
                   });
                 }
+              } else {
+                // Handle export * from './module' (wildcard re-exports)
+                const hasStar =
+                  node.namedChildren.some(
+                    (c: TSNode | null) => c != null && c.type === "namespace_export",
+                  ) || node.text.includes("export *");
+                const reExportSource = node.childForFieldName("source");
+                if (hasStar && reExportSource) {
+                  const source = reExportSource.text.replace(/['"]/g, "");
+                  imports.push({
+                    source,
+                    specifiers: ["*"],
+                    isDefault: false,
+                    isNamespace: true,
+                    location: {
+                      file: absFile,
+                      line: node.startPosition.row + 1,
+                      column: node.startPosition.column + 1,
+                    },
+                  });
+                }
               }
             }
             continue;
@@ -962,6 +983,35 @@ export class TreeSitterBackend implements IntelligenceBackend {
     }
 
     tree.delete();
+
+    // CommonJS: extract exports from module.exports = { ... } for JS files
+    if ((language === "javascript" || language === "typescript") && exports.length === 0) {
+      const content = this.readFileContent(file);
+      if (content) {
+        const cjsMatch = content.match(/module\.exports\s*=\s*\{([^}]+)\}/);
+        if (cjsMatch?.[1]) {
+          for (const item of cjsMatch[1].split(",")) {
+            const name = item
+              .trim()
+              .split(/\s*[:=]/)[0]
+              ?.trim();
+            if (name && /^\w+$/.test(name)) {
+              const sym = symbols.find((s) => s.name === name);
+              exports.push({
+                name,
+                isDefault: false,
+                kind: sym?.kind ?? "variable",
+                location: sym?.location ?? {
+                  file: absFile,
+                  line: 1,
+                  column: 1,
+                },
+              });
+            }
+          }
+        }
+      }
+    }
 
     // Infer exports from visibility conventions for non-TS/JS languages
     if (exports.length === 0 && language !== "typescript" && language !== "javascript") {
