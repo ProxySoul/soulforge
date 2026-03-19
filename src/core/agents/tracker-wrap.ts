@@ -32,7 +32,10 @@ export function wrapToolsWithReadTracker(
       const block = tracker.check(name, args, stepCounter.value);
       if (block) return { success: true, output: block };
       const result = await origExecute(...executeArgs);
-      tracker.record(name, args, stepCounter.value, `s${String(stepCounter.value)}`);
+      const isOutlineOnly = result && typeof result === "object" && result.outlineOnly === true;
+      if (!isOutlineOnly) {
+        tracker.record(name, args, stepCounter.value, `s${String(stepCounter.value)}`);
+      }
       return result;
     };
   }

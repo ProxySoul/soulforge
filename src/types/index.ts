@@ -33,6 +33,8 @@ export interface ToolResult {
   error?: string;
   /** Which intelligence backend handled this (ts-morph, lsp, tree-sitter, regex) */
   backend?: string;
+  /** True when read_file returned only an outline (large file) — tracker should not cache this as a full read */
+  outlineOnly?: boolean;
 }
 
 export interface ToolDefinition {

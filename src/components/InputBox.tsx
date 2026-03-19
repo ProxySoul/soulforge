@@ -398,12 +398,15 @@ export const InputBox = memo(function InputBox({
       // 1-3 lines: let textarea handle normally
       if (pastedLines.length <= 3) return;
 
-      // 4+ lines: store as a collapsible block, insert placeholder
+      // 4+ lines: store as a collapsible block, insert placeholder on its own line
       event.preventDefault();
       const id = ++pasteIdCounter.current;
       pasteBlocks.current.push({ id, text, collapsed: true });
       const placeholder = `📋 [Pasted ${pastedLines.length} lines — ^E to expand]`;
-      textareaRef.current?.insertText(placeholder);
+      const current = textareaRef.current?.plainText ?? "";
+      // Put placeholder on its own line so user can write before/after
+      const prefix = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
+      textareaRef.current?.insertText(`${prefix}${placeholder}\n`);
     };
     renderer.keyInput.on("paste", handler);
     return () => {
@@ -545,8 +548,8 @@ export const InputBox = memo(function InputBox({
     const lineCount = lineCountRef.current;
     const curLine = cursorLineRef.current;
 
-    // Up arrow — history only when cursor is on first line
-    if (evt.name === "up" && curLine === 0) {
+    // Up arrow — history: first press requires cursor on first line, subsequent presses always work
+    if (evt.name === "up" && (historyIdx.current !== -1 || curLine === 0)) {
       const history = historyCacheRef.current;
       if (history.length === 0) return;
       if (historyIdx.current === -1) {
@@ -554,6 +557,10 @@ export const InputBox = memo(function InputBox({
         historyIdx.current = 0;
       } else if (historyIdx.current < history.length - 1) {
         historyIdx.current += 1;
+      } else {
+        // Already at oldest entry — nothing to do
+        evt.preventDefault();
+        return;
       }
       const entry = history[historyIdx.current];
       if (entry != null) {
@@ -568,8 +575,8 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    // Down arrow — history only when cursor is on last line
-    if (evt.name === "down" && curLine >= lineCount - 1) {
+    // Down arrow — history: when navigating, always allow; otherwise only on last line
+    if (evt.name === "down" && (historyIdx.current !== -1 || curLine >= lineCount - 1)) {
       if (historyIdx.current === -1) return;
       isNavigatingHistory.current = true;
       if (historyIdx.current === 0) {
@@ -716,7 +723,7 @@ export const InputBox = memo(function InputBox({
                       <box
                         key={`${result.entry.slice(0, 40)}-${String(i)}`}
                         paddingX={1}
-                        height={1}
+                        height={Math.min(maxInputRows, Math.max(1, visualLines))}
                         flexDirection="row"
                       >
                         <text fg={isSelected ? "#FF0040" : "#333"}>{isSelected ? "› " : "  "}</text>

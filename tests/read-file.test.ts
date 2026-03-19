@@ -39,7 +39,7 @@ describe("readFileTool", () => {
 		expect(result.output).not.toContain("line 11");
 	});
 
-	it("caps full reads at 500 lines", async () => {
+	it("returns full content for non-code files (no cap)", async () => {
 		const filePath = join(TEST_DIR, "big.txt");
 		const lines = Array.from({ length: 800 }, (_, i) => `line ${i + 1}`).join("\n");
 		writeFileSync(filePath, lines);
@@ -47,10 +47,37 @@ describe("readFileTool", () => {
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
 		expect(result.output).toContain("line 1");
-		expect(result.output).toContain("line 500");
-		expect(result.output).not.toContain("line 501");
-		expect(result.output).toContain("[File has 800 lines");
-		expect(result.output).toContain("showing first 500");
+		expect(result.output).toContain("line 800");
+	});
+
+	it("returns outline-only for large code files", async () => {
+		const filePath = join(TEST_DIR, "big.ts");
+		const fnLines = Array.from(
+			{ length: 400 },
+			(_, i) => `export function fn${String(i)}() { return ${String(i)}; }`,
+		).join("\n");
+		writeFileSync(filePath, fnLines);
+
+		const result = await readFileTool.execute({ path: filePath });
+		expect(result.success).toBe(true);
+		expect(result.outlineOnly).toBe(true);
+		expect(result.output).toContain("400 lines");
+		expect(result.output).toContain("startLine=1 for the full file");
+	});
+
+	it("returns full content for large code file with startLine=1", async () => {
+		const filePath = join(TEST_DIR, "big2.ts");
+		const fnLines = Array.from(
+			{ length: 400 },
+			(_, i) => `export function fn${String(i)}() { return ${String(i)}; }`,
+		).join("\n");
+		writeFileSync(filePath, fnLines);
+
+		const result = await readFileTool.execute({ path: filePath, startLine: 1 });
+		expect(result.success).toBe(true);
+		expect(result.outlineOnly).toBeUndefined();
+		expect(result.output).toContain("fn0");
+		expect(result.output).toContain("fn399");
 	});
 
 	it("returns error for non-existent file", async () => {
@@ -102,5 +129,63 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
+	});
+
+	it("code file at exactly 300 lines returns full content (not outline)", async () => {
+		const filePath = join(TEST_DIR, "boundary.ts");
+		const fnLines = Array.from(
+			{ length: 300 },
+			(_, i) => `export function fn${String(i)}() { return ${String(i)}; }`,
+		).join("\n");
+		writeFileSync(filePath, fnLines);
+
+		const result = await readFileTool.execute({ path: filePath });
+		expect(result.success).toBe(true);
+		expect(result.outlineOnly).toBeUndefined();
+		expect(result.output).toContain("fn0");
+		expect(result.output).toContain("fn299");
+	});
+
+	it("code file at 301 lines returns outline-only", async () => {
+		const filePath = join(TEST_DIR, "boundary301.ts");
+		const fnLines = Array.from(
+			{ length: 301 },
+			(_, i) => `export function fn${String(i)}() { return ${String(i)}; }`,
+		).join("\n");
+		writeFileSync(filePath, fnLines);
+
+		const result = await readFileTool.execute({ path: filePath });
+		expect(result.success).toBe(true);
+		expect(result.outlineOnly).toBe(true);
+		expect(result.output).toContain("301 lines");
+	});
+
+	it("range read on large code file returns content (not outline)", async () => {
+		const filePath = join(TEST_DIR, "range-large.ts");
+		const fnLines = Array.from(
+			{ length: 400 },
+			(_, i) => `export function fn${String(i)}() { return ${String(i)}; }`,
+		).join("\n");
+		writeFileSync(filePath, fnLines);
+
+		const result = await readFileTool.execute({ path: filePath, startLine: 50, endLine: 100 });
+		expect(result.success).toBe(true);
+		expect(result.outlineOnly).toBeUndefined();
+		expect(result.output).toContain("fn49");
+		expect(result.output).toContain("fn99");
+		expect(result.output).not.toContain("fn0()");
+	});
+
+	it("non-code file over 300 lines returns full content (no outline)", async () => {
+		const filePath = join(TEST_DIR, "big-config.json");
+		const obj: Record<string, number> = {};
+		for (let i = 0; i < 400; i++) obj[`key${String(i)}`] = i;
+		writeFileSync(filePath, JSON.stringify(obj, null, 2));
+
+		const result = await readFileTool.execute({ path: filePath });
+		expect(result.success).toBe(true);
+		expect(result.outlineOnly).toBeUndefined();
+		expect(result.output).toContain("key0");
+		expect(result.output).toContain("key399");
 	});
 });

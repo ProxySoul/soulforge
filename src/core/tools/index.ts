@@ -923,7 +923,7 @@ export function buildSubagentExploreTools(opts?: {
   const subagentCwd = process.cwd();
   return {
     read_file: tool({
-      description: `${readFileTool.description} Capped at 750 lines — use startLine/endLine for files larger than that.`,
+      description: `${readFileTool.description} Output capped at 750 lines.`,
       inputSchema: z.object({
         path: z.string().describe("File path to read"),
         startLine: z.number().optional().describe("Start line (1-indexed)"),
@@ -940,7 +940,7 @@ export function buildSubagentExploreTools(opts?: {
       execute: deferExecute(async (args) => {
         const result = await readFileTool.execute(args);
         if (!result.success) return result;
-        if (args.target) return result;
+        if (args.target || result.outlineOnly) return result;
         return { ...result, output: truncateLines(result.output) };
       }),
     }),
@@ -1443,7 +1443,11 @@ export function wrapWithBusCache(
           }
           const fallbackGen = reAcquired.cached === false ? reAcquired.gen : -1;
           const result = await origExecute(args, opts);
-          if (fallbackGen >= 0) {
+          const isOutline =
+            result &&
+            typeof result === "object" &&
+            (result as Record<string, unknown>).outlineOnly === true;
+          if (!isOutline && fallbackGen >= 0) {
             const rawText =
               typeof result === "string"
                 ? result
@@ -1451,14 +1455,26 @@ export function wrapWithBusCache(
                   ? String((result as Record<string, unknown>).output)
                   : JSON.stringify(result);
             bus.releaseFileRead(normalized, rawText, fallbackGen);
+          } else if (isOutline && fallbackGen >= 0) {
+            bus.failFileRead(normalized, fallbackGen);
           }
-          bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: false });
+          if (!isOutline) {
+            bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: false });
+          }
           return result;
         }
 
         const { gen } = acquired;
         try {
           const result = await origExecute(args, opts);
+          const isOutline =
+            result &&
+            typeof result === "object" &&
+            (result as Record<string, unknown>).outlineOnly === true;
+          if (isOutline) {
+            bus.failFileRead(normalized, gen);
+            return result;
+          }
           const rawText =
             typeof result === "string"
               ? result
