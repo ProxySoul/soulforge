@@ -22,7 +22,6 @@ interface LogEntry {
   args?: string;
 }
 
-
 function isErrorSystemMsg(content: string): boolean {
   return (
     content.startsWith("Error:") ||
@@ -91,7 +90,8 @@ export function ErrorLog({ visible, messages, onClose }: Props) {
   const popupHeight = Math.max(12, Math.round(termRows * 0.5));
   const maxListVisible = Math.max(4, popupHeight - CHROME_ROWS);
   const maxDetailLines = Math.max(4, popupHeight - 6);
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxListVisible);
+  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } =
+    usePopupScroll(maxListVisible);
 
   const bgErrors = useErrorStore((s) => s.errors);
   const entries = useMemo(() => {
@@ -133,7 +133,6 @@ export function ErrorLog({ visible, messages, onClose }: Props) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
-
 
   const inDetail = detailIndex !== null;
   const selectedEntry = inDetail ? filtered[detailIndex] : null;
@@ -227,12 +226,12 @@ export function ErrorLog({ visible, messages, onClose }: Props) {
       setQuery((prev) => prev.slice(0, -1));
       resetScroll();
       return;
-      }
+    }
 
-      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
-        setQuery((prev) => prev + evt.name);
+    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
+      setQuery((prev) => prev + evt.name);
       resetScroll();
-      }
+    }
   });
 
   if (!visible) return null;

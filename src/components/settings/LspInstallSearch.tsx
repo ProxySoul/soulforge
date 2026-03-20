@@ -1,19 +1,19 @@
-import { TextAttributes } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { TextAttributes } from "@opentui/core";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    clearPathCache,
-    downloadRegistry,
-    getAllPackageStatus,
-    getRecommendedPackages,
-    installPackage,
-    loadRegistry,
-    type MasonPackage,
-    type PackageCategory,
-    type PackageStatus,
-    uninstallPackage,
+  clearPathCache,
+  downloadRegistry,
+  getAllPackageStatus,
+  getRecommendedPackages,
+  installPackage,
+  loadRegistry,
+  type MasonPackage,
+  type PackageCategory,
+  type PackageStatus,
+  uninstallPackage,
 } from "../../core/intelligence/backends/lsp/installer.js";
 import { clearProbeCache } from "../../core/intelligence/backends/lsp/server-registry.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
@@ -156,7 +156,7 @@ export const LspInstallSearch = memo(function LspInstallSearch({
           setRegistryLoading(false);
         });
     }
-  }, [visible, refreshAll, onSystemMessage]);
+  }, [visible, refreshAll, onSystemMessage, resetScroll]);
 
   // Filter logic
   const filterQuery = query.toLowerCase().trim();
@@ -221,7 +221,6 @@ export const LspInstallSearch = memo(function LspInstallSearch({
     if (tab === "disabled") return disabledList;
     return filteredRecommended;
   };
-
 
   const doInstall = async (status: PackageStatus) => {
     if (installing) return;
@@ -415,12 +414,12 @@ export const LspInstallSearch = memo(function LspInstallSearch({
       setQuery((prev) => prev.slice(0, -1));
       resetScroll();
       return;
-      }
+    }
 
-      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta && evt.name !== "d") {
-        setQuery((prev) => prev + evt.name);
+    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta && evt.name !== "d") {
+      setQuery((prev) => prev + evt.name);
       resetScroll();
-      }
+    }
   });
 
   if (!visible) return null;

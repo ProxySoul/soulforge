@@ -37,14 +37,7 @@ const CODE_EXTENSIONS = new Set([
   ".zig",
 ]);
 
-type ReadTarget =
-  | "function"
-  | "class"
-  | "type"
-  | "interface"
-  | "variable"
-  | "enum"
-  | "scope";
+type ReadTarget = "function" | "class" | "type" | "interface" | "variable" | "enum" | "scope";
 
 interface ReadFileArgs {
   path: string;

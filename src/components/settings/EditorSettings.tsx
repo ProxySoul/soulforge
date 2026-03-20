@@ -76,7 +76,6 @@ export function EditorSettings({ visible, settings, initialScope, onUpdate, onCl
     if (visible) setScope(initialScope ?? "project");
   }, [visible, initialScope]);
 
-
   useKeyboard((evt) => {
     if (!visible) return;
     if (evt.name === "escape") {

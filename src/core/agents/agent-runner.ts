@@ -3,24 +3,24 @@ import { type LanguageModel, NoObjectGeneratedError, NoOutputGeneratedError } fr
 import { logBackgroundError } from "../../stores/errors.js";
 import { taskListTool } from "../tools/task-list.js";
 import {
-    type AgentBus,
-    type AgentTask,
-    type AgentResult as BusAgentResult,
-    DependencyFailedError,
-    normalizePath,
+  type AgentBus,
+  type AgentTask,
+  type AgentResult as BusAgentResult,
+  DependencyFailedError,
+  normalizePath,
 } from "./agent-bus.js";
 import {
-    type DoneToolResult,
-    extractDoneResult,
-    formatDoneResult,
-    synthesizeDoneFromResults,
+  type DoneToolResult,
+  extractDoneResult,
+  formatDoneResult,
+  synthesizeDoneFromResults,
 } from "./agent-results.js";
 import { emitMultiAgentEvent } from "./subagent-events.js";
 import {
-    autoPostCompletionSummary,
-    buildStepCallbacks,
-    createAgent,
-    type SubagentModels,
+  autoPostCompletionSummary,
+  buildStepCallbacks,
+  createAgent,
+  type SubagentModels,
 } from "./subagent-tools.js";
 
 export const BASE_DELAY_MS = 2000;

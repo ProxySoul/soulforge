@@ -94,7 +94,11 @@ export function buildFallbackResult(
 
   const text = result.text.trim();
   if (text) {
-    parts.push(text.length > TEXT_TRUNCATION_CAP ? `${text.slice(0, TEXT_TRUNCATION_CAP)} [truncated]` : text);
+    parts.push(
+      text.length > TEXT_TRUNCATION_CAP
+        ? `${text.slice(0, TEXT_TRUNCATION_CAP)} [truncated]`
+        : text,
+    );
   }
 
   // Include agent's own report_finding calls as synthesis

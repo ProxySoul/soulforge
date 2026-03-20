@@ -9,7 +9,6 @@ import { Overlay, POPUP_BG, POPUP_HL, PopupRow } from "../layout/shared.js";
 
 const CHROME_ROWS = 7;
 
-
 const KIND_ICONS: Record<string, { icon: string; color: string }> = {
   compact: { icon: "◆", color: "#9B30FF" },
   "strategy-change": { icon: "⇄", color: "#f80" },
@@ -33,7 +32,8 @@ export function CompactionLog({ visible, onClose }: Props) {
   const popupHeight = Math.max(12, Math.round(termRows * 0.7));
   const maxListVisible = Math.max(4, popupHeight - CHROME_ROWS);
   const maxDetailLines = Math.max(4, popupHeight - 6);
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxListVisible);
+  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } =
+    usePopupScroll(maxListVisible);
 
   const entries = useCompactionLogStore((s) => s.entries);
   const sorted = useMemo(() => [...entries].sort((a, b) => b.timestamp - a.timestamp), [entries]);
@@ -63,7 +63,6 @@ export function CompactionLog({ visible, onClose }: Props) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
-
 
   const inDetail = detailIndex !== null;
   const selectedEntry = inDetail ? filtered[detailIndex] : null;
@@ -170,12 +169,12 @@ export function CompactionLog({ visible, onClose }: Props) {
       setQuery((prev) => prev.slice(0, -1));
       resetScroll();
       return;
-      }
+    }
 
-      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
-        setQuery((prev) => prev + evt.name);
+    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
+      setQuery((prev) => prev + evt.name);
       resetScroll();
-      }
+    }
   });
 
   if (!visible) return null;

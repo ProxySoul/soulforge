@@ -1,22 +1,22 @@
-import { TextAttributes } from "@opentui/core";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useMemo, useState } from "react";
 import { icon } from "../../core/icons.js";
 import {
-    CATEGORY_COLORS,
-    resolveToolDisplay,
-    TOOL_ICONS,
-    TOOL_LABELS,
-    type ToolCategory,
+  CATEGORY_COLORS,
+  resolveToolDisplay,
+  TOOL_ICONS,
+  TOOL_LABELS,
+  type ToolCategory,
 } from "../../core/tool-display.js";
 import { useUIStore } from "../../stores/ui.js";
 import type {
-    ChatMessage,
-    ChatStyle,
-    MessageSegment,
-    PlanOutput,
-    ToolCall,
+  ChatMessage,
+  ChatStyle,
+  MessageSegment,
+  PlanOutput,
+  ToolCall,
 } from "../../types/index.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
 import { DiffView } from "./DiffView.js";

@@ -1,17 +1,17 @@
-import { TextAttributes } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { TextAttributes } from "@opentui/core";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ContextManager } from "../../core/context/manager.js";
 import {
-    type InstalledSkill,
-    installSkill,
-    listInstalledSkills,
-    listPopularSkills,
-    loadSkill,
-    searchSkills,
-    type SkillSearchResult,
+  type InstalledSkill,
+  installSkill,
+  listInstalledSkills,
+  listPopularSkills,
+  loadSkill,
+  type SkillSearchResult,
+  searchSkills,
 } from "../../core/skills/manager.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 
@@ -94,7 +94,7 @@ export const SkillSearch = memo(function SkillSearch({
         .then((r) => setPopular(r))
         .catch(() => {});
     }
-  }, [visible, refreshInstalled, refreshActive]);
+  }, [visible, refreshInstalled, refreshActive, setCursor]);
 
   useEffect(() => {
     if (!visible || tab !== "search") return;
@@ -125,7 +125,7 @@ export const SkillSearch = memo(function SkillSearch({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, visible, tab, popular.length]);
+  }, [query, visible, tab, popular.length, setCursor]);
 
   useEffect(() => {
     setQuery("");
@@ -140,7 +140,6 @@ export const SkillSearch = memo(function SkillSearch({
     if (tab === "installed") return filteredInstalled.length;
     return filteredActive.length;
   };
-
 
   useKeyboard((evt) => {
     if (!visible) return;
@@ -203,12 +202,12 @@ export const SkillSearch = memo(function SkillSearch({
       setQuery((prev) => prev.slice(0, -1));
       resetScroll();
       return;
-      }
+    }
 
-      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
-        setQuery((prev) => prev + evt.name);
+    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
+      setQuery((prev) => prev + evt.name);
       resetScroll();
-      }
+    }
   });
 
   const doInstall = (skill: SkillSearchResult, global: boolean) => {

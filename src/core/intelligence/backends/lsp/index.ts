@@ -131,7 +131,10 @@ export class LspBackend implements IntelligenceBackend {
     line: number | undefined,
     column: number | undefined,
     nvimMethod: "findDefinition" | "findReferences" | "findImplementation",
-    clientMethod: "textDocumentDefinition" | "textDocumentReferences" | "textDocumentImplementation",
+    clientMethod:
+      | "textDocumentDefinition"
+      | "textDocumentReferences"
+      | "textDocumentImplementation",
   ): Promise<SourceLocation[] | null> {
     const pos = this.resolvePosition(file, symbol, line, column);
     if (!pos) return null;
@@ -157,7 +160,14 @@ export class LspBackend implements IntelligenceBackend {
     line?: number,
     column?: number,
   ): Promise<SourceLocation[] | null> {
-    return this.lspPositionRequest(file, symbol, line, column, "findDefinition", "textDocumentDefinition");
+    return this.lspPositionRequest(
+      file,
+      symbol,
+      line,
+      column,
+      "findDefinition",
+      "textDocumentDefinition",
+    );
   }
 
   async findReferences(
@@ -166,7 +176,14 @@ export class LspBackend implements IntelligenceBackend {
     line?: number,
     column?: number,
   ): Promise<SourceLocation[] | null> {
-    return this.lspPositionRequest(file, symbol, line, column, "findReferences", "textDocumentReferences");
+    return this.lspPositionRequest(
+      file,
+      symbol,
+      line,
+      column,
+      "findReferences",
+      "textDocumentReferences",
+    );
   }
 
   async findSymbols(file: string, query?: string): Promise<SymbolInfo[] | null> {
@@ -184,7 +201,6 @@ export class LspBackend implements IntelligenceBackend {
     } catch {}
     return null;
   }
-
 
   async findImports(file: string): Promise<ImportInfo[] | null> {
     const absFile = resolve(file);
@@ -605,7 +621,6 @@ export class LspBackend implements IntelligenceBackend {
     return result;
   }
 
-
   async getDiagnostics(file: string): Promise<Diagnostic[] | null> {
     if (nvimBridge.isNvimAvailable()) {
       const diags = await nvimBridge.getDiagnostics(file);
@@ -682,7 +697,6 @@ export class LspBackend implements IntelligenceBackend {
     return { symbol, type: typeStr };
   }
 
-
   async getCodeActions(
     file: string,
     startLine: number,
@@ -723,7 +737,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-
   async findWorkspaceSymbols(query: string): Promise<SymbolInfo[] | null> {
     // Need a real file buffer to get an LSP client attached
     if (nvimBridge.isNvimAvailable()) {
@@ -755,7 +768,6 @@ export class LspBackend implements IntelligenceBackend {
     }
     return null;
   }
-
 
   async formatDocument(file: string): Promise<FormatEdit | null> {
     let edits: LspTextEdit[] | null = null;
@@ -791,7 +803,6 @@ export class LspBackend implements IntelligenceBackend {
     return lspTextEditsToFormatEdit(file, edits);
   }
 
-
   async organizeImports(file: string): Promise<RefactorResult | null> {
     if (nvimBridge.isNvimAvailable()) {
       const actions = await nvimBridge.organizeImports(file);
@@ -817,7 +828,6 @@ export class LspBackend implements IntelligenceBackend {
     } catch {}
     return null;
   }
-
 
   async getCallHierarchy(
     file: string,
@@ -849,16 +859,21 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-
   async findImplementation(
     file: string,
     symbol: string,
     line?: number,
     column?: number,
   ): Promise<SourceLocation[] | null> {
-    return this.lspPositionRequest(file, symbol, line, column, "findImplementation", "textDocumentImplementation");
+    return this.lspPositionRequest(
+      file,
+      symbol,
+      line,
+      column,
+      "findImplementation",
+      "textDocumentImplementation",
+    );
   }
-
 
   async getTypeHierarchy(
     file: string,
@@ -889,7 +904,6 @@ export class LspBackend implements IntelligenceBackend {
     } catch {}
     return null;
   }
-
 
   async rename(
     file: string,
@@ -984,7 +998,6 @@ export class LspBackend implements IntelligenceBackend {
     return pids;
   }
 
-
   dispose(): void {
     for (const client of this.standaloneClients.values()) {
       client.stop().catch(() => {});
@@ -993,7 +1006,6 @@ export class LspBackend implements IntelligenceBackend {
     this.languageClients.clear();
     this.failedServers.clear();
   }
-
 
   /**
    * Resolve symbol name to a line:col position.
@@ -1092,7 +1104,6 @@ export class LspBackend implements IntelligenceBackend {
     return clients[0] ?? null;
   }
 }
-
 
 function detectLanguage(file: string): Language | null {
   const lang = detectLanguageFromPath(file);

@@ -78,7 +78,12 @@ type PlatformKey = "darwin-arm64" | "darwin-x64" | "linux-x64" | "linux-arm64";
 
 function getPlatformKey(): PlatformKey {
   const key = `${process.platform}-${process.arch}` as PlatformKey;
-  if (key !== "darwin-arm64" && key !== "darwin-x64" && key !== "linux-x64" && key !== "linux-arm64") {
+  if (
+    key !== "darwin-arm64" &&
+    key !== "darwin-x64" &&
+    key !== "linux-x64" &&
+    key !== "linux-arm64"
+  ) {
     throw new Error(`Unsupported platform: ${process.platform}-${process.arch}`);
   }
   return key;

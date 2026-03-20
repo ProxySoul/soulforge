@@ -1,18 +1,18 @@
-import { type Selection, TextAttributes } from "@opentui/core";
-import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { type Selection, TextAttributes } from "@opentui/core";
+import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-    applyConfigPatch,
-    mergeConfigs,
-    removeGlobalConfigKeys,
-    removeProjectConfigKeys,
-    saveGlobalConfig,
-    saveProjectConfig,
-    stripConfigKeys,
+  applyConfigPatch,
+  mergeConfigs,
+  removeGlobalConfigKeys,
+  removeProjectConfigKeys,
+  saveGlobalConfig,
+  saveProjectConfig,
+  stripConfigKeys,
 } from "../config/index.js";
 import { handleCommand } from "../core/commands/registry.js";
 import { ContextManager } from "../core/context/manager.js";

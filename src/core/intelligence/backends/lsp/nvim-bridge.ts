@@ -1,13 +1,13 @@
 import { getNvimInstance } from "../../../editor/instance.js";
 import type {
-    LspCallHierarchyItem,
-    LspCodeAction,
-    LspDiagnostic,
-    LspHover,
-    LspLocation,
-    LspTextEdit,
-    LspTypeHierarchyItem,
-    LspWorkspaceEdit,
+  LspCallHierarchyItem,
+  LspCodeAction,
+  LspDiagnostic,
+  LspHover,
+  LspLocation,
+  LspTextEdit,
+  LspTypeHierarchyItem,
+  LspWorkspaceEdit,
 } from "./protocol.js";
 
 type NvimApi = ReturnType<typeof getNvimInstance> & {

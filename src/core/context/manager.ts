@@ -1,6 +1,6 @@
-import { generateText } from "ai";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { generateText } from "ai";
 import { useRepoMapStore } from "../../stores/repomap.js";
 import type { EditorIntegration, ForgeMode, TaskRouter } from "../../types/index.js";
 import { toErrorMessage } from "../../utils/errors.js";

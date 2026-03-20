@@ -103,7 +103,6 @@ export const LlmSelector = memo(function LlmSelector({
     checkProviders().then(setProviderStatuses);
   }, []);
 
-
   useEffect(() => {
     if (visible) {
       setLevel("provider");
@@ -144,10 +143,10 @@ export const LlmSelector = memo(function LlmSelector({
           if (provider.grouped) {
             setLevel("subprovider");
             resetSubScroll();
-            } else {
-              setLevel("model");
+          } else {
+            setLevel("model");
             resetModelScroll();
-            }
+          }
         }
         return;
       }

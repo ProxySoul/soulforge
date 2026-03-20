@@ -5,9 +5,7 @@ import { renderTaskList } from "../tools/task-list.js";
 import type { AgentBus } from "./agent-bus.js";
 import { emitSubagentStep } from "./subagent-events.js";
 
-type SymbolLookup = (
-  absPath: string,
-) => Array<{ name: string; kind: string; isExported: boolean }>;
+type SymbolLookup = (absPath: string) => Array<{ name: string; kind: string; isExported: boolean }>;
 
 export interface PrepareStepOptions {
   bus?: AgentBus;

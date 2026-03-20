@@ -43,7 +43,8 @@ export function CommandPicker({ visible, config, onClose }: Props) {
   const popupWidth = Math.min(maxW, Math.floor(termCols * 0.7));
   const innerW = popupWidth - 2;
   const maxVisible = Math.max(4, Math.floor(containerRows * 0.7) - CHROME_ROWS);
-  const { cursor, setCursor, scrollOffset, setScrollOffset, adjustScroll } = usePopupScroll(maxVisible);
+  const { cursor, setCursor, scrollOffset, setScrollOffset, adjustScroll } =
+    usePopupScroll(maxVisible);
   const [scope, setScope] = useState<ConfigScope>("project");
 
   const prevVisibleRef = useRef(false);
@@ -73,7 +74,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
       });
     }
     prevOptionsRef.current = config.options;
-  }, [visible, config]);
+  }, [visible, config, setCursor, setScrollOffset]);
 
   useKeyboard((evt) => {
     if (!visible || !config) return;

@@ -1158,4 +1158,3 @@ const editorTerminalOutputTool = {
       return { success: true, output: sections.join("\n\n") };
     }),
 };
-

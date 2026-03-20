@@ -4,18 +4,17 @@ import { useEffect, useState } from "react";
 import { icon } from "../../core/icons.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type {
-    AppConfig,
-    ContextManagementConfig,
-    EffortLevel,
-    PerformanceConfig,
-    ThinkingMode,
+  AppConfig,
+  ContextManagementConfig,
+  EffortLevel,
+  PerformanceConfig,
+  ThinkingMode,
 } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
 import { CONFIG_SCOPES, Overlay, POPUP_BG, POPUP_HL, PopupRow } from "../layout/shared.js";
 
 const MAX_POPUP_WIDTH = 68;
 const CHROME_ROWS = 7;
-
 
 type ItemType = "cycle" | "toggle" | "budget";
 
@@ -279,12 +278,12 @@ export function ProviderSettings({
     if (visible) setScope(detectInitialScope(projectConfig));
   }, [visible, projectConfig]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tab triggers scroll reset on tab change
   useEffect(() => {
     resetScroll();
   }, [tab, resetScroll]);
 
   const isBudgetDisabled = vals.thinkingMode !== "enabled";
-
 
   const cycleValue = (item: SettingItem) => {
     if (item.type === "toggle") {

@@ -194,7 +194,10 @@ const modelCache = new Map<string, { models: ProviderModelInfo[]; ts: number }>(
 
 function getCached<T>(cache: Map<string, { result: T; ts: number }>, key: string): T | null;
 function getCached<T>(cache: Map<string, { models: T; ts: number }>, key: string): T | null;
-function getCached(cache: Map<string, { result?: unknown; models?: unknown; ts: number }>, key: string): unknown | null {
+function getCached(
+  cache: Map<string, { result?: unknown; models?: unknown; ts: number }>,
+  key: string,
+): unknown | null {
   const entry = cache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.ts > MODEL_CACHE_TTL) {
@@ -449,8 +452,8 @@ async function fetchLLMGatewayGrouped(): Promise<GroupedModelsResult> {
   } catch (err) {
     const msg = toErrorMessage(err);
     return { ...groupFallbackModels("llmgateway"), error: `LLM Gateway: ${msg}` };
-    }
   }
+}
 
 async function fetchProxyGrouped(): Promise<GroupedModelsResult> {
   const baseURL = process.env.PROXY_API_URL || "http://127.0.0.1:8317/v1";
@@ -460,7 +463,7 @@ async function fetchProxyGrouped(): Promise<GroupedModelsResult> {
   const proxyStatus = await ensureProxy();
   if (!proxyStatus.ok) {
     return { ...groupFallbackModels("proxy"), error: proxyStatus.error };
-    }
+  }
 
   try {
     const res = await fetch(`${baseURL}/models`, {
@@ -497,5 +500,5 @@ async function fetchProxyGrouped(): Promise<GroupedModelsResult> {
     return result;
   } catch {
     return { ...groupFallbackModels("proxy"), error: "Proxy not running — showing defaults" };
-    }
   }
+}
