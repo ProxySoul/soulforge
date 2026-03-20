@@ -2179,7 +2179,7 @@ export function useChat({
               setTimeout(
                 () =>
                   handleSubmitRef.current(
-                    `Continue from where you left off.${planHint} Complete any remaining work.`,
+                    `Continue.${planHint}`,
                   ),
                 0,
               );

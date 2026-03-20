@@ -294,11 +294,8 @@ export function isAnthropicNative(modelId: string): boolean {
   return provider === "anthropic" || provider === "proxy";
 }
 
-export function isClaudeModel(modelId: string): boolean {
-  return detectModelFamily(modelId) === "claude";
-}
 
-export function supportsAnthropicOptions(modelId: string): boolean {
+function supportsAnthropicOptions(modelId: string): boolean {
   return getEffectiveCaps(modelId).anthropicOptions;
 }
 
@@ -313,7 +310,7 @@ const TASK_EFFORT: Record<TaskType, string> = {
   default: "high",
 };
 
-export function resolveEffort(taskType: TaskType, configured?: string): string {
+function resolveEffort(taskType: TaskType, configured?: string): string {
   return configured ?? TASK_EFFORT[taskType];
 }
 
@@ -529,15 +526,4 @@ export function isProviderOptionsError(error: unknown): boolean {
     lower.includes("context management") ||
     lower.includes("unknown parameter")
   );
-}
-
-/**
- * Register custom provider constraints at runtime.
- * Call when adding a new provider to declare what the API layer supports.
- */
-export function registerProviderConstraints(
-  providerId: string,
-  constraints: Partial<ProviderConstraints>,
-): void {
-  PROVIDER_CONSTRAINTS[providerId] = { ...NO_SUPPORT, ...constraints };
 }

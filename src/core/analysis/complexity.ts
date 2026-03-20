@@ -1,21 +1,8 @@
-interface Constraint {
-  name: string;
-  metric: string;
-  limit: number;
-  scope?: string;
-  action: "warn" | "block";
-}
-
-export interface ComplexityMetrics {
+interface ComplexityMetrics {
   lineCount: number;
   importCount: number;
   exportCount: number;
   functionCount: number;
-}
-
-export interface ConstraintViolation {
-  constraint: Constraint;
-  actual: number;
 }
 
 export function analyzeFile(content: string): ComplexityMetrics {
@@ -40,31 +27,3 @@ export function analyzeFile(content: string): ComplexityMetrics {
   };
 }
 
-const METRIC_MAP: Record<string, keyof ComplexityMetrics> = {
-  file_lines: "lineCount",
-  import_count: "importCount",
-  export_count: "exportCount",
-  function_count: "functionCount",
-};
-
-export function checkConstraints(
-  metrics: ComplexityMetrics,
-  constraints: Constraint[],
-  filePath?: string,
-): ConstraintViolation[] {
-  const violations: ConstraintViolation[] = [];
-
-  for (const c of constraints) {
-    if (c.scope && filePath && !filePath.includes(c.scope)) continue;
-
-    const key = METRIC_MAP[c.metric];
-    if (!key) continue;
-
-    const actual = metrics[key];
-    if (actual > c.limit) {
-      violations.push({ constraint: c, actual });
-    }
-  }
-
-  return violations;
-}

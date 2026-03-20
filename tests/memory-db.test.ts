@@ -282,16 +282,22 @@ describe("MemoryDB — bulk delete", () => {
 
   it("deleteStaleCheckpoints removes old checkpoints only", () => {
     db.write({ title: "Fresh fact", category: "fact", tags: [] });
-    db.write({ title: "Fresh checkpoint", category: "checkpoint", tags: [] });
-    const cleared = db.deleteStaleCheckpoints(0);
-    expect(cleared).toBe(0);
-    expect(db.list().length).toBe(2);
+    const old = db.write({ title: "Old checkpoint", category: "checkpoint", tags: [] });
+    // Backdate the checkpoint to 10 days ago so it's stale
+    (db as unknown as { db: { run: (sql: string, ...p: string[]) => void } }).db.run(
+      "UPDATE memories SET updated_at = datetime('now', '-10 days') WHERE id = ?",
+      old.id,
+    );
+    const cleared = db.deleteStaleCheckpoints(7);
+    expect(cleared).toBe(1);
+    expect(db.list().length).toBe(1);
+    expect(db.list()[0]!.category).toBe("fact");
   });
 
-  it("deleteStaleCheckpoints preserves non-checkpoint categories", () => {
+  it("deleteStaleCheckpoints preserves fresh checkpoints", () => {
     db.write({ title: "A decision", category: "decision", tags: [] });
     db.write({ title: "A checkpoint", category: "checkpoint", tags: [] });
-    db.deleteStaleCheckpoints(0);
+    db.deleteStaleCheckpoints(7);
     expect(db.list().length).toBe(2);
   });
 });

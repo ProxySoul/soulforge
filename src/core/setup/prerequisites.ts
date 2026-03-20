@@ -4,7 +4,7 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { getVendoredPath, hasAnyNerdFont } from "./install.js";
 
-export interface Prerequisite {
+interface Prerequisite {
   name: string;
   description: string;
   required: boolean;
@@ -38,7 +38,7 @@ function lspExists(...cmds: string[]): boolean {
   return false;
 }
 
-export const PREREQUISITES: Prerequisite[] = [
+const PREREQUISITES: Prerequisite[] = [
   {
     name: "Neovim",
     description: "Embedded editor (required, v0.11+)",
@@ -246,6 +246,3 @@ export function getMissingRequired(): PrerequisiteStatus[] {
   return checkPrerequisites().filter((s) => !s.installed && s.prerequisite.required);
 }
 
-export function getMissingOptional(): PrerequisiteStatus[] {
-  return checkPrerequisites().filter((s) => !s.installed && !s.prerequisite.required);
-}

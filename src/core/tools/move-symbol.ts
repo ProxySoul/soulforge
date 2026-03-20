@@ -85,7 +85,7 @@ interface LangImports {
   generate(specs: string[], path: string, isType?: boolean): string;
 }
 
-export function esc(s: string): string {
+function esc(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

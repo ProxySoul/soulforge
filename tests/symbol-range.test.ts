@@ -99,9 +99,11 @@ describe("findSymbolRange", () => {
     expect(result).toEqual({ start: 0, end: 3 });
   });
 
-  it("handles braces in string literals (false brace counting)", () => {
+  it("known limitation: braces in string literals cause early close", () => {
     const lines = ['function foo() {', '  const s = "}";', '  return s;', '}'];
     const result = findSymbolRange(lines, "foo");
+    // BUG: brace counter sees } inside string literal and closes at line 1 instead of 3
+    // Correct behavior would be: expect(result).toEqual({ start: 0, end: 3 });
     expect(result?.end).toBe(1);
   });
 
@@ -109,6 +111,8 @@ describe("findSymbolRange", () => {
     const lines = ["function foo() {", "  return 1;"];
     const result = findSymbolRange(lines, "foo");
     expect(result?.start).toBe(0);
+    // No closing brace found, so end equals start (line 0 only)
+    expect(result?.end).toBe(0);
   });
 
   // ─── Edge Cases ──────────────────────────────────────────

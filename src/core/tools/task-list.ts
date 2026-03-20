@@ -13,7 +13,7 @@ export interface Task {
 let nextId = 1;
 const tasks = new Map<number, Task>();
 
-export type TaskListAction = "add" | "update" | "remove" | "list" | "clear";
+type TaskListAction = "add" | "update" | "remove" | "list" | "clear";
 
 interface TaskListArgs {
   action: TaskListAction;
@@ -23,7 +23,7 @@ interface TaskListArgs {
   status?: TaskStatus;
 }
 
-export type TaskChangeListener = (tasks: Task[]) => void;
+type TaskChangeListener = (tasks: Task[]) => void;
 const listeners = new Set<TaskChangeListener>();
 
 export function onTaskChange(fn: TaskChangeListener): () => void {
@@ -51,10 +51,6 @@ export function renderTaskList(): string | null {
     lines.push(`${statusIcon[t.status]} [${String(t.id)}] ${t.title} (${t.status})`);
   }
   return lines.join("\n");
-}
-
-export function getTaskSnapshot(): Task[] {
-  return Array.from(tasks.values());
 }
 
 export function clearTasks(): void {

@@ -14,7 +14,7 @@ interface EditFileArgs {
   lineStart?: number;
 }
 
-function formatMetricDelta(label: string, before: number, after: number): string {
+export function formatMetricDelta(label: string, before: number, after: number): string {
   const delta = after - before;
   if (delta === 0) return "";
   const sign = delta > 0 ? "+" : "";

@@ -94,27 +94,3 @@ export const useRepoMapStore = create<RepoMapState>()(
     resetSemanticTokens: () => set({ semanticTokensIn: 0, semanticTokensOut: 0 }),
   })),
 );
-
-export function resetRepoMapStore(): void {
-  if (_scanThrottleTimer) {
-    clearTimeout(_scanThrottleTimer);
-    _scanThrottleTimer = null;
-  }
-  _pendingScanProgress = "";
-  _pendingStats = null;
-  useRepoMapStore.setState({
-    status: "off",
-    files: 0,
-    symbols: 0,
-    edges: 0,
-    dbSizeBytes: 0,
-    scanProgress: "",
-    scanError: "",
-    semanticStatus: "off",
-    semanticCount: 0,
-    semanticProgress: "",
-    semanticModel: "",
-    semanticTokensIn: 0,
-    semanticTokensOut: 0,
-  });
-}

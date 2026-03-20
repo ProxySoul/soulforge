@@ -21,10 +21,6 @@ const GIT_COMMIT_MSG_RE = /\bgit\s+commit\b.*?\s-m\s+/;
 
 let _preCommitEnabled = true;
 
-export function setPreCommitEnabled(enabled: boolean) {
-  _preCommitEnabled = enabled;
-}
-
 async function runPreCommitChecks(cwd: string): Promise<string | null> {
   if (!_preCommitEnabled) return null;
 

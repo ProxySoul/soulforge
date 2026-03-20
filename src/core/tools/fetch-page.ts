@@ -26,7 +26,7 @@ export function isPrivateHostname(hostname: string): boolean {
     hostname.startsWith("127.") ||
     hostname.startsWith("10.") ||
     hostname.startsWith("192.168.") ||
-    hostname === "169.254.169.254" ||
+    hostname.startsWith("169.254.") ||
     hostname.endsWith(".internal") ||
     hostname.endsWith(".local") ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)

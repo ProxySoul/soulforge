@@ -934,16 +934,8 @@ describe("Data integrity — MemoryDB tag filter LIKE injection", () => {
 			db.write({ title: "Has percent", category: "fact", tags: ["50%"] });
 			db.write({ title: "No match", category: "fact", tags: ["other"] });
 
-			// If % isn't escaped in the LIKE, it would match everything
 			const results = db.list({ tag: "%" });
-			// Ideally this should return 0 (no tag is literally "%")
-			// If it returns 2, the LIKE pattern is broken
-			if (results.length === 2) {
-				// BUG: % is not escaped in LIKE clause — matches all records
-				console.warn("BUG FOUND: tag filter LIKE injection — '%' matches all records");
-			}
-			// We're documenting the behavior either way
-			expect(typeof results.length).toBe("number");
+			expect(results.length).toBe(0);
 		} finally {
 			db.close();
 		}
@@ -955,12 +947,9 @@ describe("Data integrity — MemoryDB tag filter LIKE injection", () => {
 			db.write({ title: "Has underscore", category: "fact", tags: ["a_b"] });
 			db.write({ title: "Similar", category: "fact", tags: ["axb"] });
 
-			// "_" in LIKE matches any single char — "a_b" would match "axb"
 			const results = db.list({ tag: "a_b" });
-			if (results.length === 2) {
-				console.warn("BUG FOUND: tag filter LIKE injection — '_' acts as single-char wildcard");
-			}
-			expect(typeof results.length).toBe("number");
+			expect(results.length).toBe(1);
+			expect(results[0]!.title).toBe("Has underscore");
 		} finally {
 			db.close();
 		}

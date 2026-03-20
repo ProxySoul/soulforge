@@ -1,65 +1,5 @@
 import { describe, expect, it } from "bun:test";
-
-/**
- * Tests for fuzzyWhitespaceMatch from edit-file.ts.
- * This is the fallback when exact string match fails — it normalizes
- * leading whitespace (tabs↔spaces) and adapts indentation.
- * Every file edit that doesn't match exactly goes through this.
- */
-
-function fuzzyWhitespaceMatch(
-  content: string,
-  oldStr: string,
-  newStr: string,
-): { oldStr: string; newStr: string } | null {
-  const contentLines = content.split("\n");
-  const oldLines = oldStr.split("\n");
-  if (oldLines.length === 0) return null;
-
-  const normalize = (line: string) => line.replace(/^[\t ]+/, "").trimEnd();
-  const normalizedOld = oldLines.map(normalize);
-
-  for (let i = 0; i <= contentLines.length - oldLines.length; i++) {
-    let match = true;
-    for (let j = 0; j < oldLines.length; j++) {
-      if (normalize(contentLines[i + j] as string) !== normalizedOld[j]) {
-        match = false;
-        break;
-      }
-    }
-    if (match) {
-      const actualOld = contentLines.slice(i, i + oldLines.length).join("\n");
-      if (content.split(actualOld).length - 1 !== 1) continue;
-
-      const newLines = newStr.split("\n");
-      const correctedNew = newLines
-        .map((newLine, idx) => {
-          const oldLine = oldLines[idx];
-          if (!oldLine) return newLine;
-          const oldIndent = oldLine.match(/^[\t ]*/)?.[0] ?? "";
-          const actualLine = contentLines[i + idx] as string;
-          const actualIndent = actualLine.match(/^[\t ]*/)?.[0] ?? "";
-          if (oldIndent === actualIndent) return newLine;
-          const newIndent = newLine.match(/^[\t ]*/)?.[0] ?? "";
-          if (newIndent === oldIndent) {
-            return actualIndent + newLine.slice(oldIndent.length);
-          }
-          return newLine;
-        })
-        .join("\n");
-
-      return { oldStr: actualOld, newStr: correctedNew };
-    }
-  }
-  return null;
-}
-
-function formatMetricDelta(label: string, before: number, after: number): string {
-  const delta = after - before;
-  if (delta === 0) return "";
-  const sign = delta > 0 ? "+" : "";
-  return `${label}: ${String(before)}→${String(after)} (${sign}${String(delta)})`;
-}
+import { fuzzyWhitespaceMatch, formatMetricDelta } from "../src/core/tools/edit-file.js";
 
 describe("fuzzyWhitespaceMatch — tabs vs spaces", () => {
   it("matches tabs in content when oldStr uses spaces", () => {
@@ -103,9 +43,6 @@ describe("fuzzyWhitespaceMatch — no match", () => {
   it("returns null for empty oldStr (single empty line)", () => {
     const content = "hello\nworld";
     const result = fuzzyWhitespaceMatch(content, "", "new");
-    // oldLines = [""] which is length 1, normalize("") = ""
-    // This might match the first empty-ish line or not
-    // The key is it doesn't crash
     expect(result === null || result.oldStr !== undefined).toBe(true);
   });
 
@@ -113,7 +50,6 @@ describe("fuzzyWhitespaceMatch — no match", () => {
     const content = "  foo();\n  bar();\n  foo();\n  bar();";
     const oldStr = "  foo();\n  bar();";
     const newStr = "  baz();";
-    // content.split(actualOld).length - 1 !== 1 → skip
     expect(fuzzyWhitespaceMatch(content, oldStr, newStr)).toBeNull();
   });
 });
@@ -142,7 +78,6 @@ describe("fuzzyWhitespaceMatch — edge cases", () => {
     const newStr = "  const x = 1;\n  const y = 2;";
     const result = fuzzyWhitespaceMatch(content, oldStr, newStr);
     expect(result).not.toBeNull();
-    // Second line of newStr has no corresponding oldLine, kept as-is
     expect(result!.newStr).toContain("const y = 2;");
   });
 

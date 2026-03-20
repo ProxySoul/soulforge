@@ -107,10 +107,7 @@ const TOOLS = {
 };
 
 // Steps with enough context (last step inputTokens) to trigger pruning (70%=140k) but below nudge (80%=160k)
-const STEPS_ABOVE_PRUNE_THRESHOLD = [
-	{ usage: { inputTokens: 145_000, outputTokens: 5_000 } },
-];
-const STEPS_ABOVE_CODE_PRUNE = STEPS_ABOVE_PRUNE_THRESHOLD;
+
 
 function callPrepareStep(
 	opts: PrepareStepOptions,
@@ -1313,8 +1310,8 @@ describe("summary formats — real audit tool outputs", () => {
 // stripBookkeepingTools — unit tests
 // ---------------------------------------------------------------------------
 
-describe("stripBookkeepingTools via forge prepareStep", () => {
-	it("strips update_plan_step calls and results from conversation", () => {
+describe("compactOldToolResults with bookkeeping tools", () => {
+	it("preserves update_plan_step alongside other tools (stripping is UI-level, not compaction)", () => {
 		const msgs: ModelMessage[] = [
 			{
 				role: "assistant",
@@ -1335,7 +1332,9 @@ describe("stripBookkeepingTools via forge prepareStep", () => {
 		const assistantContent = result[0]!.content as Array<{ toolName?: string }>;
 		const toolContent = result[1]!.content as Array<{ toolName?: string }>;
 		expect(assistantContent.some(p => p.toolName === "read_file")).toBe(true);
+		expect(assistantContent.some(p => p.toolName === "update_plan_step")).toBe(true);
 		expect(toolContent.some(p => p.toolName === "read_file")).toBe(true);
+		expect(toolContent.some(p => p.toolName === "update_plan_step")).toBe(true);
 	});
 
 	it("preserves text parts when stripping tool-calls from mixed messages", () => {

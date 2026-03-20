@@ -98,8 +98,11 @@ export class SessionManager {
         const content = readFileSync(jsonlPath, "utf-8").trim();
         if (content) {
           for (const line of content.split("\n")) {
-            if (line.trim()) {
+            if (!line.trim()) continue;
+            try {
               allMessages.push(JSON.parse(line) as ChatMessage);
+            } catch {
+              break;
             }
           }
         }

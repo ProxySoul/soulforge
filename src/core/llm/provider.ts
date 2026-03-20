@@ -9,10 +9,6 @@ export interface ProviderStatus {
   envVar: string;
 }
 
-/** Derive PROVIDERS record from registry for backward compatibility. */
-export const PROVIDERS: Record<string, { name: string; envVar: string }> = Object.fromEntries(
-  getAllProviders().map((p) => [p.id, { name: p.name, envVar: p.envVar }]),
-);
 
 /**
  * Check which providers have API keys configured.
@@ -71,10 +67,6 @@ export function deactivateCurrentProvider(): void {
     }
     activeProviderId = null;
   }
-}
-
-export function getActiveProviderId(): string | null {
-  return activeProviderId;
 }
 
 /**

@@ -155,16 +155,6 @@ function isServerDisabled(cmd: string): boolean {
 }
 
 /**
- * Find an LSP server for the given language.
- * Probes $PATH first, then SoulForge (~/.soulforge/lsp-servers/), then Mason.
- * Skips servers that are disabled in user config.
- */
-export function findServerForLanguage(language: Language): LspServerConfig | null {
-  const all = findServersForLanguage(language);
-  return all[0] ?? null;
-}
-
-/**
  * Find ALL available LSP servers for the given language.
  * Returns them in priority order (first = highest priority).
  * Skips servers that are disabled in user config or not found on PATH.

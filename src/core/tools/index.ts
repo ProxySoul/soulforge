@@ -760,34 +760,6 @@ export const RESTRICTED_TOOL_NAMES: string[] = [
 /** Read-only tools for restricted modes (architect, socratic, challenge).
  *  Includes all read/analysis + memory + editor read, but NO edit/shell/git/refactor.
  *  The LLM physically cannot bypass the mode — these tools don't exist on the agent. */
-export function buildRestrictedModeTools(
-  editorSettings?: EditorIntegration,
-  onApproveWebSearch?: (query: string) => Promise<boolean>,
-  opts?: {
-    memoryManager?: MemoryManager;
-    webSearchModel?: import("ai").LanguageModel;
-    repoMap?: RepoMap;
-    onApproveFetchPage?: (url: string) => Promise<boolean>;
-  },
-) {
-  const all = buildTools(undefined, editorSettings, onApproveWebSearch, opts);
-  return {
-    read_file: all.read_file,
-    grep: all.grep,
-    glob: all.glob,
-    web_search: all.web_search,
-    fetch_page: all.fetch_page,
-    editor: all.editor,
-    navigate: all.navigate,
-    analyze: all.analyze,
-    discover_pattern: all.discover_pattern,
-    memory: all.memory,
-    ...(all.soul_grep ? { soul_grep: all.soul_grep } : {}),
-    ...(all.soul_find ? { soul_find: all.soul_find } : {}),
-    ...(all.soul_analyze ? { soul_analyze: all.soul_analyze } : {}),
-    ...(all.soul_impact ? { soul_impact: all.soul_impact } : {}),
-  };
-}
 
 /** Read-only tools for explore subagent */
 export function buildReadOnlyTools(
@@ -851,37 +823,6 @@ export function planFileName(sessionId?: string): string {
   return sessionId ? `plan-${sessionId}.md` : "plan.md";
 }
 
-/** Read-only tools for plan mode (plan tool is provided by buildInteractiveTools) */
-export function buildPlanModeTools(
-  cwd: string,
-  editorSettings?: EditorIntegration,
-  onApproveWebSearch?: (query: string) => Promise<boolean>,
-  opts?: {
-    memoryManager?: MemoryManager;
-    webSearchModel?: import("ai").LanguageModel;
-    sessionId?: string;
-    onApproveFetchPage?: (url: string) => Promise<boolean>;
-  },
-) {
-  const all = buildTools(cwd, editorSettings, onApproveWebSearch, opts);
-  return {
-    read_file: all.read_file,
-    grep: all.grep,
-    glob: all.glob,
-    web_search: all.web_search,
-    fetch_page: all.fetch_page,
-    editor: all.editor,
-    navigate: all.navigate,
-    analyze: all.analyze,
-    discover_pattern: all.discover_pattern,
-    test_scaffold: all.test_scaffold,
-    memory: all.memory,
-    ...(all.soul_grep ? { soul_grep: all.soul_grep } : {}),
-    ...(all.soul_find ? { soul_find: all.soul_find } : {}),
-    ...(all.soul_analyze ? { soul_analyze: all.soul_analyze } : {}),
-    ...(all.soul_impact ? { soul_impact: all.soul_impact } : {}),
-  };
-}
 
 /** Full code tools for code subagent */
 export function buildCodeTools(
@@ -1283,26 +1224,6 @@ export function buildSubagentCodeTools(opts?: {
 }
 
 /** Get tool names for display */
-export function getToolNames(): string[] {
-  return [
-    readFileTool.name,
-    editFileTool.name,
-    shellTool.name,
-    grepTool.name,
-    globTool.name,
-    "web_search",
-    "memory",
-    navigateTool.name,
-    renameSymbolTool.name,
-    moveSymbolTool.name,
-    refactorTool.name,
-    analyzeTool.name,
-    discoverPatternTool.name,
-    testScaffoldTool.name,
-    editorTool.name,
-    gitTool.name,
-  ];
-}
 
 interface WrappableTool {
   description?: string;

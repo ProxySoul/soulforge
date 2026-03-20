@@ -10,7 +10,6 @@ export { providerIcon, UI_ICONS } from "./icons.js";
 export type {
   FetchModelsResult,
   GroupedModelsResult,
-  VercelGatewayModelsResult,
 } from "./llm/models.js";
 // Model utilities
 export {

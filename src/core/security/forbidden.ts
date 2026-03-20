@@ -158,19 +158,6 @@ export function removeProjectPattern(cwd: string, pattern: string): void {
   }
 }
 
-/** Add a pattern to the global config (~/.soulforge/forbidden.json) */
-export function addGlobalPattern(pattern: string): void {
-  const filePath = join(homedir(), ".soulforge", "forbidden.json");
-  const existing = loadPatternsFromFile(filePath);
-  if (!existing.includes(pattern)) {
-    existing.push(pattern);
-    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
-    mkdirSync(join(homedir(), ".soulforge"), { recursive: true });
-    writeFileSync(filePath, JSON.stringify({ patterns: existing }, null, 2));
-    globalPatterns = existing;
-  }
-}
-
 /** Get all session patterns merged across all tabs */
 function getAllSessionPatterns(tabId?: string): string[] {
   if (tabId) {

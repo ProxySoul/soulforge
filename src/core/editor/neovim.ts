@@ -96,31 +96,6 @@ export async function openFile(nvim: NvimInstance, filePath: string): Promise<vo
 }
 
 /**
- * Get current buffer content from neovim.
- */
-export async function getBufferContent(nvim: NvimInstance): Promise<string[]> {
-  const buffer = await nvim.api.buffer;
-  return buffer.getLines({ start: 0, end: -1, strictIndexing: false });
-}
-
-/**
- * Apply an edit to the current buffer in neovim.
- */
-export async function applyEdit(
-  nvim: NvimInstance,
-  startLine: number,
-  endLine: number,
-  replacement: string[],
-): Promise<void> {
-  const buffer = await nvim.api.buffer;
-  await buffer.setLines(replacement, {
-    start: startLine,
-    end: endLine,
-    strictIndexing: false,
-  });
-}
-
-/**
  * Get cursor position from neovim.
  */
 export async function getCursorPosition(

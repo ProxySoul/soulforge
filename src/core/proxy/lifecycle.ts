@@ -15,7 +15,7 @@ const HEALTH_TIMEOUT_MS = 2000;
 const STARTUP_POLL_MS = 500;
 const STARTUP_POLL_ATTEMPTS = 10;
 
-export type ProxyState = "stopped" | "starting" | "running" | "needs-auth" | "error";
+type ProxyState = "stopped" | "starting" | "running" | "needs-auth" | "error";
 
 let currentState: ProxyState = "stopped";
 let lastError: string | null = null;
@@ -27,18 +27,11 @@ function setState(state: ProxyState, error: string | null = null): void {
   for (const fn of stateListeners) fn(state, error);
 }
 
-export function getProxyState(): { state: ProxyState; error: string | null } {
+function getProxyState(): { state: ProxyState; error: string | null } {
   return { state: currentState, error: lastError };
 }
 
-export function onProxyStateChange(
-  fn: (state: ProxyState, error: string | null) => void,
-): () => void {
-  stateListeners.add(fn);
-  return () => {
-    stateListeners.delete(fn);
-  };
-}
+
 
 function ensureConfig(): void {
   if (existsSync(PROXY_CONFIG_PATH)) return;
@@ -65,7 +58,7 @@ function commandExists(cmd: string): boolean {
   }
 }
 
-export function getProxyBinary(): string | null {
+function getProxyBinary(): string | null {
   const vendored = getVendoredPath("cli-proxy-api");
   if (vendored) return vendored;
   if (commandExists("cli-proxy-api")) return "cli-proxy-api";
@@ -88,10 +81,6 @@ async function healthCheck(): Promise<"ok" | "auth-required" | "unreachable"> {
   } catch {
     return "unreachable";
   }
-}
-
-export async function isProxyRunning(): Promise<boolean> {
-  return (await healthCheck()) === "ok";
 }
 
 export async function ensureProxy(): Promise<{ ok: boolean; error?: string }> {
@@ -198,16 +187,7 @@ export function getProxyPid(): number | null {
   return proxyProcess?.pid ?? null;
 }
 
-export function proxyLogin(): { command: string; args: string[] } {
-  const binary = getProxyBinary();
-  ensureConfig();
-  return {
-    command: binary ?? "cli-proxy-api",
-    args: ["-config", PROXY_CONFIG_PATH, "-claude-login"],
-  };
-}
-
-export interface ProxyLoginHandle {
+interface ProxyLoginHandle {
   promise: Promise<{ ok: boolean }>;
   abort: () => void;
 }
@@ -260,7 +240,7 @@ export function runProxyLogin(onOutput: (line: string) => void): ProxyLoginHandl
   return { promise, abort };
 }
 
-export interface ProxyStatus {
+interface ProxyStatus {
   installed: boolean;
   binaryPath: string | null;
   running: boolean;

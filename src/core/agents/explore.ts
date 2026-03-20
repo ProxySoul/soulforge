@@ -59,7 +59,6 @@ const exploreOutput = Output.object({
   schema: exploreOutputSchema,
 });
 
-export type ExploreOutput = z.infer<typeof exploreOutputSchema>;
 
 interface ExploreAgentOptions {
   bus?: AgentBus;

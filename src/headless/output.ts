@@ -1,11 +1,7 @@
-import { DIM, GREEN, PURPLE, RED, RST, YELLOW } from "./constants.js";
+import { DIM, PURPLE, RED, RST, YELLOW } from "./constants.js";
 
 export function writeEvent(event: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
-}
-
-export function stderrLine(msg: string): void {
-  process.stderr.write(`${msg}\n`);
 }
 
 export function stderrLabel(label: string, value: string): void {
@@ -22,10 +18,6 @@ export function stderrError(msg: string): void {
 
 export function stderrWarn(msg: string): void {
   process.stderr.write(`${YELLOW}${msg}${RST}\n`);
-}
-
-export function stderrSuccess(msg: string): void {
-  process.stderr.write(`${GREEN}${msg}${RST}\n`);
 }
 
 export function separator(): void {

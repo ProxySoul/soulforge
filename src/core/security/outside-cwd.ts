@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { relative, resolve } from "node:path";
+import { relative } from "node:path";
 
 export type OutsideKind = "config" | "tmp" | "outside";
 
@@ -35,17 +35,4 @@ export function needsOutsideConfirm(toolName: string, resolvedPath: string, cwd:
   const kind = classifyPath(resolvedPath, cwd);
   if (!kind || kind === "config" || kind === "tmp") return false;
   return WRITE_TOOLS.has(toolName) || toolName === "shell";
-}
-
-export function extractToolPath(toolName: string, args: Record<string, unknown>): string | null {
-  if ("path" in args && typeof args.path === "string") return resolve(args.path);
-  if ("file" in args && typeof args.file === "string") return resolve(args.file);
-  if ("from" in args && typeof args.from === "string") return resolve(args.from);
-  if ("to" in args && typeof args.to === "string") return resolve(args.to);
-
-  if (toolName === "shell" && typeof args.cwd === "string") {
-    return resolve(args.cwd);
-  }
-
-  return null;
 }

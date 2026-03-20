@@ -18,7 +18,11 @@ describe("isPrivateHostname — IPv4", () => {
   it("allows 172.32.x.x (not private)", () => expect(isPrivateHostname("172.32.0.1")).toBe(false));
   it("allows 172.15.0.1 (below range)", () => expect(isPrivateHostname("172.15.0.1")).toBe(false));
   it("blocks AWS metadata endpoint", () => expect(isPrivateHostname("169.254.169.254")).toBe(true));
-  it("allows 169.254.0.1 (only exact endpoint blocked)", () => expect(isPrivateHostname("169.254.0.1")).toBe(false));
+  it("blocks full 169.254.0.0/16 link-local range", () => {
+    expect(isPrivateHostname("169.254.0.1")).toBe(true);
+    expect(isPrivateHostname("169.254.1.1")).toBe(true);
+    expect(isPrivateHostname("169.254.255.255")).toBe(true);
+  });
   it("allows public IPs", () => {
     expect(isPrivateHostname("8.8.8.8")).toBe(false);
     expect(isPrivateHostname("1.1.1.1")).toBe(false);

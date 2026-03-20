@@ -92,7 +92,7 @@ describe("SessionManager", () => {
 		expect(loaded).toBeNull();
 	});
 
-	it("handles corrupted messages.jsonl gracefully", () => {
+	it("recovers valid lines before corruption in messages.jsonl", () => {
 		const meta = makeMeta("sess-jsonl-corrupt");
 		const msgs = [makeMessage("user", "hello"), makeMessage("assistant", "hi")];
 		const tabMessages = new Map([["tab-1", msgs]]);
@@ -108,7 +108,10 @@ describe("SessionManager", () => {
 		writeFileSync(jsonlPath, '{"role":"user","content":"ok"}\n{broken\n');
 
 		const loaded = manager.loadSession("sess-jsonl-corrupt");
-		expect(loaded).toBeNull();
+		expect(loaded).not.toBeNull();
+		const tabMsgs = loaded!.tabMessages.get("tab-1") ?? [];
+		expect(tabMsgs.length).toBeGreaterThanOrEqual(1);
+		expect((tabMsgs[0] as { role: string }).role).toBe("user");
 	});
 
 	it("handles missing messages.jsonl (meta exists, data missing)", () => {
@@ -157,7 +160,9 @@ describe("SessionManager", () => {
 		writeFileSync(jsonlPath, content.slice(0, content.length - 10));
 
 		const loaded = manager.loadSession("sess-trunc");
-		expect(loaded).toBeNull();
+		expect(loaded).not.toBeNull();
+		const tabMsgs = loaded!.tabMessages.get("tab-1") ?? [];
+		expect(tabMsgs.length).toBeGreaterThanOrEqual(1);
 	});
 
 	it("returns null for non-existent session", () => {

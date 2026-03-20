@@ -236,17 +236,6 @@ export function getStorageBackend(): "keychain" | "file" {
   return keychainAvailable() ? "keychain" : "file";
 }
 
-export const SECRET_KEYS: SecretKey[] = [
-  "brave-api-key",
-  "jina-api-key",
-  "anthropic-api-key",
-  "openai-api-key",
-  "google-api-key",
-  "xai-api-key",
-  "openrouter-api-key",
-  "llmgateway-api-key",
-  "vercel-gateway-api-key",
-];
 export type { SecretKey };
 
 /** Reverse lookup: given an env var name, find its SecretKey */

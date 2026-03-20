@@ -9,7 +9,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSy
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const SOULFORGE_LSP_DIR = join(homedir(), ".soulforge", "lsp-servers");
+const SOULFORGE_LSP_DIR = join(homedir(), ".soulforge", "lsp-servers");
 
 const MASON_REGISTRY_LOCAL = join(
   homedir(),
@@ -30,7 +30,7 @@ const MASON_BIN_DIR = join(homedir(), ".local", "share", "nvim", "mason", "bin")
 
 // ─── Types ───
 
-export type InstallMethod = "npm" | "pypi" | "cargo" | "golang" | "github" | "unknown";
+type InstallMethod = "npm" | "pypi" | "cargo" | "golang" | "github" | "unknown";
 export type PackageCategory = "LSP" | "Formatter" | "Linter" | "DAP" | "Runtime" | "Compiler";
 
 export interface MasonPackage {
@@ -197,11 +197,6 @@ export async function downloadRegistry(): Promise<MasonPackage[]> {
   }
 }
 
-/** Force reload the registry from disk */
-export function reloadRegistry(): void {
-  registryCache = null;
-  pathCache.clear();
-}
 
 // ─── Package Status ───
 
@@ -322,7 +317,7 @@ const PROJECT_INDICATORS: Record<string, string[]> = {
 };
 
 /** Detect which languages are used in the current project */
-export function detectProjectLanguages(cwd: string): string[] {
+function detectProjectLanguages(cwd: string): string[] {
   const languages: string[] = [];
   const { readdirSync } = require("node:fs") as typeof import("node:fs");
 

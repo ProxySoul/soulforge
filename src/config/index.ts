@@ -197,9 +197,6 @@ export function removeGlobalConfigKeys(keys: string[]): void {
   } catch {}
 }
 
-export function getConfigDir(): string {
-  return CONFIG_DIR;
-}
 
 const NESTED_KEYS = [
   "editor",

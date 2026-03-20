@@ -17,17 +17,11 @@ export interface SubProvider {
   name: string;
 }
 
-// Backward-compat alias
-export type VercelGatewaySubProvider = SubProvider;
-
 export interface GroupedModelsResult {
   subProviders: SubProvider[];
   modelsByProvider: Record<string, ProviderModelInfo[]>;
   error?: string;
 }
-
-// Backward-compat alias
-export type VercelGatewayModelsResult = GroupedModelsResult;
 
 export interface ProviderConfig {
   id: string;
@@ -49,7 +43,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = getAllProviders().map((p) => (
 
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 
-export type ContextWindowSource = "api" | "openrouter" | "fallback";
+type ContextWindowSource = "api" | "openrouter" | "fallback";
 
 interface ContextWindowResult {
   tokens: number;
@@ -142,7 +136,7 @@ function findOpenRouterModel(model: string): OpenRouterModel | undefined {
   );
 }
 
-export function getOpenRouterModelName(model: string): string | undefined {
+function getOpenRouterModelName(model: string): string | undefined {
   const match = findOpenRouterModel(model);
   if (!match) return undefined;
   return match.name.replace(/^[^:]+:\s*/, "");
@@ -291,11 +285,6 @@ export function getCachedGroupedModels(providerId: string): GroupedModelsResult 
     return null;
   }
   return entry.result;
-}
-
-// Backward-compat wrapper
-export function getCachedVercelGatewayModels(): GroupedModelsResult | null {
-  return getCachedGroupedModels("vercel_gateway");
 }
 
 function titleCase(s: string): string {

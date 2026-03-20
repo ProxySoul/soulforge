@@ -121,7 +121,7 @@ function renderMessage(msg: ChatMessage): string | null {
   return parts.join("\n");
 }
 
-export function exportToMarkdown(messages: ChatMessage[], title: string): string {
+function exportToMarkdown(messages: ChatMessage[], title: string): string {
   const lines: string[] = [];
   lines.push(`# ${title}`);
   if (messages.length > 0) {
@@ -146,11 +146,11 @@ export function exportToMarkdown(messages: ChatMessage[], title: string): string
   return lines.join("\n");
 }
 
-export function exportToJson(messages: ChatMessage[]): string {
+function exportToJson(messages: ChatMessage[]): string {
   return JSON.stringify(messages, null, 2);
 }
 
-export interface ExportResult {
+interface ExportResult {
   path: string;
   messageCount: number;
   format: "markdown" | "json";
