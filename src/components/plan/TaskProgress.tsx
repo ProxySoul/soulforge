@@ -103,10 +103,27 @@ export function TaskList({ tasks, nested }: TaskListProps) {
 
 export function TaskProgress() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => onTaskChange(setTasks), []);
 
-  if (tasks.length === 0) return null;
+  useEffect(() => {
+    if (tasks.length === 0) {
+      setVisible(false);
+      return;
+    }
+    const actionable = tasks.some((t) => t.status === "pending" || t.status === "in-progress");
+    if (actionable) {
+      setVisible(true);
+      return;
+    }
+    // All done/blocked — linger then dismiss
+    setVisible(true);
+    const timer = setTimeout(() => setVisible(false), 3000);
+    return () => clearTimeout(timer);
+  }, [tasks]);
+
+  if (!visible) return null;
 
   return <TaskList tasks={tasks} />;
 }
