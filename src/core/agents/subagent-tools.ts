@@ -4,6 +4,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AgentFeatures } from "../../types/index.js";
+import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
 import type { RepoMap } from "../intelligence/repo-map.js";
 import { getModelContextWindow } from "../llm/models.js";
 import { getActiveTaskTab } from "../tools/task-list.js";
@@ -325,6 +326,8 @@ export function buildSubagentTools(models: SubagentModels) {
       }),
       execute: async (rawArgs, { abortSignal, toolCallId }) => {
         const bus = new AgentBus(cacheRef.current);
+        const dispatchTabId = getActiveTaskTab();
+        if (dispatchTabId) getWorkspaceCoordinator().agentStarted(dispatchTabId);
         try {
           const WEB_MARKER = "web";
 
@@ -953,6 +956,7 @@ export function buildSubagentTools(models: SubagentModels) {
             output: sections.join("\n"),
           } satisfies DispatchOutput;
         } finally {
+          if (dispatchTabId) getWorkspaceCoordinator().agentFinished(dispatchTabId);
           try {
             cacheRef.current = bus.exportCaches();
           } catch (err) {

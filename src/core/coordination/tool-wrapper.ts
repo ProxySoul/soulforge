@@ -53,9 +53,14 @@ export function checkAndClaim(
 }
 
 /**
- * Prepend a warning to a tool result string.
+ * Prepend a warning to a tool result (string or ToolResult object).
  */
-export function prependWarning(result: string, warning: string | null): string {
+export function prependWarning<T>(result: T, warning: string | null): T {
   if (!warning) return result;
-  return `${warning}\nProceeding anyway. Consider coordinating with the other tab.\n\n${result}`;
+  const prefix = `${warning}\nProceeding anyway. Consider coordinating with the other tab.\n\n`;
+  if (typeof result === "string") return `${prefix}${result}` as T;
+  if (result && typeof result === "object" && "output" in result) {
+    return { ...result, output: `${prefix}${(result as { output: string }).output}` } as T;
+  }
+  return result;
 }

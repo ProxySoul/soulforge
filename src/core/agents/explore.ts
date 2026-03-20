@@ -92,7 +92,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
     ...busTools,
   };
 
-  const { prepareStep, tokenStop } = buildPrepareStep({
+  const { prepareStep, stopConditions } = buildPrepareStep({
     bus,
     agentId,
     parentToolCallId: options?.parentToolCallId,
@@ -118,7 +118,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
       providerOptions: EPHEMERAL_CACHE,
     },
     output: exploreOutput,
-    stopWhen: tokenStop,
+    stopWhen: stopConditions,
     prepareStep,
     experimental_repairToolCall: repairToolCall,
     ...(options?.providerOptions && Object.keys(options.providerOptions).length > 0

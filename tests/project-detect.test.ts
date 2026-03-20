@@ -2,678 +2,451 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { detectProfile } from "../src/core/tools/project.js";
 
 /**
- * Tests for detectProfile from project.ts.
- * This auto-detects toolchain across 20+ ecosystems.
- * Wrong detection = wrong test/build/lint commands = user confusion.
- * Uses real temp directories with marker files.
+ * Tests for detectProfile — the production function, not a mirror.
+ * Uses real temp directories with marker files that simulate real project structures.
+ * Wrong detection = wrong test/build/lint/format commands = user confusion.
  */
 
-// Mirror the production code
-function detectProfile(cwd: string) {
-  const { existsSync, readdirSync, readFileSync } = require("node:fs");
-
-  const profile: Record<string, string | null> = {
-    test: null,
-    build: null,
-    lint: null,
-    typecheck: null,
-    run: null,
-    format: null,
-  };
-
-  const has = (f: string) => existsSync(join(cwd, f));
-  const hasExt = (ext: string) => {
-    try {
-      return readdirSync(cwd).some((f: string) => f.endsWith(ext));
-    } catch {
-      return false;
-    }
-  };
-  const readPackageScripts = (): Record<string, string> => {
-    try {
-      const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
-      return pkg.scripts ?? {};
-    } catch {
-      return {};
-    }
-  };
-  const detectJsLinter = (): string | null => {
-    if (has("biome.json") || has("biome.jsonc")) return "biome lint .";
-    if (
-      has(".eslintrc") ||
-      has(".eslintrc.js") ||
-      has(".eslintrc.json") ||
-      has("eslint.config.js") ||
-      has("eslint.config.mjs")
-    )
-      return "eslint .";
-    return null;
-  };
-  const detectJsFormatter = (): string | null => {
-    if (has("biome.json") || has("biome.jsonc")) return "biome format --write";
-    if (has("dprint.json") || has("dprint.jsonc")) return "dprint fmt";
-    if (
-      has(".prettierrc") ||
-      has(".prettierrc.js") ||
-      has(".prettierrc.json") ||
-      has(".prettierrc.yml") ||
-      has("prettier.config.js")
-    )
-      return "prettier --write";
-    return null;
-  };
-  const scripts = readPackageScripts();
-
-  if (has("bun.lock") || has("bun.lockb")) {
-    profile.test = scripts.test ?? "bun test";
-    profile.build = scripts.build ? "bun run build" : null;
-    profile.lint = scripts.lint ? "bun run lint" : detectJsLinter();
-    profile.typecheck = has("tsconfig.json")
-      ? scripts.typecheck ? "bun run typecheck" : "bunx tsc --noEmit"
-      : null;
-    profile.run = scripts.dev ? "bun run dev" : scripts.start ? "bun run start" : null;
-    profile.format = scripts.format ? "bun run format" : detectJsFormatter();
-    return profile;
-  }
-
-  if (has("deno.json") || has("deno.lock")) {
-    profile.test = "deno test";
-    profile.build = null;
-    profile.lint = "deno lint";
-    profile.typecheck = "deno check .";
-    profile.run = scripts.dev ? "deno task dev" : "deno run main.ts";
-    profile.format = "deno fmt";
-    return profile;
-  }
-
-  if (has("package.json")) {
-    const pm = has("pnpm-lock.yaml") ? "pnpm" : has("yarn.lock") ? "yarn" : "npm";
-    const run = pm === "npm" ? "npm run" : pm;
-    profile.test = scripts.test ? `${run} test` : null;
-    profile.build = scripts.build ? `${run} build` : null;
-    profile.lint = scripts.lint ? `${run} lint` : detectJsLinter();
-    profile.typecheck = has("tsconfig.json")
-      ? scripts.typecheck ? `${run} typecheck` : "npx tsc --noEmit"
-      : null;
-    profile.run = scripts.dev ? `${run} dev` : scripts.start ? `${run} start` : null;
-    profile.format = scripts.format ? `${run} format` : detectJsFormatter();
-    return profile;
-  }
-
-  if (has("Cargo.toml")) {
-    profile.test = "cargo test";
-    profile.build = "cargo build";
-    profile.lint = "cargo clippy";
-    profile.typecheck = "cargo check";
-    profile.run = "cargo run";
-    profile.format = "rustfmt";
-    return profile;
-  }
-
-  if (has("go.mod")) {
-    profile.test = "go test ./...";
-    profile.build = "go build ./...";
-    profile.lint = has(".golangci.yml") || has(".golangci.yaml") ? "golangci-lint run" : "go vet ./...";
-    profile.typecheck = "go build ./...";
-    profile.run = "go run .";
-    profile.format = "gofmt -w";
-    return profile;
-  }
-
-  if (has("pyproject.toml") || has("setup.py") || has("requirements.txt")) {
-    const pm = has("uv.lock") ? "uv run" : has("poetry.lock") ? "poetry run" : has("Pipfile.lock") ? "pipenv run" : "";
-    const prefix = pm ? `${pm} ` : "";
-    profile.test = `${prefix}pytest`;
-    profile.lint = has("ruff.toml") || has(".ruff.toml") ? `${prefix}ruff check` : `${prefix}flake8`;
-    profile.typecheck = `${prefix}mypy .`;
-    profile.format = has("ruff.toml") || has(".ruff.toml") ? `${prefix}ruff format` : `${prefix}black`;
-    if (has("manage.py")) profile.run = `${prefix}python manage.py runserver`;
-    else if (has("app.py") || has("main.py")) profile.run = `${prefix}uvicorn main:app --reload`;
-    return profile;
-  }
-
-  if (has("pubspec.yaml")) {
-    profile.test = "flutter test";
-    profile.build = "flutter build";
-    profile.lint = "dart analyze";
-    profile.typecheck = "dart analyze";
-    profile.run = "flutter run";
-    profile.format = "dart format";
-    return profile;
-  }
-
-  if (has("Package.swift")) {
-    profile.test = "swift test";
-    profile.build = "swift build";
-    profile.lint = has(".swiftlint.yml") ? "swiftlint" : null;
-    profile.typecheck = "swift build";
-    profile.run = "swift run";
-    profile.format = has(".swiftformat") ? "swiftformat" : null;
-    return profile;
-  }
-
-  if (has("mix.exs")) {
-    profile.test = "mix test";
-    profile.build = "mix compile";
-    profile.lint = "mix credo";
-    profile.typecheck = "mix dialyzer";
-    profile.run = "mix phx.server";
-    profile.format = "mix format";
-    return profile;
-  }
-
-  if (has("Gemfile")) {
-    profile.test = has("spec") ? "bundle exec rspec" : "bundle exec rails test";
-    profile.build = null;
-    profile.lint = "bundle exec rubocop";
-    profile.run = has("config.ru") ? "bundle exec rails server" : null;
-    profile.format = "bundle exec rubocop -a --fail-level error";
-    return profile;
-  }
-
-  if (has("gradlew") || has("build.gradle") || has("build.gradle.kts")) {
-    const gw = has("gradlew") ? "./gradlew" : "gradle";
-    profile.test = `${gw} test`;
-    profile.build = `${gw} build`;
-    profile.lint = `${gw} check`;
-    profile.typecheck = `${gw} compileJava`;
-    profile.run = `${gw} run`;
-    profile.format = null;
-    return profile;
-  }
-
-  if (has("pom.xml") || has("mvnw")) {
-    const mvn = has("mvnw") ? "./mvnw" : "mvn";
-    profile.test = `${mvn} test`;
-    profile.build = `${mvn} package`;
-    profile.lint = `${mvn} checkstyle:check`;
-    profile.typecheck = `${mvn} compile`;
-    profile.run = `${mvn} exec:java`;
-    return profile;
-  }
-
-  if (has("CMakeLists.txt")) {
-    profile.test = "ctest --test-dir build";
-    profile.build = "cmake --build build";
-    profile.lint = has(".clang-tidy") ? "clang-tidy" : null;
-    profile.typecheck = "cmake --build build";
-    return profile;
-  }
-
-  if (has("Makefile")) {
-    profile.test = "make test";
-    profile.build = "make";
-    profile.run = "make run";
-    return profile;
-  }
-
-  if (has("build.zig") || has("build.zig.zon")) {
-    profile.test = "zig build test";
-    profile.build = "zig build";
-    profile.typecheck = "zig build";
-    profile.run = "zig build run";
-    profile.format = "zig fmt";
-    return profile;
-  }
-
-  return profile;
-}
-
-let tmpRoot: string;
+let baseDir: string;
 
 beforeAll(() => {
-  tmpRoot = mkdtempSync(join(tmpdir(), "project-detect-"));
+  baseDir = mkdtempSync(join(tmpdir(), "soulforge-detect-"));
 });
 
 afterAll(() => {
-  rmSync(tmpRoot, { recursive: true, force: true });
+  rmSync(baseDir, { recursive: true, force: true });
 });
 
 function makeProject(name: string, files: Record<string, string>): string {
-  const dir = join(tmpRoot, name);
+  const dir = join(baseDir, name);
   mkdirSync(dir, { recursive: true });
-  for (const [file, content] of Object.entries(files)) {
-    const filePath = join(dir, file);
-    const fileDir = filePath.substring(0, filePath.lastIndexOf("/"));
-    if (fileDir !== dir) mkdirSync(fileDir, { recursive: true });
-    writeFileSync(filePath, content);
+  for (const [path, content] of Object.entries(files)) {
+    const fullPath = join(dir, path);
+    mkdirSync(join(fullPath, ".."), { recursive: true });
+    writeFileSync(fullPath, content);
   }
   return dir;
 }
 
-describe("detectProfile — Bun", () => {
-  it("detects bun project with lock file", () => {
-    const dir = makeProject("bun1", {
+// ── JS/TS: Bun ──────────────────────────────────────────────
+
+describe("Bun project (bun.lock)", () => {
+  it("detects bun with biome formatter", () => {
+    const cwd = makeProject("bun-biome", {
       "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: { test: "bun test", build: "bun build" } }),
+      "package.json": JSON.stringify({ scripts: { test: "bun test", lint: "biome check ." } }),
+      "biome.json": "{}",
       "tsconfig.json": "{}",
     });
-    const p = detectProfile(dir);
+    const p = detectProfile(cwd);
     expect(p.test).toBe("bun test");
-    expect(p.build).toBe("bun run build");
+    expect(p.lint).toBe("bun run lint");
     expect(p.typecheck).toBe("bunx tsc --noEmit");
+    expect(p.format).toBe("bunx biome format --write");
   });
 
-  it("falls back to bun test when no test script", () => {
-    const dir = makeProject("bun2", {
-      "bun.lockb": "",
-      "package.json": JSON.stringify({ scripts: {} }),
-    });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("bun test");
-  });
-
-  it("detects biome linter for bun project", () => {
-    const dir = makeProject("bun3", {
+  it("prefers scripts.format over auto-detect", () => {
+    const cwd = makeProject("bun-format-script", {
       "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: {} }),
+      "package.json": JSON.stringify({ scripts: { format: "biome format ." } }),
       "biome.json": "{}",
     });
-    const p = detectProfile(dir);
-    expect(p.lint).toBe("biome lint .");
+    const p = detectProfile(cwd);
+    expect(p.format).toBe("bun run format");
   });
 
-  it("detects eslint linter for bun project", () => {
-    const dir = makeProject("bun4", {
+  it("detects prettier when no biome", () => {
+    const cwd = makeProject("bun-prettier", {
       "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: {} }),
-      "eslint.config.js": "",
+      "package.json": JSON.stringify({}),
+      ".prettierrc": "{}",
     });
-    const p = detectProfile(dir);
-    expect(p.lint).toBe("eslint .");
+    const p = detectProfile(cwd);
+    expect(p.format).toContain("prettier");
+  });
+
+  it("no formatter when nothing configured", () => {
+    const cwd = makeProject("bun-no-format", {
+      "bun.lock": "",
+      "package.json": JSON.stringify({}),
+    });
+    const p = detectProfile(cwd);
+    expect(p.format).toBeNull();
   });
 });
 
-describe("detectProfile — npm/yarn/pnpm", () => {
-  it("detects pnpm", () => {
-    const dir = makeProject("pnpm1", {
-      "package.json": JSON.stringify({ scripts: { test: "vitest", build: "vite build" } }),
-      "pnpm-lock.yaml": "",
-    });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("pnpm test");
-    expect(p.build).toBe("pnpm build");
-  });
+// ── JS/TS: npm/pnpm/yarn ────────────────────────────────────
 
-  it("detects yarn", () => {
-    const dir = makeProject("yarn1", {
-      "package.json": JSON.stringify({ scripts: { test: "jest" } }),
-      "yarn.lock": "",
-    });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("yarn test");
-  });
-
-  it("detects npm (no lock file)", () => {
-    const dir = makeProject("npm1", {
-      "package.json": JSON.stringify({ scripts: { test: "jest", dev: "next dev" } }),
-    });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("npm run test");
-    expect(p.run).toBe("npm run dev");
-  });
-
-  it("detects typecheck with tsconfig", () => {
-    const dir = makeProject("ts1", {
-      "package.json": JSON.stringify({ scripts: { test: "jest" } }),
+describe("npm project (package.json only)", () => {
+  it("detects npm with eslint and prettier", () => {
+    const cwd = makeProject("npm-prettier", {
+      "package.json": JSON.stringify({
+        scripts: { test: "jest", lint: "eslint .", build: "tsc" },
+      }),
+      ".prettierrc.json": "{}",
       "tsconfig.json": "{}",
     });
-    const p = detectProfile(dir);
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("npm run test");
+    expect(p.build).toBe("npm run build");
+    expect(p.lint).toBe("npm run lint");
     expect(p.typecheck).toBe("npx tsc --noEmit");
-  });
-
-  it("no typecheck without tsconfig", () => {
-    const dir = makeProject("js1", {
-      "package.json": JSON.stringify({ scripts: { test: "jest" } }),
-    });
-    const p = detectProfile(dir);
-    expect(p.typecheck).toBeNull();
+    expect(p.format).toContain("prettier");
   });
 });
 
-describe("detectProfile — Rust", () => {
-  it("detects Cargo project", () => {
-    const dir = makeProject("rust1", { "Cargo.toml": "" });
-    const p = detectProfile(dir);
+describe("pnpm project", () => {
+  it("detects pnpm with dprint", () => {
+    const cwd = makeProject("pnpm-dprint", {
+      "package.json": JSON.stringify({ scripts: { test: "vitest" } }),
+      "pnpm-lock.yaml": "",
+      "dprint.json": "{}",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("pnpm test");
+    expect(p.format).toContain("dprint");
+  });
+});
+
+describe("yarn project", () => {
+  it("detects yarn with biome", () => {
+    const cwd = makeProject("yarn-biome", {
+      "package.json": JSON.stringify({ scripts: { test: "jest", build: "tsc" } }),
+      "yarn.lock": "",
+      "biome.jsonc": "{}",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("yarn test");
+    expect(p.build).toBe("yarn build");
+    expect(p.format).toContain("biome");
+  });
+});
+
+// ── JS/TS: Deno ─────────────────────────────────────────────
+
+describe("Deno project", () => {
+  it("detects deno with built-in formatter", () => {
+    const cwd = makeProject("deno", {
+      "deno.json": JSON.stringify({ tasks: { dev: "deno run --watch main.ts" } }),
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("deno test");
+    expect(p.lint).toBe("deno lint");
+    expect(p.typecheck).toBe("deno check .");
+    expect(p.format).toBe("deno fmt");
+  });
+});
+
+// ── Rust ────────────────────────────────────────────────────
+
+describe("Rust project (Cargo.toml)", () => {
+  it("detects cargo toolchain", () => {
+    const cwd = makeProject("rust", {
+      "Cargo.toml": '[package]\nname = "myapp"\nversion = "0.1.0"',
+      "src/main.rs": "fn main() {}",
+    });
+    const p = detectProfile(cwd);
     expect(p.test).toBe("cargo test");
     expect(p.build).toBe("cargo build");
     expect(p.lint).toBe("cargo clippy");
     expect(p.typecheck).toBe("cargo check");
-    expect(p.run).toBe("cargo run");
+    expect(p.format).toBe("rustfmt");
   });
 });
 
-describe("detectProfile — Go", () => {
-  it("detects Go module", () => {
-    const dir = makeProject("go1", { "go.mod": "" });
-    const p = detectProfile(dir);
+// ── Go ──────────────────────────────────────────────────────
+
+describe("Go project (go.mod)", () => {
+  it("detects go with golangci-lint", () => {
+    const cwd = makeProject("go-lint", {
+      "go.mod": "module example.com/myapp\n\ngo 1.21",
+      ".golangci.yml": "linters:\n  enable:\n    - gofmt",
+    });
+    const p = detectProfile(cwd);
     expect(p.test).toBe("go test ./...");
-    expect(p.lint).toBe("go vet ./...");
-  });
-
-  it("detects golangci-lint", () => {
-    const dir = makeProject("go2", { "go.mod": "", ".golangci.yml": "" });
-    const p = detectProfile(dir);
     expect(p.lint).toBe("golangci-lint run");
+    expect(p.format).toBe("gofmt -w");
+  });
+
+  it("falls back to go vet without golangci config", () => {
+    const cwd = makeProject("go-noconfig", {
+      "go.mod": "module example.com/myapp\n\ngo 1.21",
+    });
+    const p = detectProfile(cwd);
+    expect(p.lint).toBe("go vet ./...");
+    expect(p.format).toBe("gofmt -w");
   });
 });
 
-describe("detectProfile — Python", () => {
-  it("detects Python with pyproject.toml", () => {
-    const dir = makeProject("py1", { "pyproject.toml": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("pytest");
-    expect(p.lint).toBe("flake8");
-  });
+// ── Python ──────────────────────────────────────────────────
 
-  it("detects uv", () => {
-    const dir = makeProject("py2", { "pyproject.toml": "", "uv.lock": "" });
-    const p = detectProfile(dir);
+describe("Python project (pyproject.toml)", () => {
+  it("detects uv with ruff", () => {
+    const cwd = makeProject("py-uv-ruff", {
+      "pyproject.toml": "[project]\nname = 'myapp'",
+      "uv.lock": "",
+      "ruff.toml": "[lint]\nselect = ['E', 'F']",
+    });
+    const p = detectProfile(cwd);
     expect(p.test).toBe("uv run pytest");
-    expect(p.typecheck).toBe("uv run mypy .");
+    expect(p.lint).toBe("uv run ruff check");
+    expect(p.format).toBe("uv run ruff format");
   });
 
-  it("detects poetry", () => {
-    const dir = makeProject("py3", { "pyproject.toml": "", "poetry.lock": "" });
-    const p = detectProfile(dir);
+  it("detects poetry with black fallback", () => {
+    const cwd = makeProject("py-poetry-black", {
+      "pyproject.toml": "[tool.poetry]\nname = 'myapp'",
+      "poetry.lock": "",
+    });
+    const p = detectProfile(cwd);
     expect(p.test).toBe("poetry run pytest");
+    expect(p.format).toBe("poetry run black");
   });
 
-  it("detects ruff linter", () => {
-    const dir = makeProject("py4", { "pyproject.toml": "", "ruff.toml": "" });
-    const p = detectProfile(dir);
-    expect(p.lint).toBe("ruff check");
-  });
-
-  it("detects Django project", () => {
-    const dir = makeProject("py5", { "pyproject.toml": "", "manage.py": "" });
-    const p = detectProfile(dir);
-    expect(p.run).toContain("manage.py runserver");
+  it("detects plain python with Django", () => {
+    const cwd = makeProject("py-django", {
+      "requirements.txt": "django>=4.0\nblack",
+      "manage.py": "#!/usr/bin/env python",
+    });
+    const p = detectProfile(cwd);
+    expect(p.run).toContain("manage.py");
+    expect(p.format).toBe("black");
   });
 });
 
-describe("detectProfile — mobile/game", () => {
-  it("detects Flutter/Dart", () => {
-    const dir = makeProject("flutter1", { "pubspec.yaml": "" });
-    const p = detectProfile(dir);
+// ── PHP ─────────────────────────────────────────────────────
+
+describe("PHP project (composer.json)", () => {
+  it("detects Laravel with Pint", () => {
+    const cwd = makeProject("php-laravel", {
+      "composer.json": JSON.stringify({ require: { "laravel/framework": "^10" } }),
+      "artisan": "",
+      "pint.json": "{}",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("vendor/bin/phpunit");
+    expect(p.lint).toContain("pint");
+    expect(p.format).toBe("vendor/bin/pint");
+    expect(p.run).toContain("artisan");
+  });
+
+  it("detects PHP with php-cs-fixer", () => {
+    const cwd = makeProject("php-fixer", {
+      "composer.json": JSON.stringify({}),
+      ".php-cs-fixer.php": "<?php return [];",
+    });
+    const p = detectProfile(cwd);
+    expect(p.format).toBe("vendor/bin/php-cs-fixer fix");
+  });
+});
+
+// ── Flutter/Dart ────────────────────────────────────────────
+
+describe("Flutter project (pubspec.yaml)", () => {
+  it("detects flutter/dart toolchain", () => {
+    const cwd = makeProject("flutter", {
+      "pubspec.yaml": "name: myapp\ndescription: A Flutter app",
+    });
+    const p = detectProfile(cwd);
     expect(p.test).toBe("flutter test");
     expect(p.lint).toBe("dart analyze");
-    expect(p.run).toBe("flutter run");
-  });
-
-  it("detects Swift package", () => {
-    const dir = makeProject("swift1", { "Package.swift": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("swift test");
-    expect(p.build).toBe("swift build");
-  });
-
-  it("detects Swift with swiftlint", () => {
-    const dir = makeProject("swift2", { "Package.swift": "", ".swiftlint.yml": "" });
-    const p = detectProfile(dir);
-    expect(p.lint).toBe("swiftlint");
-  });
-
-  it("detects Gradle (Kotlin/Java)", () => {
-    const dir = makeProject("gradle1", { "build.gradle.kts": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("gradle test");
-    expect(p.build).toBe("gradle build");
-  });
-
-  it("detects Gradle with wrapper", () => {
-    const dir = makeProject("gradle2", { "gradlew": "", "build.gradle": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("./gradlew test");
+    expect(p.format).toBe("dart format");
   });
 });
 
-describe("detectProfile — systems", () => {
-  it("detects CMake", () => {
-    const dir = makeProject("cmake1", { "CMakeLists.txt": "" });
-    const p = detectProfile(dir);
-    expect(p.build).toBe("cmake --build build");
-    expect(p.test).toBe("ctest --test-dir build");
+// ── Elixir ──────────────────────────────────────────────────
+
+describe("Elixir project (mix.exs)", () => {
+  it("detects mix toolchain", () => {
+    const cwd = makeProject("elixir", {
+      "mix.exs": 'defmodule MyApp.MixProject do\n  use Mix.Project\nend',
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("mix test");
+    expect(p.lint).toBe("mix credo");
+    expect(p.format).toBe("mix format");
+  });
+});
+
+// ── Ruby ────────────────────────────────────────────────────
+
+describe("Ruby project (Gemfile)", () => {
+  it("detects Rails with rspec", () => {
+    const cwd = makeProject("ruby-rails", {
+      "Gemfile": "source 'https://rubygems.org'\ngem 'rails'",
+      "config.ru": "require_relative 'config/environment'",
+      "spec/.keep": "",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("bundle exec rspec");
+    expect(p.lint).toBe("bundle exec rubocop");
+    expect(p.format).toContain("rubocop");
+    expect(p.run).toContain("rails server");
+  });
+});
+
+// ── Swift ───────────────────────────────────────────────────
+
+describe("Swift project (Package.swift)", () => {
+  it("detects swift with swiftformat", () => {
+    const cwd = makeProject("swift", {
+      "Package.swift": "// swift-tools-version:5.9\nimport PackageDescription",
+      ".swiftformat": "",
+      ".swiftlint.yml": "",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("swift test");
+    expect(p.build).toBe("swift build");
+    expect(p.lint).toBe("swiftlint");
+    expect(p.format).toBe("swiftformat");
   });
 
-  it("detects CMake with clang-tidy", () => {
-    const dir = makeProject("cmake2", { "CMakeLists.txt": "", ".clang-tidy": "" });
-    const p = detectProfile(dir);
+  it("no formatter without .swiftformat config", () => {
+    const cwd = makeProject("swift-noformat", {
+      "Package.swift": "// swift-tools-version:5.9",
+    });
+    const p = detectProfile(cwd);
+    expect(p.format).toBeNull();
+  });
+});
+
+// ── Java/Kotlin: Gradle ─────────────────────────────────────
+
+describe("Gradle project", () => {
+  it("detects gradle with spotless", () => {
+    const cwd = makeProject("gradle-spotless", {
+      "gradlew": "#!/bin/sh",
+      "build.gradle.kts": 'plugins {\n  id("com.diffplug.spotless")\n}',
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("./gradlew test");
+    expect(p.lint).toBe("./gradlew spotlessCheck");
+    expect(p.format).toBeNull(); // spotless doesn't support single-file
+  });
+
+  it("detects gradle with ktlint", () => {
+    const cwd = makeProject("gradle-ktlint", {
+      "gradlew": "#!/bin/sh",
+      "build.gradle.kts": 'plugins {\n  id("org.jlleitschuh.gradle.ktlint")\n}',
+    });
+    const p = detectProfile(cwd);
+    expect(p.lint).toBe("./gradlew ktlintCheck");
+  });
+
+  it("falls back to gradle check without linter plugin", () => {
+    const cwd = makeProject("gradle-plain", {
+      "build.gradle": "apply plugin: 'java'",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("gradle test");
+    expect(p.lint).toBe("gradle check");
+  });
+});
+
+// ── Java: Maven ─────────────────────────────────────────────
+
+describe("Maven project (pom.xml)", () => {
+  it("detects maven with wrapper", () => {
+    const cwd = makeProject("maven", {
+      "mvnw": "#!/bin/sh",
+      "pom.xml": "<project></project>",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("./mvnw test");
+    expect(p.build).toBe("./mvnw package");
+  });
+});
+
+// ── C/C++ ───────────────────────────────────────────────────
+
+describe("CMake project", () => {
+  it("detects cmake with clang-tidy", () => {
+    const cwd = makeProject("cmake", {
+      "CMakeLists.txt": "cmake_minimum_required(VERSION 3.20)",
+      ".clang-tidy": "Checks: '-*,clang-analyzer-*'",
+    });
+    const p = detectProfile(cwd);
+    expect(p.build).toBe("cmake --build build");
     expect(p.lint).toBe("clang-tidy");
   });
+});
 
-  it("detects Makefile", () => {
-    const dir = makeProject("make1", { "Makefile": "" });
-    const p = detectProfile(dir);
+describe("Makefile project", () => {
+  it("detects make", () => {
+    const cwd = makeProject("make", {
+      "Makefile": "all:\n\tgcc main.c",
+    });
+    const p = detectProfile(cwd);
     expect(p.build).toBe("make");
     expect(p.test).toBe("make test");
   });
+});
 
-  it("detects Zig", () => {
-    const dir = makeProject("zig1", { "build.zig": "" });
-    const p = detectProfile(dir);
+// ── Zig ─────────────────────────────────────────────────────
+
+describe("Zig project", () => {
+  it("detects zig toolchain", () => {
+    const cwd = makeProject("zig", {
+      "build.zig": "const std = @import(\"std\");",
+    });
+    const p = detectProfile(cwd);
     expect(p.test).toBe("zig build test");
     expect(p.build).toBe("zig build");
-  });
-
-  it("detects Elixir", () => {
-    const dir = makeProject("elixir1", { "mix.exs": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("mix test");
-    expect(p.lint).toBe("mix credo");
-  });
-
-  it("detects Ruby", () => {
-    const dir = makeProject("ruby1", { "Gemfile": "" });
-    const p = detectProfile(dir);
-    expect(p.lint).toBe("bundle exec rubocop");
-  });
-
-  it("detects Ruby with rspec", () => {
-    const dir = makeProject("ruby2", { "Gemfile": "" });
-    mkdirSync(join(dir, "spec"), { recursive: true });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("bundle exec rspec");
-  });
-
-  it("detects Maven", () => {
-    const dir = makeProject("maven1", { "pom.xml": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("mvn test");
-    expect(p.build).toBe("mvn package");
-  });
-
-  it("detects Maven with wrapper", () => {
-    const dir = makeProject("maven2", { "mvnw": "", "pom.xml": "" });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("./mvnw test");
+    expect(p.format).toBe("zig fmt");
   });
 });
 
-describe("detectProfile — edge cases", () => {
+// ── .NET ────────────────────────────────────────────────────
+
+describe(".NET project", () => {
+  it("detects dotnet with csproj", () => {
+    const cwd = makeProject("dotnet", {
+      "MyApp.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+    });
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("dotnet test");
+    expect(p.build).toBe("dotnet build");
+    expect(p.run).toBe("dotnet run");
+  });
+});
+
+// ── Edge Cases ──────────────────────────────────────────────
+
+describe("edge cases", () => {
   it("returns all nulls for empty directory", () => {
-    const dir = makeProject("empty", {});
-    const p = detectProfile(dir);
+    const cwd = makeProject("empty", {});
+    const p = detectProfile(cwd);
     expect(p.test).toBeNull();
     expect(p.build).toBeNull();
     expect(p.lint).toBeNull();
     expect(p.typecheck).toBeNull();
     expect(p.run).toBeNull();
-      expect(p.format).toBeNull();
-    });
+    expect(p.format).toBeNull();
+  });
 
   it("bun takes priority over npm when both exist", () => {
-    const dir = makeProject("priority1", {
+    const cwd = makeProject("bun-over-npm", {
       "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: { test: "vitest" } }),
+      "package.json": JSON.stringify({}),
     });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("vitest");
+    const p = detectProfile(cwd);
+    expect(p.test).toBe("bun test"); // bun default, not npm
   });
 
-  it("handles malformed package.json", () => {
-    const dir = makeProject("bad-pkg", {
-      "package.json": "not json",
+  it("Cargo.toml takes priority over Makefile", () => {
+    const cwd = makeProject("rust-with-makefile", {
+      "Cargo.toml": '[package]\nname = "app"',
+      "Makefile": "all:\n\tcargo build",
     });
-    // package.json exists but can't be parsed — falls through to npm detection with empty scripts
-    const p = detectProfile(dir);
+    const p = detectProfile(cwd);
+    expect(p.build).toBe("cargo build"); // Cargo, not make
+  });
+
+  it("handles nonexistent directory gracefully", () => {
+    const p = detectProfile("/tmp/nonexistent-soulforge-test-dir-xyz");
     expect(p.test).toBeNull();
-  });
-
-  it("deno takes priority over npm", () => {
-    const dir = makeProject("deno1", {
-      "deno.json": "{}",
-      "package.json": JSON.stringify({ scripts: { test: "jest" } }),
-    });
-    const p = detectProfile(dir);
-    expect(p.test).toBe("deno test");
-  });
-});
-
-describe("detectProfile — format detection", () => {
-  it("detects biome formatter for bun project", () => {
-    const dir = makeProject("fmt-bun-biome", {
-      "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: {} }),
-      "biome.json": "{}",
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("biome format --write");
-  });
-
-  it("detects prettier formatter for bun project", () => {
-    const dir = makeProject("fmt-bun-prettier", {
-      "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: {} }),
-      ".prettierrc": "{}",
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("prettier --write");
-  });
-
-  it("prefers scripts.format over auto-detection for bun", () => {
-    const dir = makeProject("fmt-bun-script", {
-      "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: { format: "biome format --write ." } }),
-      ".prettierrc": "{}",
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("bun run format");
-  });
-
-  it("detects deno fmt", () => {
-    const dir = makeProject("fmt-deno", { "deno.json": "{}" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("deno fmt");
-  });
-
-  it("detects npm project with prettier", () => {
-    const dir = makeProject("fmt-npm-prettier", {
-      "package.json": JSON.stringify({ scripts: { test: "jest" } }),
-      ".prettierrc.json": "{}",
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("prettier --write");
-  });
-
-  it("detects npm project with dprint", () => {
-    const dir = makeProject("fmt-npm-dprint", {
-      "package.json": JSON.stringify({ scripts: { test: "jest" } }),
-      "dprint.json": "{}",
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("dprint fmt");
-  });
-
-  it("prefers scripts.format over auto-detection for npm", () => {
-    const dir = makeProject("fmt-npm-script", {
-      "package.json": JSON.stringify({ scripts: { test: "jest", format: "prettier --write ." } }),
-      "biome.json": "{}",
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("npm run format");
-  });
-
-  it("detects rustfmt for Rust", () => {
-    const dir = makeProject("fmt-rust", { "Cargo.toml": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("rustfmt");
-  });
-
-  it("detects gofmt for Go", () => {
-    const dir = makeProject("fmt-go", { "go.mod": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("gofmt -w");
-  });
-
-  it("detects ruff format for Python with ruff", () => {
-    const dir = makeProject("fmt-py-ruff", { "pyproject.toml": "", "ruff.toml": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("ruff format");
-  });
-
-  it("detects black for Python without ruff", () => {
-    const dir = makeProject("fmt-py-black", { "pyproject.toml": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("black");
-  });
-
-  it("detects uv run ruff format for Python with uv + ruff", () => {
-    const dir = makeProject("fmt-py-uv-ruff", { "pyproject.toml": "", "uv.lock": "", "ruff.toml": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("uv run ruff format");
-  });
-
-  it("detects dart format for Flutter", () => {
-    const dir = makeProject("fmt-flutter", { "pubspec.yaml": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("dart format");
-  });
-
-  it("detects mix format for Elixir", () => {
-    const dir = makeProject("fmt-elixir", { "mix.exs": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("mix format");
-  });
-
-  it("detects rubocop format for Ruby", () => {
-    const dir = makeProject("fmt-ruby", { "Gemfile": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("bundle exec rubocop -a --fail-level error");
-  });
-
-  it("detects swiftformat for Swift", () => {
-    const dir = makeProject("fmt-swift", { "Package.swift": "", ".swiftformat": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("swiftformat");
-  });
-
-  it("no format for Swift without swiftformat config", () => {
-    const dir = makeProject("fmt-swift-none", { "Package.swift": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBeNull();
-  });
-
-  it("detects zig fmt", () => {
-    const dir = makeProject("fmt-zig", { "build.zig": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBe("zig fmt");
-  });
-
-  it("no format for Gradle (spotless not supported per-file)", () => {
-    const dir = makeProject("fmt-gradle", { "build.gradle.kts": "" });
-    const p = detectProfile(dir);
-    expect(p.format).toBeNull();
-  });
-
-  it("no JS formatter when no config file exists", () => {
-    const dir = makeProject("fmt-js-none", {
-      "bun.lock": "",
-      "package.json": JSON.stringify({ scripts: {} }),
-    });
-    const p = detectProfile(dir);
-    expect(p.format).toBeNull();
   });
 });

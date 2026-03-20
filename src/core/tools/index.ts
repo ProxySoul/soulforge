@@ -1103,10 +1103,7 @@ export function buildSubagentCodeTools(opts?: {
       execute: deferExecute(async (args) => {
         const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
         const result = await editFileTool.execute(args);
-        if (warning && typeof result === "string") {
-          return prependWarning(result, warning);
-        }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 
@@ -1127,10 +1124,7 @@ export function buildSubagentCodeTools(opts?: {
       execute: deferExecute(async (args) => {
         const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
         const result = await multiEditTool.execute(args);
-        if (warning && typeof result === "string") {
-          return prependWarning(result, warning);
-        }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 

@@ -1,5 +1,6 @@
 import type { ModelMessage } from "@ai-sdk/provider-utils";
 import type { PrepareStepFunction, StopCondition } from "ai";
+import { stepCountIs } from "ai";
 import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
 import { renderTaskList } from "../tools/task-list.js";
 import type { AgentBus } from "./agent-bus.js";
@@ -26,6 +27,17 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 const MAX_SUBAGENT_CONTEXT = 200_000;
 
 const KEEP_RECENT_MESSAGES = 4;
+
+// Step-count limits — hard caps to prevent runaway loops.
+const EXPLORE_MAX_STEPS = 20;
+const CODE_MAX_STEPS = 12;
+// Step at which we inject a "wrap up" nudge (before hard stop)
+const STEP_NUDGE_EXPLORE = 14;
+const STEP_NUDGE_CODE = 7;
+// Consecutive read operations before injecting a "stop reading, start editing" hint
+const CONSECUTIVE_READ_LIMIT = 3;
+
+const READ_TOOL_NAMES = new Set(["read_file", "read_code", "navigate", "soul_find", "list_dir"]);
 
 const SUMMARIZABLE_TOOLS = new Set([
   "read_file",
@@ -372,14 +384,14 @@ interface PrepareStepResult {
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
   prepareStep: PrepareStepFunction<any>;
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant
-  tokenStop: StopCondition<any>;
+  stopConditions: StopCondition<any>[];
 }
 
 export function buildPrepareStep({
   bus,
   agentId,
   parentToolCallId,
-  role: _role,
+  role,
   allTools: _allTools,
   symbolLookup: _symbolLookup,
   contextWindow: ctxWindow,
@@ -389,6 +401,9 @@ export function buildPrepareStep({
   const nudgeThreshold = Math.floor(cw * OUTPUT_NUDGE_PCT);
   const hardStop = Math.floor(cw * HARD_STOP_PCT);
   let nudgeFired = false;
+  const isExplore = role === "explore" || role === "investigate";
+  const stepNudgeAt = isExplore ? STEP_NUDGE_EXPLORE : STEP_NUDGE_CODE;
+  const maxSteps = isExplore ? EXPLORE_MAX_STEPS : CODE_MAX_STEPS;
 
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
   const prepareStep: PrepareStepFunction<any> = ({ stepNumber, steps, messages }) => {
@@ -471,6 +486,40 @@ export function buildPrepareStep({
       result.system = `${result.system ?? ""}\n\n${taskBlock}`.trim();
     }
 
+    // Consecutive read detection: count trailing read-only tool calls
+    if (stepNumber >= CONSECUTIVE_READ_LIMIT && !nudgeFired) {
+      let consecutiveReads = 0;
+      for (let i = steps.length - 1; i >= 0; i--) {
+        const step = steps[i];
+        const calls = step?.toolCalls;
+        if (!calls || calls.length === 0) break;
+        const allReads = calls.every((tc: { toolName: string }) =>
+          READ_TOOL_NAMES.has(tc.toolName),
+        );
+        if (allReads) consecutiveReads++;
+        else break;
+      }
+      if (consecutiveReads >= CONSECUTIVE_READ_LIMIT) {
+        const existing = result.system ?? "";
+        const hint = isExplore
+          ? "Act on what you have: produce your structured output, or use a search tool (soul_grep, grep) if you need something specific."
+          : "You have the file contents. Apply your edits with multi_edit NOW.";
+        result.system =
+          `${existing}\n\n${String(consecutiveReads)} consecutive reads without action. ${hint}`.trim();
+      }
+    }
+
+    // Step-count nudge: approaching hard step limit, tell agent to wrap up
+    if (stepNumber >= stepNudgeAt && !nudgeFired) {
+      const remaining = maxSteps - stepNumber;
+      const existing = result.system ?? "";
+      const hint = isExplore
+        ? "Produce your structured output now with all findings gathered so far."
+        : "Apply your edits NOW with multi_edit and produce your structured output. No more reading.";
+      result.system =
+        `${existing}\n\n⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. ${hint}`.trim();
+    }
+
     // Nudge structured output before tokenStop fires.
     // prepareStep runs BEFORE each step — removing tools forces a text-only
     // response, so the agent stops with finishReason:'stop' and Output.object()
@@ -516,7 +565,7 @@ export function buildPrepareStep({
     return ctx >= hardStop;
   };
 
-  return { prepareStep, tokenStop };
+  return { prepareStep, stopConditions: [tokenStop, stepCountIs(maxSteps)] };
 }
 
 export function buildSymbolLookup(repoMap?: {

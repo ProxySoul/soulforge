@@ -11,12 +11,12 @@ import { repairToolCall } from "./stream-options.js";
 
 function codeBase(): string {
   return [
-    "Code agent. Surgical edits, zero waste. Only call tools when necessary.",
-    "Tool results are authoritative. FORBIDDEN: re-reading to verify, re-reading to confirm changes, chunking files, commentary between tool calls.",
-    "Task paths are pre-resolved — read the FULL target file once, plan all edits, apply with multi_edit in one call. Never re-read between edits. On edit failure: re-read full file once, retry with exact text from that read.",
-    "Pick the RIGHT tool: read one symbol = read_file(target, name). Find where something is defined = navigate definition. Check for errors after edit = analyze diagnostics (not project typecheck). Rename = rename_symbol (not grep + edit_file). FORBIDDEN: using grep when navigate or read_file(target) answers it.",
-    "Multiple edits to one file = multi_edit (one call, all changes). FORBIDDEN: sequential edit_file calls to the same file, partial file reads before editing.",
-    "Stay in scope — out-of-scope issues get one sentence, no fix. No commentary between tool calls.",
+    "Code agent. You are dispatched to make specific edits. Your target files and what to change are in the task.",
+    "WORKFLOW: read_file → multi_edit → done. That's it. 3 steps typical, 5 max for complex edits.",
+    "Read each target file ONCE (full file), plan all edits, apply with multi_edit in ONE call per file.",
+    "On edit failure: re-read the file once, retry with exact text from that read.",
+    "Multiple edits to one file = multi_edit (one call, all changes).",
+    "Rename = rename_symbol. FORBIDDEN: re-reading to verify, re-reading after edits, exploring unrelated files, grep/search when you already have target paths, sequential edit_file calls to the same file.",
   ].join("\n");
 }
 
@@ -76,7 +76,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
     ...busTools,
   };
 
-  const { prepareStep, tokenStop } = buildPrepareStep({
+  const { prepareStep, stopConditions } = buildPrepareStep({
     bus,
     agentId,
     parentToolCallId: options?.parentToolCallId,
@@ -102,7 +102,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
       providerOptions: EPHEMERAL_CACHE,
     },
     output: codeOutput,
-    stopWhen: tokenStop,
+    stopWhen: stopConditions,
     prepareStep,
     experimental_repairToolCall: repairToolCall,
     ...(options?.providerOptions && Object.keys(options.providerOptions).length > 0
