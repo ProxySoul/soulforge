@@ -13,6 +13,7 @@ interface GrepArgs {
 }
 
 const ENRICHMENT_TIMEOUT_MS = 2000;
+const MAX_SEARCH_OUTPUT_BYTES = 32_000;
 
 export const grepTool = {
   name: "grep",
@@ -26,6 +27,9 @@ export const grepTool = {
       "--line-number",
       "--color=never",
       "--max-filesize=256K",
+      "--max-columns=1000",
+      "--glob=!*.js.map",
+      "--glob=!*.css.map",
       `--max-count=${String(args.maxCount ?? 50)}`,
       ...(glob ? ["--glob", glob] : []),
       pattern,
@@ -40,10 +44,22 @@ export const grepTool = {
       });
 
       const chunks: string[] = [];
-      proc.stdout.on("data", (data: Buffer) => chunks.push(data.toString()));
+      let totalBytes = 0;
+      proc.stdout.on("data", (data: Buffer) => {
+        totalBytes += data.length;
+        if (totalBytes <= MAX_SEARCH_OUTPUT_BYTES) {
+          chunks.push(data.toString());
+        }
+      });
 
       proc.on("close", (code: number | null) => {
-        const output = chunks.join("");
+        let output = chunks.join("");
+        if (totalBytes > MAX_SEARCH_OUTPUT_BYTES) {
+          output = output.slice(0, MAX_SEARCH_OUTPUT_BYTES);
+          const lastNl = output.lastIndexOf("\n");
+          if (lastNl > 0) output = output.slice(0, lastNl);
+          output += `\n[truncated — ${String(Math.round((totalBytes - MAX_SEARCH_OUTPUT_BYTES) / 1024))}KB omitted. Use glob or path to narrow.]`;
+        }
         if (code === 0 || code === 1) {
           res(output || "No matches found.");
         } else {

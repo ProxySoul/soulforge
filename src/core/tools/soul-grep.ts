@@ -7,6 +7,7 @@ import { getVendoredPath } from "../setup/install.js";
 import { enrichWithSymbolContext } from "./grep.js";
 
 const ENRICHMENT_TIMEOUT_MS = 2000;
+const MAX_SEARCH_OUTPUT_BYTES = 32_000;
 
 const DEP_DIRS = [
   "node_modules",
@@ -58,7 +59,13 @@ export const soulGrepTool = {
       }
 
       const rgBin = getVendoredPath("rg") ?? "rg";
-      const rgArgs: string[] = ["--color=never", "--max-filesize=256K"];
+      const rgArgs: string[] = [
+        "--color=never",
+        "--max-filesize=256K",
+        "--max-columns=1000",
+        "--glob=!*.js.map",
+        "--glob=!*.css.map",
+      ];
 
       if (dep) rgArgs.push("--no-ignore");
       if (wordBoundary) rgArgs.push("--word-regexp");
@@ -182,10 +189,22 @@ async function runSearch(bin: string, args: string[]): Promise<ToolResult> {
   const rawOutput = await new Promise<string>((resolve) => {
     const proc = spawn(bin, args, { cwd: process.cwd(), timeout: 10_000 });
     const chunks: string[] = [];
-    proc.stdout.on("data", (d: Buffer) => chunks.push(d.toString()));
+    let totalBytes = 0;
+    proc.stdout.on("data", (d: Buffer) => {
+      totalBytes += d.length;
+      if (totalBytes <= MAX_SEARCH_OUTPUT_BYTES) {
+        chunks.push(d.toString());
+      }
+    });
 
     proc.on("close", (code: number | null) => {
-      const output = chunks.join("");
+      let output = chunks.join("");
+      if (totalBytes > MAX_SEARCH_OUTPUT_BYTES) {
+        output = output.slice(0, MAX_SEARCH_OUTPUT_BYTES);
+        const lastNl = output.lastIndexOf("\n");
+        if (lastNl > 0) output = output.slice(0, lastNl);
+        output += `\n[truncated — ${String(Math.round((totalBytes - MAX_SEARCH_OUTPUT_BYTES) / 1024))}KB omitted. Use glob or path to narrow.]`;
+      }
       if (code === 0 || code === 1) {
         resolve(output || "No matches found.");
       } else {
