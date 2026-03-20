@@ -77,9 +77,23 @@ const NOISE_RE =
 const MAX_STACK_FRAMES = 5;
 const MAX_PASS_LINES = 3;
 
+export interface CompressResult {
+  text: string;
+  /** The original uncompressed text, only set when compression removed significant content. */
+  original: string | null;
+}
+
 export function compressShellOutput(raw: string): string {
+  return compress(raw).text;
+}
+
+export function compressShellOutputFull(raw: string): CompressResult {
+  return compress(raw);
+}
+
+function compress(raw: string): CompressResult {
   const lines = raw.split("\n");
-  if (lines.length < 20) return raw;
+  if (lines.length < 20) return { text: raw, original: null };
 
   const out: string[] = [];
   let stackFrames = 0;
@@ -147,7 +161,9 @@ export function compressShellOutput(raw: string): string {
   const collapsed = collapseRepeated(out);
 
   // Only compress if we actually saved something meaningful (>10% reduction)
-  if (lines.length - collapsed.length < lines.length * 0.1) return raw;
+  if (lines.length - collapsed.length < lines.length * 0.1) {
+    return { text: raw, original: null };
+  }
 
-  return collapsed.join("\n");
+  return { text: collapsed.join("\n"), original: raw };
 }

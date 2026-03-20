@@ -29,7 +29,7 @@ function pruneOldFiles(): void {
   } catch {}
 }
 
-function saveTee(label: string, content: string): string {
+export function saveTee(label: string, content: string): string {
   ensureDir();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const safeName = label.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);

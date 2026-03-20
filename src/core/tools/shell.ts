@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import type { ToolResult } from "../../types";
 import { isForbidden } from "../security/forbidden.js";
-import { compressShellOutput } from "./shell-compress.js";
-import { truncateWithTee } from "./tee.js";
+import { compressShellOutputFull } from "./shell-compress.js";
+import { saveTee, truncateWithTee } from "./tee.js";
 
 const DEFAULT_TIMEOUT = 30_000;
 
@@ -304,8 +304,14 @@ export const shellTool = {
       proc.stderr.on("data", (data: Buffer) => errChunks.push(data.toString()));
 
       proc.on("close", (code: number | null) => {
-        let stdout = compressShellOutput(chunks.join(""));
+        const compressed = compressShellOutputFull(chunks.join(""));
+        let stdout = compressed.text;
         const stderr = errChunks.join("");
+
+        if (compressed.original) {
+          const teeFile = saveTee("shell-full", compressed.original);
+          stdout += `\n[full output: ${teeFile}]`;
+        }
 
         if (stdout.length > MAX_OUTPUT_BYTES) {
           const { text } = truncateWithTee(stdout, MAX_OUTPUT_BYTES, 4000, 10000, "shell");

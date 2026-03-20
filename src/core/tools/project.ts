@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "../../types/index.js";
-import { compressShellOutput } from "./shell-compress.js";
-import { truncateWithTee } from "./tee.js";
+import { compressShellOutputFull } from "./shell-compress.js";
+import { saveTee, truncateWithTee } from "./tee.js";
 
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
@@ -729,7 +729,14 @@ export const projectTool = {
         };
       }
 
-      const output = compressShellOutput([stdout, stderr].filter(Boolean).join("\n").trim());
+      const compressed = compressShellOutputFull(
+        [stdout, stderr].filter(Boolean).join("\n").trim(),
+      );
+      let output = compressed.text;
+      if (compressed.original) {
+        const teeFile = saveTee(`project-${args.action}`, compressed.original);
+        output += `\n[full output: ${teeFile}]`;
+      }
       const MAX_OUTPUT = 10_000;
       const { text: truncated } = truncateWithTee(output, MAX_OUTPUT, 3000, 5000, args.action);
 
