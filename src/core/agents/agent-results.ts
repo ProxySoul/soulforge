@@ -33,8 +33,9 @@ type AgentResult = {
 const DONE_RESULT_CAP = 8000;
 const PER_FILE_CONTENT_CAP = 2000;
 const PER_FINDING_DISPLAY_CAP = 500;
+const MAX_FINDINGS_DISPLAY = 5;
 const TEXT_TRUNCATION_CAP = 6000;
-const SYNTHESIS_BUDGET = 8000;
+const SYNTHESIS_BUDGET = 4000;
 const SUMMARY_MAX_LEN = 500;
 const BUDGET_OVERHEAD = 50;
 const MIN_CONTENT_LEN = 20;
@@ -248,9 +249,11 @@ export function formatDoneResult(done: DoneToolResult): string {
     parts.push(`\nFiles examined: ${done.filesExamined.join(", ")}`);
   }
   if (done.keyFindings && done.keyFindings.length > 0) {
+    const shown = done.keyFindings.slice(0, MAX_FINDINGS_DISPLAY);
+    const omitted = done.keyFindings.length - shown.length;
     parts.push(
       "\nKey findings:",
-      ...done.keyFindings.map((f) => {
+      ...shown.map((f) => {
         const loc = f.lineNumbers ? `:${f.lineNumbers}` : "";
         const detail =
           f.detail.length > PER_FINDING_DISPLAY_CAP
@@ -259,6 +262,13 @@ export function formatDoneResult(done: DoneToolResult): string {
         return `  ${f.file}${loc}: ${detail}`;
       }),
     );
+    if (omitted > 0) {
+      const files = done.keyFindings
+        .slice(MAX_FINDINGS_DISPLAY)
+        .map((f) => f.file)
+        .join(", ");
+      parts.push(`  ... ${String(omitted)} more findings in: ${files}`);
+    }
   }
   if (done.gaps && done.gaps.length > 0) {
     parts.push("\nGaps:", ...done.gaps.map((g) => `  - ${g}`));
