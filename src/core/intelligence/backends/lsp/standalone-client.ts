@@ -1,5 +1,3 @@
-// ─── Standalone LSP Client (JSON-RPC over stdio) ───
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { logBackgroundError } from "../../../../stores/errors.js";
@@ -564,8 +562,6 @@ export class StandaloneLspClient {
     this.pending.clear();
   }
 }
-
-// ─── Helpers ───
 
 function isResponse(msg: JsonRpcMessage): msg is JsonRpcResponse {
   return "id" in msg && ("result" in msg || "error" in msg);

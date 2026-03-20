@@ -10,7 +10,7 @@ export function safeParseArgs(raw: string | undefined): Record<string, unknown> 
   }
 }
 
-export const PATH_ARG_KEYS = new Set([
+const PATH_ARG_KEYS = new Set([
   "file",
   "path",
   "filePath",

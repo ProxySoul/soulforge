@@ -6,7 +6,7 @@ import { SessionManager } from "../sessions/manager.js";
 import type { CommandContext, CommandHandler } from "./types.js";
 import { computeStorageSizes, fileSize, formatBytes, sysMsg } from "./utils.js";
 
-export function openStorageMenu(ctx: CommandContext): void {
+function openStorageMenu(ctx: CommandContext): void {
   const show = () => {
     const s = computeStorageSizes(ctx.cwd);
     const sm = new SessionManager(ctx.cwd);

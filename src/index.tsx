@@ -67,8 +67,6 @@ export function cleanupAndExit(code = 0): void {
   process.exit(code);
 }
 
-// ─── Soft restart ───
-
 let triggerRestart: (() => void) | null = null;
 
 export function restart(): void {
@@ -87,8 +85,6 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   cleanupAndExit(143);
 });
-
-// ─── Restart splash (React component) ───
 
 const RESTART_STEPS = [
   "Quenching active flames…",
@@ -184,8 +180,6 @@ function RestartSplash({ onComplete }: { onComplete: () => void }) {
     </box>
   );
 }
-
-// ─── Root wrapper (manages soft restart via key swap) ───
 
 interface StartOptions {
   App: typeof AppComponent;

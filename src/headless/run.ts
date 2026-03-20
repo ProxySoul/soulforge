@@ -20,8 +20,6 @@ import {
 } from "./output.js";
 import type { HeadlessChatOptions, HeadlessRunOptions } from "./types.js";
 
-// ─── Shared setup ───
-
 interface AgentEnv {
   cwd: string;
   modelId: string;
@@ -128,8 +126,6 @@ async function setupAgent(
     headers: providerOpts.headers,
   };
 }
-
-// ─── Stream one turn ───
 
 interface TurnResult {
   output: string;
@@ -245,8 +241,6 @@ async function streamTurn(
   return { output, steps, tokens, toolCalls, filesEdited: [...filesEdited], error, exitCode };
 }
 
-// ─── Save session helper ───
-
 function saveSession(
   env: AgentEnv,
   chatMessages: ChatMessage[],
@@ -289,8 +283,6 @@ function saveSession(
   if (isEvents) writeEvent({ type: "session-saved", sessionId });
   return sessionId;
 }
-
-// ─── Single-shot prompt ───
 
 export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Promise<void> {
   const startTime = Date.now();
@@ -461,8 +453,6 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
   process.exit(exitCode);
 }
 
-// ─── Interactive chat loop ───
-
 /**
  * Read a prompt from stdin. Single newline submits.
  * Trailing backslash (\) continues to the next line (multiline support).
@@ -567,8 +557,6 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   let turns = 0;
   let aborted = false;
   const turnAbort = new AbortController();
-
-  // ── Cleanup: save session + print resume hint + dispose ──
 
   function cleanupAndExit(code: number): void {
     let savedId: string | undefined;

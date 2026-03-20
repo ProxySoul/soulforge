@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 import type { RepoMap } from "../intelligence/repo-map.js";
 
-export interface InterceptResult {
+interface InterceptResult {
   intercepted: true;
   success: true;
   output: string;

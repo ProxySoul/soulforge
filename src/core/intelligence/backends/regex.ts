@@ -14,8 +14,6 @@ import {
   type SymbolKind,
 } from "../types.js";
 
-// ─── Language-specific regex patterns ───
-
 interface LanguagePatterns {
   function: RegExp;
   class: RegExp;
@@ -86,8 +84,6 @@ function getPatternsForLanguage(language: Language): LanguagePatterns | null {
   }
 }
 
-// ─── Scope extraction via brace/indent counting ───
-
 function extractBraceScope(lines: string[], startIdx: number): { endIdx: number } {
   let depth = 0;
   let foundOpen = false;
@@ -136,8 +132,6 @@ function extractScope(lines: string[], startIdx: number, language: Language): { 
   }
   return extractBraceScope(lines, startIdx);
 }
-
-// ─── Backend implementation ───
 
 /**
  * Regex-based fallback backend (Tier 4).

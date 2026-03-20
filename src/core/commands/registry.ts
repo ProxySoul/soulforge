@@ -71,7 +71,7 @@ export async function handleCommand(input: string, ctx: CommandContext): Promise
 }
 
 /** Command definitions for autocomplete — single source of truth */
-export interface CommandDef {
+interface CommandDef {
   cmd: string;
   ic: string;
   desc: string;

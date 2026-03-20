@@ -54,8 +54,8 @@ export const PLAN_EXECUTION_TOOL_NAMES: string[] = [
   "soul_impact",
 ];
 
-export const SUBAGENT_MAX_LINES = 750;
-export const SUBAGENT_MAX_OUTPUT_BYTES = 8192;
+const SUBAGENT_MAX_LINES = 750;
+const SUBAGENT_MAX_OUTPUT_BYTES = 8192;
 
 export function truncateLines(output: string): string {
   const lines = output.split("\n");

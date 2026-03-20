@@ -9,7 +9,6 @@ import { basename, join, resolve } from "node:path";
  * Built-in defaults always apply and cannot be removed.
  */
 
-// ─── Built-in patterns that always apply ───
 const BUILTIN_PATTERNS = [
   ".env",
   ".env.*",
@@ -40,12 +39,11 @@ const BUILTIN_PATTERNS = [
   ".htpasswd",
 ];
 
-export interface ForbiddenConfig {
+interface ForbiddenConfig {
   /** Glob-like patterns to block (e.g. ".env", "*.pem", "secrets/**") */
   patterns: string[];
 }
 
-// ─── Module-level state ───
 let globalPatterns: string[] = [];
 let projectPatterns: string[] = [];
 const sessionPatternsMap = new Map<string, string[]>();

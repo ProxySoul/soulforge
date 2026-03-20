@@ -13,7 +13,7 @@ interface NewDiagnostic {
   fixes: string[];
 }
 
-export interface PostEditResult {
+interface PostEditResult {
   newErrors: NewDiagnostic[];
   newWarnings: NewDiagnostic[];
   resolved: number;

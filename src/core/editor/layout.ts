@@ -14,7 +14,7 @@ const HINTS_ROWS = 2;
 // TabBar when visible: marginTop(1) + bar(1) = 2 rows
 const TAB_BAR_ROWS = 2;
 
-export function getEditorFixedRows(showHints: boolean): number {
+function getEditorFixedRows(showHints: boolean): number {
   return showHints ? BASE_FIXED_ROWS + HINTS_ROWS : BASE_FIXED_ROWS;
 }
 

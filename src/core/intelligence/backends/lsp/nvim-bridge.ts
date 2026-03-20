@@ -1,18 +1,13 @@
-// ─── Neovim LSP Bridge ───
-//
-// Bridges to Neovim's built-in LSP via executeLua().
-// Works on any file (not just buffer 0) by loading hidden buffers.
-
 import { getNvimInstance } from "../../../editor/instance.js";
 import type {
-  LspCallHierarchyItem,
-  LspCodeAction,
-  LspDiagnostic,
-  LspHover,
-  LspLocation,
-  LspTextEdit,
-  LspTypeHierarchyItem,
-  LspWorkspaceEdit,
+    LspCallHierarchyItem,
+    LspCodeAction,
+    LspDiagnostic,
+    LspHover,
+    LspLocation,
+    LspTextEdit,
+    LspTypeHierarchyItem,
+    LspWorkspaceEdit,
 } from "./protocol.js";
 
 type NvimApi = ReturnType<typeof getNvimInstance> & {
@@ -570,8 +565,6 @@ export async function organizeImports(filePath: string): Promise<LspCodeAction[]
   if (result === "__NO_LSP__" || result === null) return null;
   return safeParseJson<LspCodeAction[]>(result, []);
 }
-
-// ─── Helpers ───
 
 function safeParseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string") return fallback;

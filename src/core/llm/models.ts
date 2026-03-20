@@ -6,8 +6,6 @@ import type { ProviderModelInfo } from "./providers/types.js";
 // Re-export for backward compatibility
 export type { ProviderModelInfo } from "./providers/types.js";
 
-// ─── Types ───
-
 export interface FetchModelsResult {
   models: ProviderModelInfo[];
   error?: string;
@@ -31,16 +29,12 @@ export interface ProviderConfig {
   grouped?: boolean;
 }
 
-// ─── Provider Configs (derived from registry) ───
-
 export const PROVIDER_CONFIGS: ProviderConfig[] = getAllProviders().map((p) => ({
   id: p.id,
   name: p.name,
   envVar: p.envVar,
   grouped: p.grouped,
 }));
-
-// ─── Context Windows ───
 
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 
@@ -94,8 +88,6 @@ export function getModelContextInfo(modelId: string): ContextWindowResult {
   }
   return { tokens: DEFAULT_CONTEXT_TOKENS, source: "fallback" };
 }
-
-// ─── OpenRouter Metadata ───
 
 interface OpenRouterModel {
   id: string;
@@ -197,8 +189,6 @@ export function getShortModelLabel(modelId: string): string {
   return clean.length > 24 ? `${clean.slice(0, 21)}...` : clean;
 }
 
-// ─── Cache ───
-
 const MODEL_CACHE_TTL = 30 * 60_000;
 const modelCache = new Map<string, { models: ProviderModelInfo[]; ts: number }>();
 
@@ -217,8 +207,6 @@ function getCached(cache: Map<string, { result?: unknown; models?: unknown; ts: 
 export function getCachedModels(providerId: string): ProviderModelInfo[] | null {
   return getCached(modelCache, providerId);
 }
-
-// ─── Public API ───
 
 export async function fetchProviderModels(providerId: string): Promise<FetchModelsResult> {
   // Check cache first
@@ -240,8 +228,6 @@ export async function fetchProviderModels(providerId: string): Promise<FetchMode
     return { models: provider.fallbackModels, error: `API error: ${msg}` };
   }
 }
-
-// ─── Grouped Models (Vercel Gateway, Proxy, etc.) ───
 
 interface OpenAIModelEntry {
   id: string;

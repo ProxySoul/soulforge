@@ -107,8 +107,6 @@ export function tokenize(source: string): string[] {
   return tokens;
 }
 
-// ─── MinHash (Phase 2) ───
-
 const NUM_HASHES = 128;
 const SHINGLE_K = 3;
 
@@ -138,8 +136,6 @@ export function jaccardSimilarity(a: Uint32Array, b: Uint32Array): number {
   }
   return matches / NUM_HASHES;
 }
-
-// ─── Fragment Detection (Phase 3) ───
 
 const FRAGMENT_WINDOW = 12;
 const MIN_FRAGMENT_TOKENS = FRAGMENT_WINDOW + 4;

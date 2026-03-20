@@ -1,5 +1,3 @@
-// ─── Code Intelligence Types ───
-
 /** Languages with dedicated backend support */
 export type Language =
   | "typescript"
@@ -36,7 +34,6 @@ export type Language =
   | "elisp"
   | "unknown";
 
-// ─── Canonical Extension → Language Map ───
 // Single source of truth — all backends import from here.
 
 export const EXT_TO_LANGUAGE: Record<string, Language> = {
@@ -301,8 +298,6 @@ export interface UnusedItem {
   line: number;
 }
 
-// ─── Backend Interface ───
-
 /**
  * All methods are optional — backends implement what they can.
  * The router calls the highest-tier backend that supports each operation.
@@ -320,7 +315,6 @@ export interface IntelligenceBackend {
   /** Check if this backend supports a given language */
   supportsLanguage(language: Language): boolean;
 
-  // ─── Navigation ───
   findDefinition?(
     file: string,
     symbol: string,
@@ -340,7 +334,6 @@ export interface IntelligenceBackend {
   findImports?(file: string): Promise<ImportInfo[] | null>;
   findExports?(file: string): Promise<ExportInfo[] | null>;
 
-  // ─── Analysis ───
   getDiagnostics?(file: string): Promise<Diagnostic[] | null>;
   getTypeInfo?(
     file: string,
@@ -350,12 +343,10 @@ export interface IntelligenceBackend {
   ): Promise<TypeInfo | null>;
   getFileOutline?(file: string): Promise<FileOutline | null>;
 
-  // ─── Reading ───
   readSymbol?(file: string, symbolName: string, symbolKind?: SymbolKind): Promise<CodeBlock | null>;
 
   readScope?(file: string, startLine: number, endLine?: number): Promise<CodeBlock | null>;
 
-  // ─── Refactoring ───
   rename?(
     file: string,
     symbol: string,
@@ -378,7 +369,6 @@ export interface IntelligenceBackend {
     variableName: string,
   ): Promise<RefactorResult | null>;
 
-  // ─── LSP Fundamentals ───
   getCodeActions?(
     file: string,
     startLine: number,
@@ -396,7 +386,6 @@ export interface IntelligenceBackend {
 
   fixAll?(file: string): Promise<RefactorResult | null>;
 
-  // ─── Advanced Intelligence ───
   getCallHierarchy?(
     file: string,
     symbol: string,
@@ -404,7 +393,6 @@ export interface IntelligenceBackend {
     column?: number,
   ): Promise<CallHierarchyResult | null>;
 
-  // ─── Power Features ───
   findImplementation?(
     file: string,
     symbol: string,
@@ -421,15 +409,12 @@ export interface IntelligenceBackend {
 
   findUnused?(file: string): Promise<UnusedItem[] | null>;
 
-  // ─── File Operations ───
   getFileRenameEdits?(
     files: Array<{ oldPath: string; newPath: string }>,
   ): Promise<RefactorResult | null>;
 
   notifyFilesRenamed?(files: Array<{ oldPath: string; newPath: string }>): void;
 }
-
-// ─── Config ───
 
 export type BackendPreference = "auto" | "ts-morph" | "lsp" | "tree-sitter" | "regex";
 

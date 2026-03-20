@@ -1,4 +1,3 @@
-// ─── LSP Backend (Tier 2) ───
 //
 // Semantic intelligence via LSP:
 // - When Neovim is running → bridges to Neovim's LSP (nvim-bridge)
@@ -117,9 +116,7 @@ export class LspBackend implements IntelligenceBackend {
             f.endsWith(".rs"),
         );
         if (source) return join(dir, source);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
     return null;
   }
@@ -128,18 +125,19 @@ export class LspBackend implements IntelligenceBackend {
     return SUPPORTED_LANGUAGES.has(language);
   }
 
-
-  async findDefinition(
+  private async lspPositionRequest(
     file: string,
     symbol: string,
-    line?: number,
-    column?: number,
+    line: number | undefined,
+    column: number | undefined,
+    nvimMethod: "findDefinition" | "findReferences" | "findImplementation",
+    clientMethod: "textDocumentDefinition" | "textDocumentReferences" | "textDocumentImplementation",
   ): Promise<SourceLocation[] | null> {
     const pos = this.resolvePosition(file, symbol, line, column);
     if (!pos) return null;
 
     if (nvimBridge.isNvimAvailable()) {
-      const locations = await nvimBridge.findDefinition(file, pos.line, pos.col);
+      const locations = await nvimBridge[nvimMethod](file, pos.line, pos.col);
       if (locations && locations.length > 0) return locations.map(lspLocationToSourceLocation);
       return null;
     }
@@ -147,12 +145,19 @@ export class LspBackend implements IntelligenceBackend {
     const client = await this.getStandaloneClient(file);
     if (!client) return null;
     try {
-      const locations = await client.textDocumentDefinition(file, pos.line, pos.col);
+      const locations = await client[clientMethod](file, pos.line, pos.col);
       if (locations.length > 0) return locations.map(lspLocationToSourceLocation);
-    } catch {
-      /* fall through */
-    }
+    } catch {}
     return null;
+  }
+
+  async findDefinition(
+    file: string,
+    symbol: string,
+    line?: number,
+    column?: number,
+  ): Promise<SourceLocation[] | null> {
+    return this.lspPositionRequest(file, symbol, line, column, "findDefinition", "textDocumentDefinition");
   }
 
   async findReferences(
@@ -161,24 +166,7 @@ export class LspBackend implements IntelligenceBackend {
     line?: number,
     column?: number,
   ): Promise<SourceLocation[] | null> {
-    const pos = this.resolvePosition(file, symbol, line, column);
-    if (!pos) return null;
-
-    if (nvimBridge.isNvimAvailable()) {
-      const locations = await nvimBridge.findReferences(file, pos.line, pos.col);
-      if (locations && locations.length > 0) return locations.map(lspLocationToSourceLocation);
-      return null;
-    }
-
-    const client = await this.getStandaloneClient(file);
-    if (!client) return null;
-    try {
-      const locations = await client.textDocumentReferences(file, pos.line, pos.col);
-      if (locations.length > 0) return locations.map(lspLocationToSourceLocation);
-    } catch {
-      /* fall through */
-    }
-    return null;
+    return this.lspPositionRequest(file, symbol, line, column, "findReferences", "textDocumentReferences");
   }
 
   async findSymbols(file: string, query?: string): Promise<SymbolInfo[] | null> {
@@ -193,9 +181,7 @@ export class LspBackend implements IntelligenceBackend {
     try {
       const raw = await client.textDocumentDocumentSymbol(file);
       if (raw.length > 0) return flattenDocumentSymbols(raw, file, query);
-    } catch {
-      /* fall through */
-    }
+    } catch {}
     return null;
   }
 
@@ -662,9 +648,7 @@ export class LspBackend implements IntelligenceBackend {
               source: d.source,
             });
           }
-        } catch {
-          /* skip this server */
-        }
+        } catch {}
       }),
     );
 
@@ -689,9 +673,7 @@ export class LspBackend implements IntelligenceBackend {
       if (!client) return null;
       try {
         hover = await client.textDocumentHover(file, pos.line, pos.col);
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
 
     if (!hover) return null;
@@ -737,9 +719,7 @@ export class LspBackend implements IntelligenceBackend {
           isPreferred: a.isPreferred,
         }));
       }
-    } catch {
-      /* fall through */
-    }
+    } catch {}
     return null;
   }
 
@@ -771,9 +751,7 @@ export class LspBackend implements IntelligenceBackend {
             containerName: s.containerName,
           }));
         }
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
     return null;
   }
@@ -789,9 +767,7 @@ export class LspBackend implements IntelligenceBackend {
       if (!client) return null;
       try {
         edits = await client.textDocumentFormatting(file);
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
 
     if (!edits || edits.length === 0) return null;
@@ -808,9 +784,7 @@ export class LspBackend implements IntelligenceBackend {
       if (!client) return null;
       try {
         edits = await client.textDocumentRangeFormatting(file, startLine - 1, 0, endLine - 1, 0);
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
 
     if (!edits || edits.length === 0) return null;
@@ -840,9 +814,7 @@ export class LspBackend implements IntelligenceBackend {
       if (first?.edit) {
         return workspaceEditToRefactorResult(first.edit, "imports", "organized");
       }
-    } catch {
-      /* fall through */
-    }
+    } catch {}
     return null;
   }
 
@@ -873,9 +845,7 @@ export class LspBackend implements IntelligenceBackend {
         client.callHierarchyOutgoingCalls(item),
       ]);
       return lspCallHierarchyToResult({ item, incoming, outgoing });
-    } catch {
-      /* fall through */
-    }
+    } catch {}
     return null;
   }
 
@@ -886,24 +856,7 @@ export class LspBackend implements IntelligenceBackend {
     line?: number,
     column?: number,
   ): Promise<SourceLocation[] | null> {
-    const pos = this.resolvePosition(file, symbol, line, column);
-    if (!pos) return null;
-
-    if (nvimBridge.isNvimAvailable()) {
-      const locations = await nvimBridge.findImplementation(file, pos.line, pos.col);
-      if (locations && locations.length > 0) return locations.map(lspLocationToSourceLocation);
-      return null;
-    }
-
-    const client = await this.getStandaloneClient(file);
-    if (!client) return null;
-    try {
-      const locations = await client.textDocumentImplementation(file, pos.line, pos.col);
-      if (locations.length > 0) return locations.map(lspLocationToSourceLocation);
-    } catch {
-      /* fall through */
-    }
-    return null;
+    return this.lspPositionRequest(file, symbol, line, column, "findImplementation", "textDocumentImplementation");
   }
 
 
@@ -933,9 +886,7 @@ export class LspBackend implements IntelligenceBackend {
         client.typeHierarchySubtypes(item),
       ]);
       return lspTypeHierarchyToResult({ item, supertypes, subtypes });
-    } catch {
-      /* fall through */
-    }
+    } catch {}
     return null;
   }
 
@@ -962,9 +913,7 @@ export class LspBackend implements IntelligenceBackend {
         // from tsconfig before we request a cross-file rename.
         await client.getDiagnostics(file);
         edit = await client.textDocumentRename(file, pos.line, pos.col, newName);
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
 
     if (!edit) return null;
@@ -1088,9 +1037,7 @@ export class LspBackend implements IntelligenceBackend {
           return { line: i, col: match.index };
         }
       }
-    } catch {
-      /* file not readable */
-    }
+    } catch {}
 
     return null;
   }
@@ -1146,7 +1093,6 @@ export class LspBackend implements IntelligenceBackend {
   }
 }
 
-// ─── Helpers ───
 
 function detectLanguage(file: string): Language | null {
   const lang = detectLanguageFromPath(file);

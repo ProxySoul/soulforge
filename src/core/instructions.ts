@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export interface InstructionSource {
+interface InstructionSource {
   id: string;
   label: string;
   files: string[];
@@ -71,7 +71,7 @@ export const INSTRUCTION_SOURCES: InstructionSource[] = [
   },
 ];
 
-export interface LoadedInstruction {
+interface LoadedInstruction {
   source: string;
   file: string;
   content: string;

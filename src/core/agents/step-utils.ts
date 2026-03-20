@@ -5,7 +5,7 @@ import { renderTaskList } from "../tools/task-list.js";
 import type { AgentBus } from "./agent-bus.js";
 import { emitSubagentStep } from "./subagent-events.js";
 
-export type SymbolLookup = (
+type SymbolLookup = (
   absPath: string,
 ) => Array<{ name: string; kind: string; isExported: boolean }>;
 
@@ -186,8 +186,6 @@ function formatSymbolHint(symbols: Array<{ name: string; kind: string }>): strin
   const display = names.length > 8 ? [...names.slice(0, 8), `+${String(names.length - 8)}`] : names;
   return `exports: ${display.join(", ")}`;
 }
-
-// ─── Semantic pruning: runs on ALL messages regardless of age (step 1+) ───
 
 function semanticPrune(messages: ModelMessage[], pathMap?: Map<string, string>): ModelMessage[] {
   // Build a map of file path → index of FIRST edit for that file
@@ -371,7 +369,7 @@ function compactOldToolResults(
   }) as ModelMessage[];
 }
 
-export interface PrepareStepResult {
+interface PrepareStepResult {
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
   prepareStep: PrepareStepFunction<any>;
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant

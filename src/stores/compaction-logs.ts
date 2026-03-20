@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 
-export type CompactionEventKind = "compact" | "strategy-change" | "auto-trigger" | "error";
+type CompactionEventKind = "compact" | "strategy-change" | "auto-trigger" | "error";
 
-export interface CompactionLogEntry {
+interface CompactionLogEntry {
   id: string;
   kind: CompactionEventKind;
   message: string;

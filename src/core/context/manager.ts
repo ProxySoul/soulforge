@@ -86,8 +86,6 @@ function buildDispatchGuidance(hasRepoMap: boolean): string[] {
   return [...DISPATCH_GUIDANCE_BASE, "", ...DISPATCH_GUIDANCE_WITH_MAP];
 }
 
-export { buildDispatchGuidance, buildToolGuidance };
-
 export interface SharedContextResources {
   repoMap: RepoMap;
   memoryManager: MemoryManager;
@@ -750,8 +748,6 @@ export class ContextManager {
         ]
       : ["Files:", this.getFileTree(3)];
 
-    // ── STATIC sections first (stable prefix → maximizes cache hits) ──
-
     const parts = [
       "You are Forge — SoulForge's core. You don't assist, you build. You don't suggest, you act. Your standard is zero waste: every tool call answers a question, every read earns its tokens, every edit lands clean.",
       "The Soul Map is your foundation — check it before any tool call. If the Soul Map answers your question, act without tools. Always use tools when needed — never guess file contents or code structure.",
@@ -794,8 +790,6 @@ export class ContextManager {
     if (forbiddenCtx) {
       parts.push("", forbiddenCtx);
     }
-
-    // ── DYNAMIC sections last (change per turn → after cache breakpoint) ──
 
     parts.push("", ...codebaseSection);
 

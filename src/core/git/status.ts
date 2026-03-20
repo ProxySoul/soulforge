@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 const encoder = new TextEncoder();
 
-export interface GitStatus {
+interface GitStatus {
   isRepo: boolean;
   branch: string | null;
   isDirty: boolean;
@@ -14,7 +14,7 @@ export interface GitStatus {
   behind: number;
 }
 
-export interface GitLogEntry {
+interface GitLogEntry {
   hash: string;
   subject: string;
   date: string;
@@ -213,7 +213,6 @@ export async function gitInit(cwd: string): Promise<boolean> {
   return ok;
 }
 
-// ─── Co-Author ───
 const CO_AUTHOR_LINE = "Co-Authored-By: SoulForge <soulforge@proxysoul.com>";
 let _coAuthorEnabled = true;
 

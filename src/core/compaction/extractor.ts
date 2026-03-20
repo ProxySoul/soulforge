@@ -7,8 +7,6 @@ import type { WorkingStateManager } from "./working-state.js";
  * (before pruning truncates it), which is v2's structural advantage.
  */
 
-// ─── Tool Call Extraction (deterministic) ───
-
 const READ_TOOLS = new Set([
   "read_file",
   "read_code",
@@ -126,8 +124,6 @@ export function extractFromToolResult(
   }
 }
 
-// ─── Message-level Extraction (deterministic) ───
-
 export function extractFromUserMessage(wsm: WorkingStateManager, message: ModelMessage): void {
   const text = messageText(message);
   if (!text) return;
@@ -176,8 +172,6 @@ export function extractFromAssistantMessage(wsm: WorkingStateManager, message: M
     wsm.addAssistantNote(truncate(kept.join(" "), budget));
   }
 }
-
-// ─── Helpers ───
 
 function isSubstantive(sentence: string): boolean {
   const filler = /^(ok|sure|let me|i'll now|here's|looking at|alright|got it|understood)/i;

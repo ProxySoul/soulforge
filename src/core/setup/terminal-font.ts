@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export interface TerminalInfo {
+interface TerminalInfo {
   id: string;
   name: string;
   /** Manual fallback instructions */
@@ -12,7 +12,7 @@ export interface TerminalInfo {
   canAutoSet: boolean;
 }
 
-export interface SetFontResult {
+interface SetFontResult {
   success: boolean;
   message: string;
   /** Config file that was modified, if any */
@@ -227,8 +227,6 @@ export function setTerminalFont(fontFamily: string, fontSize?: number): SetFontR
   }
 }
 
-// ─── Kitty ───
-
 function setKittyFont(family: string, size: number): SetFontResult {
   const confDir = join(homedir(), ".config", "kitty");
   const conf = join(confDir, "kitty.conf");
@@ -268,8 +266,6 @@ function setKittyFont(family: string, size: number): SetFontResult {
     configPath: conf,
   };
 }
-
-// ─── Alacritty ───
 
 function findAlacrittyConfig(): string | null {
   const paths = [
@@ -336,8 +332,6 @@ function setAlacrittyFont(family: string, size: number): SetFontResult {
   };
 }
 
-// ─── iTerm2 (macOS) ───
-
 function setITerm2Font(family: string, size: number): SetFontResult {
   try {
     const profileFont = `${family} ${String(size)}`;
@@ -359,8 +353,6 @@ function setITerm2Font(family: string, size: number): SetFontResult {
     };
   }
 }
-
-// ─── Terminal.app (macOS) ───
 
 function setTerminalAppFont(family: string, size: number): SetFontResult {
   try {
@@ -393,8 +385,6 @@ function setTerminalAppFont(family: string, size: number): SetFontResult {
   }
 }
 
-// ─── Ghostty ───
-
 function setGhosttyFont(family: string, size: number): SetFontResult {
   const confDir = join(homedir(), ".config", "ghostty");
   const conf = join(confDir, "config");
@@ -422,8 +412,6 @@ function setGhosttyFont(family: string, size: number): SetFontResult {
     configPath: conf,
   };
 }
-
-// ─── Foot (Wayland) ───
 
 function setFootFont(family: string, size: number): SetFontResult {
   const confDir = join(homedir(), ".config", "foot");
@@ -457,8 +445,6 @@ function setFootFont(family: string, size: number): SetFontResult {
     configPath: conf,
   };
 }
-
-// ─── GNOME Terminal (Ubuntu default) ───
 
 function setGnomeTerminalFont(family: string, size: number): SetFontResult {
   try {

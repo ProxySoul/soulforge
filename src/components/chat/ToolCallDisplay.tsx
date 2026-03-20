@@ -121,9 +121,7 @@ const StatusIcon = memo(function StatusIcon({
     try {
       const parsed = JSON.parse(result);
       if (parsed.success === false) return <span fg="#d9a020">!</span>;
-    } catch {
-      // not JSON — treat as success
-    }
+    } catch {}
   }
   return <span fg={COLORS.checkDone}>✓</span>;
 });
@@ -501,9 +499,7 @@ const ToolRow = memo(
           }));
           return { totalAgents: parsed.tasks.length as number, tasks };
         }
-      } catch {
-        // partial JSON during streaming
-      }
+      } catch {}
       return null;
     }, [tc.toolName, tc.args]);
     const isMultiAgent = multiAgentInfo !== null;
@@ -566,9 +562,7 @@ const ToolRow = memo(
             newString: parsed.newString as string,
           };
         }
-      } catch {
-        // partial or invalid JSON
-      }
+      } catch {}
       return null;
     }, [tc.toolName, tc.state, tc.args]);
 
@@ -615,9 +609,7 @@ const ToolRow = memo(
       try {
         const parsed = JSON.parse(tc.result);
         if (!parsed.success && parsed.error) return parsed.error as string;
-      } catch {
-        // ignore
-      }
+      } catch {}
       return undefined;
     }, [editDiff, tc.result]);
 
@@ -631,9 +623,7 @@ const ToolRow = memo(
           if (parsed.backend && typeof parsed.backend === "string") {
             return parsed.backend as string;
           }
-        } catch {
-          // not JSON
-        }
+        } catch {}
       }
       return tc.backend ?? null;
     }, [tc.result, tc.backend, isRepoMapHit]);
@@ -827,9 +817,7 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
                 </box>
               );
             }
-          } catch {
-            // Fall through to normal row
-          }
+          } catch {}
         }
         return <ToolRow key={tc.id} tc={tc} seconds={seconds} diffStyle={diffStyle} />;
       })}

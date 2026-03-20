@@ -629,8 +629,6 @@ export class TsMorphBackend implements IntelligenceBackend {
     };
   }
 
-  // ─── Implementation ───
-
   async findImplementation(
     file: string,
     symbol: string,
@@ -659,8 +657,6 @@ export class TsMorphBackend implements IntelligenceBackend {
       };
     });
   }
-
-  // ─── Type Hierarchy ───
 
   async getTypeHierarchy(
     file: string,
@@ -766,8 +762,6 @@ export class TsMorphBackend implements IntelligenceBackend {
     return { item, supertypes, subtypes };
   }
 
-  // ─── Unused Detection ───
-
   async findUnused(file: string): Promise<UnusedItem[] | null> {
     const sourceFile = await this.getSourceFile(file);
     if (!sourceFile) return null;
@@ -837,8 +831,6 @@ export class TsMorphBackend implements IntelligenceBackend {
 
     return unused.length > 0 ? unused : null;
   }
-
-  // ─── Private helpers ───
 
   private getProject(): Project | null {
     return this.project;

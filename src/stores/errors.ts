@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 
-export interface BackgroundError {
+interface BackgroundError {
   id: string;
   source: string;
   message: string;

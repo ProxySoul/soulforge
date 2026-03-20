@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 
 export type RepoMapStatus = "off" | "scanning" | "ready" | "error";
-export type SemanticStatus = "off" | "generating" | "ready" | "error";
+type SemanticStatus = "off" | "generating" | "ready" | "error";
 
 interface RepoMapState {
   status: RepoMapStatus;

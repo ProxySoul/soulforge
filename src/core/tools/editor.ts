@@ -157,13 +157,10 @@ async function checkCurrentBufferForbidden(
         return { success: false, output: msg, error: msg };
       }
     }
-  } catch {
-    // Could not determine buffer name — allow
-  }
+  } catch {}
   return null;
 }
 
-/** Safely parse JSON returned by executeLua. Handles nil, non-string, trailing whitespace, etc. */
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (raw == null || raw === "") return fallback;
   const str = typeof raw === "string" ? raw.trim() : String(raw).trim();
@@ -175,21 +172,36 @@ function safeJsonParse<T>(raw: unknown, fallback: T): T {
   }
 }
 
-/** Get nvim instance, waiting briefly if it's still launching.
- *  If nvim isn't running at all, requests the editor panel to open. */
+const NO_LSP = "__NO_LSP__" as const;
+
+function lspPreambleLua(line: number, col: number): string {
+  return `
+    local line, col = ${String(line)}, ${String(col)}
+    local clients = vim.lsp.get_clients({ bufnr = 0 })
+    if #clients == 0 then return '${NO_LSP}' end
+    if line > 0 then
+      vim.api.nvim_win_set_cursor(0, {line, col > 0 and col - 1 or 0})
+    end
+    local pos = vim.api.nvim_win_get_cursor(0)`;
+}
+
+function checkNoLsp(result: unknown): ToolResult | null {
+  if (result === NO_LSP) {
+    return { success: false, output: "LSP not active", error: "LSP not active" };
+  }
+  return null;
+}
+
 async function requireNvim(
   file?: string,
 ): Promise<import("../editor/neovim.js").NvimInstance | null> {
   const instant = getNvimInstance();
   if (instant) return instant;
-  // Editor might be opening — wait briefly
   const waited = await waitForNvim(2000);
   if (waited) return waited;
-  // Not running — request the panel to open and wait longer
   return requestEditor(file);
 }
 
-/** Shared nvim boilerplate: acquire instance → check forbidden buffer → execute → catch errors. */
 async function withNvim(
   file: string | undefined,
   fn: (nvim: NvimInstance) => Promise<ToolResult>,
@@ -205,7 +217,6 @@ async function withNvim(
   }
 }
 
-/** Like withNvim but skips the buffer forbidden check. For tools that don't read buffer content. */
 async function withNvimRaw(
   fn: (nvim: NvimInstance) => Promise<ToolResult>,
   file?: string,
@@ -216,6 +227,15 @@ async function withNvimRaw(
     return await fn(nvim);
   } catch (err: unknown) {
     return toolError(String(err));
+  }
+}
+
+async function switchToFile(nvim: NvimInstance, file?: string): Promise<void> {
+  if (!file) return;
+  const targetPath = resolve(file);
+  const currentBuf = await nvim.api.request("nvim_buf_get_name", [0]);
+  if (typeof currentBuf === "string" && resolve(currentBuf) !== targetPath) {
+    await nvim.api.executeLua("vim.cmd.edit(vim.fn.fnameescape(...))", [targetPath]);
   }
 }
 
@@ -231,13 +251,7 @@ export const editorReadTool = {
     "Read the live buffer from the embedded neovim editor, including unsaved changes. Optionally specify a line range (1-indexed). Requires the editor panel to be open.",
   execute: async (args: EditorReadArgs): Promise<ToolResult> =>
     withNvimRaw(async (nvim) => {
-      if (args.file) {
-        const targetPath = resolve(args.file);
-        const currentBuf = await nvim.api.request("nvim_buf_get_name", [0]);
-        if (typeof currentBuf === "string" && resolve(currentBuf) !== targetPath) {
-          await nvim.api.executeLua("vim.cmd.edit(vim.fn.fnameescape(...))", [targetPath]);
-        }
-      }
+      await switchToFile(nvim, args.file);
       const forbidden = await checkCurrentBufferForbidden(nvim);
       if (forbidden) return forbidden;
       const buffer = await nvim.api.buffer;
@@ -269,13 +283,7 @@ export const editorEditTool = {
     "Replace lines startLine through endLine (inclusive, 1-indexed) in the neovim buffer with the replacement text. The replacement ONLY contains the new content — do NOT include the original lines. Changes are instant and undoable. Requires the editor panel to be open. Prefer edit_file for writing changes to disk.",
   execute: async (args: EditorEditArgs): Promise<ToolResult> =>
     withNvimRaw(async (nvim) => {
-      if (args.file) {
-        const targetPath = resolve(args.file);
-        const currentBuf = await nvim.api.request("nvim_buf_get_name", [0]);
-        if (typeof currentBuf === "string" && resolve(currentBuf) !== targetPath) {
-          await nvim.api.executeLua("vim.cmd.edit(vim.fn.fnameescape(...))", [targetPath]);
-        }
-      }
+      await switchToFile(nvim, args.file);
       const forbidden = await checkCurrentBufferForbidden(nvim);
       if (forbidden) return forbidden;
       const buffer = await nvim.api.buffer;
@@ -400,7 +408,7 @@ export const editorSymbolsTool = {
     withNvim(undefined, async (nvim) => {
       const lua = `
         local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
+        if #clients == 0 then return '${NO_LSP}' end
         local params = { textDocument = vim.lsp.util.make_text_document_params(0) }
         local results = vim.lsp.buf_request_sync(0, 'textDocument/documentSymbol', params, 3000)
         if not results then return '[]' end
@@ -425,9 +433,8 @@ export const editorSymbolsTool = {
         return vim.json.encode(symbols)
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       const parsed: unknown[] = safeJsonParse(result, []);
       if (parsed.length === 0) {
         return { success: true, output: "No symbols found" };
@@ -453,14 +460,7 @@ export const editorReferencesTool = {
     withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
-      const lua = `
-        local line, col = ${String(line)}, ${String(col)}
-        local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
-        if line > 0 then
-          vim.api.nvim_win_set_cursor(0, {line, col > 0 and col - 1 or 0})
-        end
-        local pos = vim.api.nvim_win_get_cursor(0)
+      const lua = `${lspPreambleLua(line, col)}
         local params = {
           textDocument = vim.lsp.util.make_text_document_params(0),
           position = { line = pos[1] - 1, character = pos[2] },
@@ -483,9 +483,8 @@ export const editorReferencesTool = {
         return vim.json.encode(refs)
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       const parsed: unknown[] = safeJsonParse(result, []);
       if (parsed.length === 0) {
         return { success: true, output: "No references found" };
@@ -516,14 +515,7 @@ export const editorDefinitionTool = {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const shouldJump = args.jump !== false;
-      const lua = `
-        local line, col = ${String(line)}, ${String(col)}
-        local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
-        if line > 0 then
-          vim.api.nvim_win_set_cursor(0, {line, col > 0 and col - 1 or 0})
-        end
-        local pos = vim.api.nvim_win_get_cursor(0)
+      const lua = `${lspPreambleLua(line, col)}
         local params = {
           textDocument = vim.lsp.util.make_text_document_params(0),
           position = { line = pos[1] - 1, character = pos[2] },
@@ -552,9 +544,8 @@ export const editorDefinitionTool = {
         return vim.json.encode(defs)
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       const parsed: unknown[] = safeJsonParse(result, []);
       if (parsed.length === 0) {
         return { success: true, output: "No definition found" };
@@ -587,13 +578,8 @@ export const editorActionsTool = {
       const col = args.col ?? 0;
       const applyIdx = args.apply ?? -1;
       const lua = `
-        local line, col, apply_idx = ${String(line)}, ${String(col)}, ${String(applyIdx)}
-        local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
-        if line > 0 then
-          vim.api.nvim_win_set_cursor(0, {line, col > 0 and col - 1 or 0})
-        end
-        local pos = vim.api.nvim_win_get_cursor(0)
+        local apply_idx = ${String(applyIdx)}
+        ${lspPreambleLua(line, col)}
         local params = {
           textDocument = vim.lsp.util.make_text_document_params(0),
           range = {
@@ -635,9 +621,8 @@ export const editorActionsTool = {
         return vim.json.encode(out)
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       const parsed: unknown[] = safeJsonParse(result, []);
       if (parsed.length === 0) {
         return { success: true, output: "No code actions available" };
@@ -670,14 +655,7 @@ export const editorRenameTool = {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const newName = args.newName;
-      const lua = `
-        local line, col = ${String(line)}, ${String(col)}
-        local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
-        if line > 0 then
-          vim.api.nvim_win_set_cursor(0, {line, col > 0 and col - 1 or 0})
-        end
-        local pos = vim.api.nvim_win_get_cursor(0)
+      const lua = `${lspPreambleLua(line, col)}
         local params = vim.lsp.util.make_position_params(0)
         params.newName = select(1, ...)
         local results = vim.lsp.buf_request_sync(0, 'textDocument/rename', params, 5000)
@@ -702,9 +680,8 @@ export const editorRenameTool = {
         return tostring(changed)
       `;
       const result = await nvim.api.executeLua(lua, [newName]);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       if (result === "__FAIL__") {
         return {
           success: false,
@@ -727,7 +704,7 @@ export const editorLspStatusTool = {
     withNvim(undefined, async (nvim) => {
       const lua = `
         local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
+        if #clients == 0 then return '${NO_LSP}' end
         local result = {}
         for _, c in ipairs(clients) do
           local caps = {}
@@ -751,7 +728,7 @@ export const editorLspStatusTool = {
         return vim.json.encode(result)
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
+      if (result === NO_LSP) {
         return { success: true, output: "No LSP servers attached to current buffer" };
       }
       const parsed: unknown[] = safeJsonParse(result, []);
@@ -786,7 +763,7 @@ export const editorFormatTool = {
         : "nil";
       const lua = `
         local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
+        if #clients == 0 then return '${NO_LSP}' end
         local has_format = false
         for _, c in ipairs(clients) do
           if c.server_capabilities and c.server_capabilities.documentFormattingProvider then
@@ -800,9 +777,8 @@ export const editorFormatTool = {
         return 'ok'
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       if (result === "__NO_FORMAT__") {
         return {
           success: false,
@@ -830,14 +806,7 @@ export const editorHoverTool = {
     withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
-      const lua = `
-        local line, col = ${String(line)}, ${String(col)}
-        local clients = vim.lsp.get_clients({ bufnr = 0 })
-        if #clients == 0 then return '__NO_LSP__' end
-        if line > 0 then
-          vim.api.nvim_win_set_cursor(0, {line, col > 0 and col - 1 or 0})
-        end
-        local pos = vim.api.nvim_win_get_cursor(0)
+      const lua = `${lspPreambleLua(line, col)}
         local params = {
           textDocument = vim.lsp.util.make_text_document_params(0),
           position = { line = pos[1] - 1, character = pos[2] },
@@ -863,9 +832,8 @@ export const editorHoverTool = {
         return ''
       `;
       const result = await nvim.api.executeLua(lua, []);
-      if (result === "__NO_LSP__") {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
+      const noLsp = checkNoLsp(result);
+      if (noLsp) return noLsp;
       const text = typeof result === "string" ? result : "";
       if (!text) {
         return { success: true, output: "No hover information available" };
@@ -1190,3 +1158,4 @@ const editorTerminalOutputTool = {
       return { success: true, output: sections.join("\n\n") };
     }),
 };
+

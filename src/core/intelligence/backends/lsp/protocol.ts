@@ -1,7 +1,3 @@
-// ─── JSON-RPC Wire Format & LSP Types ───
-
-// ─── LSP Types (minimal subset) ───
-
 export interface LspPosition {
   line: number;
   character: number;
@@ -110,8 +106,6 @@ export interface LspTypeHierarchyItem {
   selectionRange: LspRange;
 }
 
-// ─── JSON-RPC Types ───
-
 interface JsonRpcRequest {
   jsonrpc: "2.0";
   id: number;
@@ -134,8 +128,6 @@ export interface JsonRpcResponse {
 
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse;
 
-// ─── Encoding ───
-
 export function encode(method: string, params: unknown, id?: number): Buffer {
   const msg: JsonRpcRequest | JsonRpcNotification =
     id !== undefined ? { jsonrpc: "2.0", id, method, params } : { jsonrpc: "2.0", method, params };
@@ -143,8 +135,6 @@ export function encode(method: string, params: unknown, id?: number): Buffer {
   const header = `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n`;
   return Buffer.concat([Buffer.from(header), Buffer.from(body)]);
 }
-
-// ─── Streaming Decoder ───
 
 export function decode(buffer: Buffer): { messages: JsonRpcMessage[]; remainder: Buffer } {
   const messages: JsonRpcMessage[] = [];
@@ -179,8 +169,6 @@ export function decode(buffer: Buffer): { messages: JsonRpcMessage[]; remainder:
   return { messages, remainder: buffer.subarray(offset) };
 }
 
-// ─── Symbol Kind Mapping ───
-
 import type { SymbolKind } from "../../types.js";
 
 const LSP_SYMBOL_KIND_MAP: Record<number, SymbolKind> = {
@@ -204,8 +192,6 @@ export function lspSymbolKindToSymbolKind(kind: number): SymbolKind {
   return LSP_SYMBOL_KIND_MAP[kind] ?? "unknown";
 }
 
-// ─── Severity Mapping ───
-
 const LSP_SEVERITY_MAP: Record<number, "error" | "warning" | "info" | "hint"> = {
   1: "error",
   2: "warning",
@@ -221,8 +207,6 @@ export function lspSeverityToSeverity(
   }
   return "info";
 }
-
-// ─── URI Helpers ───
 
 export function filePathToUri(path: string): string {
   // Encode path components but keep slashes

@@ -37,13 +37,9 @@ export class WorkingStateManager {
     this.state = this.createEmpty();
   }
 
-  // ─── Task ───
-
   setTask(task: string): void {
     this.state.task = task;
   }
-
-  // ─── Plan ───
 
   setPlan(
     steps: { id: string; label: string; status: "pending" | "active" | "done" | "skipped" }[],
@@ -56,8 +52,6 @@ export class WorkingStateManager {
     if (step) step.status = status;
   }
 
-  // ─── Files ───
-
   trackFile(path: string, action: FileAction): void {
     const existing = this.state.files.get(path);
     if (existing) {
@@ -67,8 +61,6 @@ export class WorkingStateManager {
     }
   }
 
-  // ─── User Requirements ───
-
   addUserRequirement(text: string): void {
     if (text.length < 5) return;
     this.state.userRequirements.push(text);
@@ -77,8 +69,6 @@ export class WorkingStateManager {
     }
   }
 
-  // ─── Assistant Notes ───
-
   addAssistantNote(text: string): void {
     if (text.length < 10) return;
     this.state.assistantNotes.push(text);
@@ -86,8 +76,6 @@ export class WorkingStateManager {
       this.state.assistantNotes.shift();
     }
   }
-
-  // ─── Decisions / Failures / Discoveries ───
 
   private static readonly MAX_LIST_SIZE = 25;
 
@@ -116,15 +104,11 @@ export class WorkingStateManager {
     }
   }
 
-  // ─── Environment ───
-
   addEnvironment(e: string): void {
     if (!this.state.environment.includes(e)) {
       this.state.environment.push(e);
     }
   }
-
-  // ─── Tool Results ───
 
   addToolResult(tool: string, summary: string): void {
     const maxResults = this.config.maxToolResults ?? 30;
@@ -148,8 +132,6 @@ export class WorkingStateManager {
       s.assistantNotes.length
     );
   }
-
-  // ─── Serialization ───
 
   serialize(): string {
     const s = this.state;

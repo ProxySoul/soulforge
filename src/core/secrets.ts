@@ -147,7 +147,7 @@ export function getSecret(key: SecretKey): string | null {
   return data[key] ?? null;
 }
 
-export interface SetSecretResult {
+interface SetSecretResult {
   success: boolean;
   storage: "keychain" | "file";
   path?: string;

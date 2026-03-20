@@ -75,7 +75,7 @@ export interface TokenUsage {
   subagentOutput: number;
 }
 
-export const ZERO_USAGE: TokenUsage = {
+const ZERO_USAGE: TokenUsage = {
   prompt: 0,
   completion: 0,
   total: 0,
@@ -670,7 +670,6 @@ export function useChat({
         let summary: string;
 
         if (isV2 && workingStateRef.current) {
-          // ─── V2: Incremental structured extraction ───
           // The working state was built incrementally during the conversation.
           // Inject plan context if active, then serialize + optional gap-fill.
           const wsm = workingStateRef.current;
@@ -694,7 +693,6 @@ export function useChat({
           });
           wsm.reset();
         } else {
-          // ─── V1: Full LLM batch summarization ───
           const formatMessage = (m: ModelMessage, charLimit: number) => {
             const role = m.role;
             if (typeof m.content === "string") {

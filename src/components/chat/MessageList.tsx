@@ -1,22 +1,22 @@
+import { TextAttributes } from "@opentui/core";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useMemo, useState } from "react";
 import { icon } from "../../core/icons.js";
 import {
-  CATEGORY_COLORS,
-  resolveToolDisplay,
-  TOOL_ICONS,
-  TOOL_LABELS,
-  type ToolCategory,
+    CATEGORY_COLORS,
+    resolveToolDisplay,
+    TOOL_ICONS,
+    TOOL_LABELS,
+    type ToolCategory,
 } from "../../core/tool-display.js";
 import { useUIStore } from "../../stores/ui.js";
 import type {
-  ChatMessage,
-  ChatStyle,
-  MessageSegment,
-  PlanOutput,
-  ToolCall,
+    ChatMessage,
+    ChatStyle,
+    MessageSegment,
+    PlanOutput,
+    ToolCall,
 } from "../../types/index.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
 import { DiffView } from "./DiffView.js";
@@ -204,9 +204,7 @@ function parseBackend(result?: { output: string }): string | null {
   try {
     const parsed = JSON.parse(result.output);
     if (parsed.backend && typeof parsed.backend === "string") return parsed.backend as string;
-  } catch {
-    // not JSON
-  }
+  } catch {}
   return null;
 }
 
@@ -480,7 +478,6 @@ function renderSegments(
   showReasoning = true,
   reasoningExpanded = false,
 ) {
-  // Precompute: find first tools index so we can check hasToolsBefore in O(1)
   let firstToolsIdx = -1;
   for (let k = 0; k < segments.length; k++) {
     if (segments[k]?.type === "tools") {

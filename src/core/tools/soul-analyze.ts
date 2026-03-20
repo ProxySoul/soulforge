@@ -218,7 +218,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
   const lines: string[] = [];
   let totalDeadLines = 0;
 
-  // ── Dead Files ──
   if (deadFiles.length > 0) {
     lines.push(`Dead files (${String(deadFiles.length)} — all exports unused, no dependents):\n`);
     for (const f of deadFiles) {
@@ -229,7 +228,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
     lines.push("");
   }
 
-  // ── Dead Barrels ──
   const barrelPaths = new Set(deadFiles.map((f) => f.file));
   const liveDeadBarrels = deadBarrels.filter(
     (b) => !barrelPaths.has(relative(cwd, `${cwd}/${b.path}`)),
@@ -245,7 +243,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
     lines.push("");
   }
 
-  // ── Export Groups ──
   if (exportGroups.length > 0) {
     lines.push(
       `Dead export clusters (${String(exportGroups.length)} files with 3+ dead exports):\n`,
@@ -259,7 +256,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
     lines.push("");
   }
 
-  // ── Test-Only ──
   if (testOnlyByFile.size > 0) {
     const testCount = [...testOnlyByFile.values()].reduce((n, a) => n + a.length, 0);
     lines.push(`Test-only exports (${String(testCount)} — only imported by test files):\n`);
@@ -270,7 +266,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
     lines.push("");
   }
 
-  // ── Scattered Dead ──
   if (scatteredDead.length > 0) {
     const count = scatteredDead.reduce((n, s) => n + s.symbols.length, 0);
     lines.push(`Scattered dead exports (${String(count)}):\n`);
@@ -281,7 +276,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
     lines.push("");
   }
 
-  // ── Scattered Unnecessary ──
   if (scatteredUnnecessary.length > 0) {
     const count = scatteredUnnecessary.reduce((n, s) => n + s.symbols.length, 0);
     lines.push(
@@ -294,7 +288,6 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
     lines.push("");
   }
 
-  // ── Summary ──
   const totalDead = filtered.filter((u) => !u.usedInternally).length;
   const totalUnnecessary = filtered.filter((u) => u.usedInternally).length;
   lines.push("───");

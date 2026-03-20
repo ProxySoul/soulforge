@@ -5,7 +5,7 @@ import { MemoryDB } from "./db.js";
 import { migrateOldMemory } from "./migrate.js";
 import type { MemoryCategory, MemoryRecord, MemoryScope, MemoryScopeConfig } from "./types.js";
 
-export type SettingsScope = "project" | "global";
+type SettingsScope = "project" | "global";
 
 const CONFIG_FILE = "memory-config.json";
 const DEFAULT_CONFIG: MemoryScopeConfig = { writeScope: "global", readScope: "all" };
@@ -61,9 +61,7 @@ export class MemoryManager {
           this._settingsScope = scope;
           return;
         }
-      } catch {
-        // ignore corrupt config
-      }
+      } catch {}
     }
   }
 

@@ -2,8 +2,6 @@
 
 globalThis.AI_SDK_LOG_WARNINGS = false;
 
-// ─── Headless mode (must run before any TUI imports) ───
-
 const cliArgs = process.argv.slice(2);
 const hasCli =
   cliArgs.includes("--headless") ||
@@ -37,8 +35,6 @@ if (isCompiledBinary) {
 import { BRAND_SEGMENTS, garble, WISP_FRAMES, WORDMARK } from "./core/utils/splash.js";
 import { logBackgroundError } from "./stores/errors.js";
 
-// ─── ANSI ───
-
 const RST = "\x1b[0m";
 const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
@@ -69,8 +65,6 @@ const GHOST = (() => {
   }
 })();
 
-// ─── Layout ───
-
 const LAYOUT_H = 14;
 const base = Math.max(1, Math.floor((rows - LAYOUT_H) / 2));
 
@@ -83,8 +77,6 @@ const ROW = {
   div: base + 10,
   status: base + 12,
 };
-
-// ─── Helpers ───
 
 const at = (r: number, c: number) => `\x1b[${r};${c}H`;
 
@@ -166,11 +158,7 @@ function stopSpinner(): void {
   spinnerProc.stdin.end();
 }
 
-// ─── Hide cursor, clear screen ───
-
 process.stdout.write("\x1b[?25l\x1b[2J\x1b[H");
-
-// ─── Kick off light module loading during animation ───
 
 const earlyModules = Promise.all([
   import("./config/index.js"),
@@ -179,14 +167,10 @@ const earlyModules = Promise.all([
   import("./core/setup/install.js"),
 ]);
 
-// ─── Phase 1: Ghost materializes ───
-
 for (const frame of ["░", "▒", "▓", GHOST]) {
   center(ROW.ghost, frame, PURPLE + BOLD);
   await sleep(50);
 }
-
-// ─── Phase 2: Wisp + animate ───
 
 center(ROW.wisp, WISP_FRAMES[0] ?? "", DIM + DIM_PURPLE);
 let wispTick = 0;
@@ -194,8 +178,6 @@ const wispTimer = setInterval(() => {
   wispTick++;
   center(ROW.wisp, WISP_FRAMES[wispTick % WISP_FRAMES.length] ?? "", DIM + DIM_PURPLE);
 }, 500);
-
-// ─── Phase 3: Wordmark glitch reveal ───
 
 const narrow = cols < 40;
 await sleep(100);
@@ -211,15 +193,11 @@ if (narrow) {
   }
 }
 
-// ─── Phase 4: Subtitle ───
-
 await sleep(60);
 center(
   ROW.sub,
   `${SUBTLE}── ${RST}${MUTED}${ITALIC}AI-Powered Terminal IDE${RST}${SUBTLE} ──${RST}`,
 );
-
-// ─── Phase 5: "by ProxySoul.com" typewriter ───
 
 await sleep(100);
 const brandParts = BRAND_SEGMENTS.map((s) => ({ text: s.text, color: rgb(s.color) }));
@@ -246,8 +224,6 @@ for (const p of brandParts) brandFinal += `${p.color}${p.text}`;
 brandFinal += `${RST}  `;
 process.stdout.write(brandFinal);
 
-// ─── Phase 6: Divider sweep from center ───
-
 await sleep(60);
 const divW = Math.min(40, cols - 10);
 for (let w = 2; w <= divW; w += 3) {
@@ -258,7 +234,6 @@ for (let w = 2; w <= divW; w += 3) {
 const divCol = Math.max(1, Math.floor((cols - divW) / 2) + 1);
 process.stdout.write(`${at(ROW.div, divCol)}${FAINT}${"─".repeat(divW)}${RST}`);
 
-// ─── Real loading ───
 // App.tsx pulls in the entire tool/hook/AI SDK module graph (~3s).
 // Kick it off here so the spinner (child process) shows progress.
 

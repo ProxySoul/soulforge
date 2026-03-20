@@ -1,18 +1,18 @@
+import { type Selection, TextAttributes } from "@opentui/core";
+import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Selection, TextAttributes } from "@opentui/core";
-import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  applyConfigPatch,
-  mergeConfigs,
-  removeGlobalConfigKeys,
-  removeProjectConfigKeys,
-  saveGlobalConfig,
-  saveProjectConfig,
-  stripConfigKeys,
+    applyConfigPatch,
+    mergeConfigs,
+    removeGlobalConfigKeys,
+    removeProjectConfigKeys,
+    saveGlobalConfig,
+    saveProjectConfig,
+    stripConfigKeys,
 } from "../config/index.js";
 import { handleCommand } from "../core/commands/registry.js";
 import { ContextManager } from "../core/context/manager.js";
@@ -220,7 +220,6 @@ export function App({
     [renderer],
   );
 
-  // Auto-copy to clipboard when mouse selection finishes
   useEffect(() => {
     const onSelection = (sel: Selection) => {
       const text = sel.getSelectedText();
@@ -232,12 +231,10 @@ export function App({
     };
   }, [renderer, copyToClipboard]);
 
-  // Pre-fetch OpenRouter model metadata (background, no auth needed)
   useEffect(() => {
     fetchOpenRouterMetadata();
   }, []);
 
-  // Tiered config: project > global
   const [globalConfig, setGlobalConfig] = useState<AppConfig>(config);
   const [projConfig, setProjConfig] = useState<Partial<AppConfig> | null>(projectConfig ?? null);
   const [routerScope, setRouterScope] = useState<ConfigScope>(() =>
@@ -255,7 +252,6 @@ export function App({
     [globalConfig, projConfig],
   );
 
-  // Editor state
   const { focusMode, editorOpen, toggleEditor, openEditor, closeEditor, focusChat, focusEditor } =
     useEditorFocus();
   const [editorVisible, setEditorVisible] = useState(false);
@@ -317,7 +313,6 @@ export function App({
     [editorOpen, nvimReady, nvimOpen, openEditor],
   );
 
-  // Register callback so editor tools can auto-open the panel
   useEffect(() => {
     setEditorRequestCallback((file) => {
       if (file) openEditorWithFile(file);
@@ -477,7 +472,6 @@ export function App({
     [cwd, git, contextManager],
   );
 
-  // ─── Tab management (no freeze/restore — each tab owns its own useChat) ───
   const tabMgr = useTabs();
   const tabMgrRef = useRef(tabMgr);
   tabMgrRef.current = tabMgr;
@@ -531,7 +525,6 @@ export function App({
     };
 
     schedule(() => {
-      // Abort all active tabs
       for (const tab of tabMgrRef.current.tabs) {
         tabMgrRef.current.getChat(tab.id)?.abort();
       }
@@ -585,7 +578,6 @@ export function App({
     }, 250);
   }, [cwd, sessionManager, contextManager, renderer]);
 
-  // ─── Session restore on mount ───
   const hasRestoredRef = useRef(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-time restore on mount
   useEffect(() => {
@@ -606,7 +598,6 @@ export function App({
     }
   }, []);
 
-  // Track exit session from active tab — only re-run when active tab changes
   const [activeModelForHeader, setActiveModelForHeader] = useState(effectiveConfig.defaultModel);
   const activeChatRef = useRef<ChatInstance | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: derived from activeTabId — stable trigger

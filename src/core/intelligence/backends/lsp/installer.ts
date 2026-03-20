@@ -1,4 +1,3 @@
-// ─── LSP Server Installer — Mason Registry ───
 //
 // Uses Mason's registry.json (576+ packages) as the package source.
 // Reads local cache if available, otherwise downloads from GitHub.
@@ -27,8 +26,6 @@ const MASON_REGISTRY_RELEASE_URL =
   "https://api.github.com/repos/mason-org/mason-registry/releases/latest";
 const REGISTRY_CACHE = join(homedir(), ".soulforge", "mason-registry.json");
 const MASON_BIN_DIR = join(homedir(), ".local", "share", "nvim", "mason", "bin");
-
-// ─── Types ───
 
 type InstallMethod = "npm" | "pypi" | "cargo" | "golang" | "github" | "unknown";
 export type PackageCategory = "LSP" | "Formatter" | "Linter" | "DAP" | "Runtime" | "Compiler";
@@ -62,8 +59,6 @@ export interface PackageStatus {
   toolchainAvailable: boolean;
   binaries: string[];
 }
-
-// ─── Purl Parsing ───
 
 interface ParsedPurl {
   type: string; // npm, pypi, github, cargo, golang, etc.
@@ -121,8 +116,6 @@ function getToolchainRequirement(method: InstallMethod): string | null {
       return null;
   }
 }
-
-// ─── Registry Loading ───
 
 let registryCache: MasonPackage[] | null = null;
 
@@ -196,8 +189,6 @@ export async function downloadRegistry(): Promise<MasonPackage[]> {
     throw new Error(`Failed to download Mason registry: ${msg}`);
   }
 }
-
-// ─── Package Status ───
 
 function getBinaries(pkg: MasonPackage): string[] {
   if (!pkg.bin) return [];
@@ -288,8 +279,6 @@ export function getAllPackageStatus(category?: PackageCategory): PackageStatus[]
     .map(checkPackageStatus);
 }
 
-// ─── Auto-detection ───
-
 /** File patterns that suggest which languages a project uses */
 const PROJECT_INDICATORS: Record<string, string[]> = {
   TypeScript: ["tsconfig.json", "*.ts", "*.tsx"],
@@ -359,8 +348,6 @@ export function getRecommendedPackages(cwd: string): PackageStatus[] {
     })
     .map(checkPackageStatus);
 }
-
-// ─── Installation ───
 
 /** Install a package to ~/.soulforge/lsp-servers/ */
 export async function installPackage(
@@ -512,8 +499,6 @@ export async function installPackage(
   }
 }
 
-// ─── Uninstallation ───
-
 /** Uninstall a package installed by SoulForge */
 export async function uninstallPackage(
   pkg: MasonPackage,
@@ -600,8 +585,6 @@ export async function uninstallPackage(
   }
 }
 
-// ─── GitHub Release Helpers ───
-
 function getMasonTarget(): string {
   const platform = process.platform === "darwin" ? "darwin" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : "x64";
@@ -640,8 +623,6 @@ function resolveAssetTemplate(template: string, version: string): string {
     .replace(/\{\{\s*version\s*\}\}/g, version)
     .replace(/\{\{\s*version\s*\|\s*strip_prefix\s*"v"\s*\}\}/g, version.replace(/^v/, ""));
 }
-
-// ─── Command Runner ───
 
 function runCommand(
   cmd: string,

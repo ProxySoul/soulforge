@@ -78,7 +78,7 @@ export interface SymbolForSummary {
   lineSpan?: number;
 }
 
-export type SummaryGenerator = (
+type SummaryGenerator = (
   batch: SymbolForSummary[],
 ) => Promise<Array<{ name: string; summary: string }>>;
 
@@ -2574,8 +2574,6 @@ export class RepoMap {
         .get(fileRow.id)?.c ?? 0
     );
   }
-
-  // ─── Token Signatures & Fragments (Phase 2 + 3) ───
 
   private extractTokenSignatures(
     fileId: number,

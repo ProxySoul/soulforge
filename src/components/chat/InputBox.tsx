@@ -363,7 +363,6 @@ export const InputBox = memo(function InputBox({
   }, [isFocused, renderer]);
 
   useKeyboard((evt) => {
-    // ── Autocomplete navigation ──
     if (hasMatches) {
       if (evt.name === "down") {
         setSelectedIdx((prev) => (prev + 1) % matches.length);
@@ -382,7 +381,6 @@ export const InputBox = memo(function InputBox({
       }
     }
 
-    // ── Ctrl+R: toggle fuzzy history search ──
     if (focused) {
       if (evt.ctrl && evt.name === "r") {
         setFuzzyMode((prev) => !prev);
@@ -392,7 +390,6 @@ export const InputBox = memo(function InputBox({
       }
     }
 
-    // ── Fuzzy mode key handling ──
     if (fuzzyMode) {
       if (evt.name === "escape") {
         setFuzzyMode(false);
@@ -438,7 +435,6 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    // ── Ctrl+C — clear input if non-empty, otherwise exit ──
     if (focused && evt.ctrl && evt.name === "c") {
       if (valueRef.current.length > 0) {
         resetInput();
@@ -449,7 +445,6 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    // ── Enter (without shift) — submit from useKeyboard so closure stays fresh ──
     // The textarea's onSubmit prop is NOT updated by the React reconciler (TextareaRenderable
     // isn't wired in setProperty), so we handle submit here instead.
     if (focused && evt.name === "return" && !evt.shift && !evt.ctrl && !evt.meta) {
@@ -458,7 +453,6 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    // ── Normal editing mode — textarea handles most keys natively ──
     if (!focused || hasMatches || fuzzyMode) return;
 
     // Up arrow — history: only when cursor is on the first visual row (works for both normal + history)
@@ -538,8 +532,6 @@ export const InputBox = memo(function InputBox({
       fuzzyScrollRef.current?.scrollTo(newOffset);
     }
   }, [fuzzyCursor, fuzzyMode, fuzzyResults.length, fuzzyMaxVisible]);
-
-  // ── Rendering ──
 
   // Max rows for the textarea before it scrolls internally
   const maxInputRows = Math.max(4, Math.floor(termRows * 0.4));

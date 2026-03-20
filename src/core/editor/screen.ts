@@ -1,4 +1,3 @@
-// ─── Neovim Screen State ───
 // Processes redraw events from nvim_ui_attach and produces
 // colored segments for rendering in Ink.
 

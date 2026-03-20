@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { findNvim } from "neovim";
 import { getVendoredPath } from "../setup/install.js";
 
-export interface DetectedNvim {
+interface DetectedNvim {
   path: string;
   version: string;
 }

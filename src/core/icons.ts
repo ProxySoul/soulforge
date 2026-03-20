@@ -215,7 +215,7 @@ export function initNerdFont(configValue?: boolean | null): void {
   }
 }
 
-export function hasNerdFont(): boolean {
+function hasNerdFont(): boolean {
   if (_nerdFont === null) {
     _nerdFont = false;
   }

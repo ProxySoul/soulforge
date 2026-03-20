@@ -1,5 +1,3 @@
-// ─── Public API ───
-
 export { createCodeAgent } from "./agents/code.js";
 export { createExploreAgent } from "./agents/explore.js";
 // Agents

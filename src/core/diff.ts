@@ -1,5 +1,3 @@
-// ─── Forge Diff — LCS diff algorithm + context collapsing ───
-
 export type DiffLineKind = "add" | "remove" | "context" | "collapsed";
 
 export interface DiffLine {
@@ -16,8 +14,6 @@ export interface DiffResult {
   removed: number;
   isCreation: boolean;
 }
-
-// ─── LCS DP ───
 
 function lcs(a: string[], b: string[]): DiffLine[] {
   const n = a.length;
@@ -80,8 +76,6 @@ function lcs(a: string[], b: string[]): DiffLine[] {
   return result;
 }
 
-// ─── Context Collapsing ───
-
 function collapseContext(lines: DiffLine[], keepFirst: number, keepLast: number): DiffLine[] {
   // Find runs of consecutive context lines and collapse middles
   const result: DiffLine[] = [];
@@ -122,8 +116,6 @@ function collapseContext(lines: DiffLine[], keepFirst: number, keepLast: number)
 
   return result;
 }
-
-// ─── Main ───
 
 export function computeDiff(oldString: string, newString: string, startLine = 1): DiffResult {
   const isCreation = oldString === "";
@@ -183,8 +175,6 @@ export function computeDiff(oldString: string, newString: string, startLine = 1)
 
   return { lines, added, removed, isCreation: false };
 }
-
-// ─── Language from path ───
 
 const EXT_MAP: Record<string, string> = {
   ".ts": "ts",

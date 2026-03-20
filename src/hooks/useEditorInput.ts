@@ -41,7 +41,6 @@ function translateRawToVim(data: Buffer): string | null {
   // Ctrl+S → save (VSCode habit): escape to normal, then :w
   if (data.length === 1 && data[0] === CTRL_S) return "<Esc>:w<CR>";
 
-  // ─── Single byte ───
   if (data.length === 1) {
     const b = data[0] as number;
 
@@ -63,7 +62,6 @@ function translateRawToVim(data: Buffer): string | null {
     return String.fromCharCode(b);
   }
 
-  // ─── Escape sequences (0x1B …) ───
   if (data[0] === 0x1b) {
     const seq = data.toString("latin1");
 
@@ -232,7 +230,6 @@ export function useEditorInput({
       const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
       const seq = buf.toString("latin1");
 
-      // ── Mouse event → route focus + forward to neovim ──
       const mouse = seq.match(MOUSE_SGR_RE);
       if (mouse) {
         const button = Number(mouse[1]);
@@ -270,7 +267,6 @@ export function useEditorInput({
       // Ctrl+Shift+E (CSI u) → bypass to Ink for focus switching
       if (seq === "\x1b[101;6u" || seq === "\x1b[69;6u") return;
 
-      // ── Keyboard → only process when editor focused ──
       if (!focusedRef.current) return;
 
       const vimKeys = translateRawToVim(buf);

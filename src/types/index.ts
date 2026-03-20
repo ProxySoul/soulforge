@@ -1,5 +1,3 @@
-// ─── LLM Types ───
-
 export interface RouterRule {
   /** glob pattern or keyword to match against the user message */
   match?: string;
@@ -25,8 +23,6 @@ export interface TaskRouter {
   default: string | null;
 }
 
-// ─── Tool Types ───
-
 export interface ToolResult {
   success: boolean;
   output: string;
@@ -36,8 +32,6 @@ export interface ToolResult {
   /** True when read_file returned only an outline (large file) — tracker should not cache this as a full read */
   outlineOnly?: boolean;
 }
-
-// ─── Plan / Interactive Types ───
 
 export type PlanStepStatus = "pending" | "active" | "done" | "skipped";
 
@@ -118,8 +112,6 @@ export interface QueuedMessage {
   queuedAt: number;
 }
 
-// ─── Chat / Session Types ───
-
 export type MessageSegment =
   | { type: "text"; content: string }
   | { type: "tools"; toolCallIds: string[] }
@@ -147,16 +139,12 @@ export interface ToolCall {
   result?: ToolResult;
 }
 
-// ─── Config Types ───
-
 export type NvimConfigMode = "default" | "user" | "none";
 
 export interface CodeIntelligenceConfig {
   backend?: "auto" | "ts-morph" | "tree-sitter" | "regex";
   language?: string;
 }
-
-// ─── AI Provider Config Types ───
 
 export type ThinkingMode = "off" | "adaptive" | "enabled" | "disabled" | "auto";
 
@@ -278,15 +266,9 @@ export interface AppConfig {
   instructionFiles?: string[];
 }
 
-// ─── Focus Types ───
-
 export type FocusMode = "chat" | "editor";
 
-// ─── Forge Mode Types ───
-
 export type ForgeMode = "default" | "architect" | "socratic" | "challenge" | "plan" | "auto";
-
-// ─── Editor Types ───
 
 export type ChatStyle = "accent" | "bubble";
 

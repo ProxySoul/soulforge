@@ -42,8 +42,6 @@ function usageEqual(a: TokenUsage, b: TokenUsage): boolean {
 function buildContent(u: TokenUsage): StyledText {
   const uncachedInput = Math.max(0, u.prompt - u.cacheRead);
   const chunks = [
-    // hide icon tv of tokens
-    // fgStyle("#555")(`${icon("tokens")} `),
     fgStyle("#2d9bf0")(fmt(uncachedInput)),
     fgStyle("#444")("↑ "),
     fgStyle("#e0a020")(fmt(u.completion)),

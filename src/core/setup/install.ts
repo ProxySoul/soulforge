@@ -14,8 +14,6 @@ const FD_VERSION = "10.2.0";
 const LAZYGIT_VERSION = "0.44.1";
 const PROXY_VERSION = "6.8.40";
 
-// ─── Nerd Fonts ───
-
 export interface NerdFont {
   id: string;
   name: string;
@@ -260,8 +258,6 @@ export async function installProxy(): Promise<string> {
   });
 }
 
-// ─── Font install ───
-
 function getUserFontDir(): string {
   const os = platform();
   if (os === "darwin") {
@@ -303,9 +299,7 @@ function fontExistsOnSystem(font: NerdFont): boolean {
           return true;
         }
       }
-    } catch {
-      // permission denied etc
-    }
+    } catch {}
   }
   return false;
 }
@@ -317,7 +311,6 @@ export function detectInstalledFonts(): NerdFont[] {
   const installed: NerdFont[] = [];
 
   for (const font of NERD_FONTS) {
-    // Check vendored fonts first
     const vendoredDir = join(FONTS_DIR, font.id);
     if (existsSync(vendoredDir)) {
       try {
@@ -326,12 +319,9 @@ export function detectInstalledFonts(): NerdFont[] {
           installed.push(font);
           continue;
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
-    // Check system font directories
     if (fontExistsOnSystem(font)) {
       installed.push(font);
     }

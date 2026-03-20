@@ -65,9 +65,7 @@ interface MoveSymbolArgs {
   to: string;
 }
 
-// ─── Import Handling ──────────────────────────────────────────
-
-export interface ImportStatement {
+interface ImportStatement {
   full: string;
   startLine: number;
   endLine: number;
@@ -92,8 +90,6 @@ function esc(s: string): string {
 export function line(lines: string[], i: number): string {
   return lines[i] ?? "";
 }
-
-// ── TypeScript / JavaScript ──
 
 export const tsJsHandler: LangImports = {
   canAutoUpdate: true,
@@ -170,8 +166,6 @@ export const tsJsHandler: LangImports = {
   },
 };
 
-// ── Python ──
-
 export const pythonHandler: LangImports = {
   canAutoUpdate: true,
 
@@ -233,8 +227,6 @@ export const pythonHandler: LangImports = {
   },
 };
 
-// ── Rust ──
-
 export const rustHandler: LangImports = {
   canAutoUpdate: true,
 
@@ -289,8 +281,6 @@ export const rustHandler: LangImports = {
     return `use ${path}::{${specs.join(", ")}};`;
   },
 };
-
-// ── Go ──
 
 const goHandler: LangImports = {
   canAutoUpdate: false,
@@ -351,8 +341,6 @@ const goHandler: LangImports = {
   },
 };
 
-// ── C / C++ ──
-
 const cppHandler: LangImports = {
   canAutoUpdate: false,
 
@@ -407,8 +395,6 @@ function getLangHandler(lang: Language): LangImports | null {
       return null;
   }
 }
-
-// ─── Symbol Extraction ────────────────────────────────────────
 
 export function findSymbolRange(
   lines: string[],
@@ -535,8 +521,6 @@ function findLastImportLine(lines: string[], language: Language): number {
   return last;
 }
 
-// ─── Tool ─────────────────────────────────────────────────────
-
 export const moveSymbolTool = {
   name: "move_symbol",
   description: "Move a symbol from one file to another with import updates.",
@@ -566,7 +550,6 @@ export const moveSymbolTool = {
       const language = router.detectLanguage(from);
       const handler = getLangHandler(language);
 
-      // ── 1. Find symbol definition ──
       // Priority: LSP readSymbol → LSP findSymbols (DocumentSymbol range) → regex fallback
       // LSP ranges handle JSX correctly; the regex brace-counter does not.
       let defStart: number;
@@ -613,7 +596,6 @@ export const moveSymbolTool = {
       const defText = sourceLines.slice(cmtStart, defEnd + 1).join("\n");
       const isExported = /^\s*(export|pub)\b/.test(line(sourceLines, defStart));
 
-      // ── 2. Determine needed imports for target file ──
       const neededImportLines: string[] = [];
 
       if (handler) {
@@ -668,7 +650,6 @@ export const moveSymbolTool = {
         }
       }
 
-      // ── 3. Build target content ──
       let symbolForTarget = defText;
       if (!isExported && (language === "typescript" || language === "javascript")) {
         const tLines = symbolForTarget.split("\n");
@@ -693,7 +674,6 @@ export const moveSymbolTool = {
         targetContent = parts.join("\n");
       }
 
-      // ── 4. Build updated source ──
       const newSourceLines = [...sourceLines.slice(0, cmtStart), ...sourceLines.slice(defEnd + 1)];
 
       const idx = cmtStart;
@@ -740,7 +720,6 @@ export const moveSymbolTool = {
         }
       }
 
-      // ── 5. Stage all writes in a transaction ──
       const tx = new WriteTransaction();
       tx.stage(to, targetContent);
       tx.stage(from, newSource);
@@ -807,7 +786,6 @@ export const moveSymbolTool = {
         }
       }
 
-      // ── 6. Commit atomically — rollback on failure ──
       try {
         tx.commit();
       } catch (commitErr: unknown) {
@@ -820,7 +798,6 @@ export const moveSymbolTool = {
         };
       }
 
-      // ── 7. Report ──
       const cwd = process.cwd();
       const allModified = [...new Set([to, from, ...updatedFiles])];
       const output: string[] = [
@@ -860,8 +837,6 @@ export const moveSymbolTool = {
     }
   },
 };
-
-// ─── Helpers ──────────────────────────────────────────────────
 
 function appendSymbolToFile(
   existing: string,

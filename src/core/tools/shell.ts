@@ -5,7 +5,6 @@ import { truncateWithTee } from "./tee.js";
 
 const DEFAULT_TIMEOUT = 30_000;
 
-// ─── Git Commit Interception ───
 // Intercept `git commit -m "..."` to:
 // 1. Auto-run lint/typecheck on staged files before committing
 // 2. Append co-author trailer when enabled

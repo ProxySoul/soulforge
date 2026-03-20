@@ -37,7 +37,7 @@ const CODE_EXTENSIONS = new Set([
   ".zig",
 ]);
 
-export type ReadTarget =
+type ReadTarget =
   | "function"
   | "class"
   | "type"

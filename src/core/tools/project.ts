@@ -386,8 +386,6 @@ export function detectNativeChecks(cwd: string): string | null {
   return null;
 }
 
-// ─── Monorepo Package Discovery ───
-
 interface PackageInfo {
   name: string;
   path: string;

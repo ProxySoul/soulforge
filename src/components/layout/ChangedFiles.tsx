@@ -9,7 +9,7 @@ interface FileEntry {
   created: boolean;
 }
 
-export function useChangedFiles(messages: ChatMessage[]) {
+function useChangedFiles(messages: ChatMessage[]) {
   return useMemo(() => {
     const fileMap = new Map<string, FileEntry>();
 

@@ -9,8 +9,6 @@ import {
   type Language,
 } from "./types.js";
 
-// ─── Health Check Types ───
-
 export interface ProbeResult {
   operation: string;
   status: "pass" | "empty" | "error" | "timeout" | "unsupported";

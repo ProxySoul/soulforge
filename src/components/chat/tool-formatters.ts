@@ -2,9 +2,9 @@ import { resolve } from "node:path";
 import { classifyPath, type OutsideKind } from "../../core/security/outside-cwd.js";
 import { SUBAGENT_NAMES } from "./ToolCallDisplay.js";
 
-export const CWD = process.cwd();
+const CWD = process.cwd();
 
-export const ABS_PATH_RE = /(?:^|\s)(\/[\w./-]+)/g;
+const ABS_PATH_RE = /(?:^|\s)(\/[\w./-]+)/g;
 
 export function formatArgs(toolName: string, args?: string): string {
   if (!args) return "";
@@ -129,9 +129,7 @@ export function formatArgs(toolName: string, args?: string): string {
         return cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
       }
     }
-  } catch {
-    // partial JSON during streaming
-  }
+  } catch {}
   return "";
 }
 
@@ -148,9 +146,7 @@ export function formatResult(toolName: string, result?: string): string {
       const lines = p.output.split("\n").length - 1;
       return `${String(lines)} lines [cached]`;
     }
-  } catch {
-    // not JSON
-  }
+  } catch {}
   if (SUBAGENT_NAMES.has(toolName)) {
     try {
       const p = JSON.parse(result);
@@ -169,9 +165,7 @@ export function formatResult(toolName: string, result?: string): string {
         if (lines > 1) return `${String(lines)} lines`;
         return out.length > 40 ? `${out.slice(0, 37)}...` : out;
       }
-    } catch {
-      // not JSON, fall through
-    }
+    } catch {}
     const lines = result.split("\n").length;
     if (lines > 1) return `${String(lines)} lines`;
     return result.length > 40 ? `${result.slice(0, 37)}...` : result;
@@ -240,9 +234,7 @@ export function detectOutsideCwd(toolName: string, args?: string): OutsideKind |
         }
       }
     }
-  } catch {
-    // partial JSON
-  }
+  } catch {}
   return null;
 }
 

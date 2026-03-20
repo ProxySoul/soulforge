@@ -3,15 +3,6 @@ import type { AppConfig, ContextManagementConfig } from "../../types/index.js";
 import { getModelContextWindow } from "./models.js";
 import type { TaskType } from "./task-router.js";
 
-// ─── Capability System ───
-//
-// Two layers determine what features are sent to the API:
-//   1. Model capabilities — what the model itself supports (Claude gen-based)
-//   2. Provider constraints — what the provider/API layer passes through
-//
-// Effective capability = model supports it AND provider allows it.
-// New providers just add an entry to PROVIDER_CONSTRAINTS.
-
 interface ModelCapabilities {
   provider: "anthropic" | "openai" | "google" | "other";
   thinking: boolean;
@@ -84,8 +75,6 @@ const NO_SUPPORT: ProviderConstraints = {
   interleavedThinking: false,
 };
 
-// ─── Model + Provider Parsing ───
-
 function parseModelId(modelId: string): { provider: string; model: string } {
   const slash = modelId.indexOf("/");
   if (slash === -1) return { provider: "", model: modelId };
@@ -96,8 +85,6 @@ function extractBaseModel(modelId: string): string {
   const slash = modelId.lastIndexOf("/");
   return (slash >= 0 ? modelId.slice(slash + 1) : modelId).toLowerCase();
 }
-
-// ─── Claude Generation Detection ───
 
 type ClaudeGen = "legacy" | "3.5" | "4+" | "non-claude";
 
@@ -119,7 +106,6 @@ function getClaudeGen(model: string): ClaudeGen {
   return "4+";
 }
 
-// ─── Model Family Detection ───
 //
 // For direct providers (anthropic/, openai/), the provider prefix tells us everything.
 // For gateways (llmgateway/, openrouter/, vercel_gateway/), we inspect the model name
@@ -287,8 +273,6 @@ function getEffectiveCaps(modelId: string): EffectiveCaps {
   };
 }
 
-// ─── Public Detection Helpers ───
-
 export function isAnthropicNative(modelId: string): boolean {
   const { provider } = parseModelId(modelId);
   return provider === "anthropic" || provider === "proxy";
@@ -297,8 +281,6 @@ export function isAnthropicNative(modelId: string): boolean {
 function supportsAnthropicOptions(modelId: string): boolean {
   return getEffectiveCaps(modelId).anthropicOptions;
 }
-
-// ─── Effort by Task Type ───
 
 const TASK_EFFORT: Record<TaskType, string> = {
   planning: "max",
@@ -312,8 +294,6 @@ const TASK_EFFORT: Record<TaskType, string> = {
 function resolveEffort(taskType: TaskType, configured?: string): string {
   return configured ?? TASK_EFFORT[taskType];
 }
-
-// ─── Context Management Builder ───
 
 function buildContextEdits(
   config: ContextManagementConfig,
@@ -348,7 +328,6 @@ function buildContextEdits(
   return edits.length > 0 ? edits : null;
 }
 
-// ─── Cache Control ───
 //
 // Ephemeral cache breakpoints for prompt caching. Set on all provider keys
 // so caching works regardless of which provider routes to Anthropic/Claude.
@@ -364,8 +343,6 @@ export const EPHEMERAL_CACHE: ProviderOptions = {
   openrouter: CACHE_EPHEMERAL,
   vercel_gateway: CACHE_EPHEMERAL,
 } as ProviderOptions;
-
-// ─── Main Builder ───
 
 export interface ProviderOptionsResult {
   providerOptions: ProviderOptions;
@@ -488,8 +465,6 @@ export function buildProviderOptions(
     headers: Object.keys(headers).length > 0 ? headers : undefined,
   };
 }
-
-// ─── Degradation for Retry ───
 
 export function degradeProviderOptions(modelId: string, level: number): ProviderOptionsResult {
   if (level >= 2 || !supportsAnthropicOptions(modelId)) {

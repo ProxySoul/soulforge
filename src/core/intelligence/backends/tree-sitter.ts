@@ -229,8 +229,6 @@ type TSQuery = import("web-tree-sitter").Query;
 type TSQueryCapture = import("web-tree-sitter").QueryCapture;
 type TSNode = import("web-tree-sitter").Node;
 
-// ─── Import specifier extraction from AST nodes ───
-
 function extractImportSpecifiers(node: TSNode, language: Language): string[] {
   const specifiers: string[] = [];
   collectSpecifiers(node, language, specifiers);
@@ -1119,8 +1117,6 @@ export class TreeSitterBackend implements IntelligenceBackend {
     };
   }
 
-  // ─── Shape hashing for structural clone detection ───
-
   private static readonly MIN_HASH_LINES = 5;
 
   private static readonly HASHABLE_KEYWORDS = [
@@ -1277,8 +1273,6 @@ export class TreeSitterBackend implements IntelligenceBackend {
       tree.delete();
     }
   }
-
-  // ─── Private helpers ───
 
   private static readonly IS_BUNDLED = import.meta.url.includes("$bunfs");
 

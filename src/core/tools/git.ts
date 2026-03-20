@@ -22,7 +22,7 @@ import {
 
 const cwd = process.cwd();
 
-export type GitAction =
+type GitAction =
   | "status"
   | "diff"
   | "log"
@@ -35,7 +35,7 @@ export type GitAction =
   | "unstage"
   | "restore";
 
-export interface GitArgs {
+interface GitArgs {
   action: GitAction;
   staged?: boolean;
   count?: number;

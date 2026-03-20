@@ -33,7 +33,7 @@ import { LandingPage } from "./LandingPage.js";
 import { LoadingStatus } from "./LoadingStatus.js";
 import { SystemBanner } from "./SystemBanner.js";
 
-export interface TabInstanceProps {
+interface TabInstanceProps {
   tabId: string;
   visible: boolean;
   effectiveConfig: AppConfig;

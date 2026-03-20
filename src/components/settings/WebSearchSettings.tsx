@@ -25,7 +25,7 @@ interface WebSearchState {
   refresh: () => void;
 }
 
-export const useWebSearchStore = create<WebSearchState>()((set) => ({
+const useWebSearchStore = create<WebSearchState>()((set) => ({
   keys: {
     "brave-api-key": hasSecret("brave-api-key"),
     "jina-api-key": hasSecret("jina-api-key"),

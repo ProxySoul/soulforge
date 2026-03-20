@@ -17,7 +17,7 @@ export interface DispatchOutput {
   output: string;
 }
 
-export type AgentResult = {
+type AgentResult = {
   text: string;
   output?: unknown;
   steps: Array<{
@@ -30,7 +30,7 @@ export type AgentResult = {
   }>;
 };
 
-export const DONE_RESULT_CAP = 8000;
+const DONE_RESULT_CAP = 8000;
 const PER_FILE_CONTENT_CAP = 2000;
 const TEXT_TRUNCATION_CAP = 6000;
 const SYNTHESIS_BUDGET = 8000;

@@ -1,5 +1,3 @@
-// ─── LSP Server Registry ───
-
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";

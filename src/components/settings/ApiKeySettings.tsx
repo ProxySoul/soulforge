@@ -35,7 +35,7 @@ const PROVIDER_KEYS: SecretKey[] = [
   "vercel-gateway-api-key",
 ];
 
-export const useApiKeyStore = create<ApiKeyState>()((set) => ({
+const useApiKeyStore = create<ApiKeyState>()((set) => ({
   keys: Object.fromEntries(PROVIDER_KEYS.map((k) => [k, hasSecret(k)])),
   refresh: () =>
     set({
