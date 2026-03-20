@@ -12,6 +12,16 @@ export function formatArgs(toolName: string, args?: string): string {
     const parsed = JSON.parse(args);
     if (toolName === "read_file" && parsed.path) return parsed.path;
     if (toolName === "edit_file" && parsed.path) return parsed.path;
+    if (toolName === "multi_edit" && parsed.path) return parsed.path;
+    if (toolName === "undo_edit" && parsed.path) return parsed.path;
+    if (toolName === "list_dir" && parsed.path) return parsed.path;
+    if (toolName === "rename_file") {
+      if (parsed.from && parsed.to) {
+        const label = `${String(parsed.from)} → ${String(parsed.to)}`;
+        return label.length > 60 ? `${label.slice(0, 57)}...` : label;
+      }
+      if (parsed.from) return String(parsed.from);
+    }
     if (toolName === "shell" && parsed.command) {
       const cmd = String(parsed.command);
       return cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
