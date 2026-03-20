@@ -1028,16 +1028,6 @@ export function useChat({
                 } catch {
                   content = planContent;
                 }
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: crypto.randomUUID(),
-                    role: "assistant" as const,
-                    content: `Plan: ${plan.title}`,
-                    timestamp: Date.now(),
-                    segments: [{ type: "plan" as const, plan }],
-                  },
-                ]);
                 planPostActionRef.current = {
                   action: action === "clear_execute" ? "clear_execute" : "execute",
                   planContent: content,
