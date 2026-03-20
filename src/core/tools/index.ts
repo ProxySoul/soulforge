@@ -3,6 +3,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { tool } from "ai";
 import { z } from "zod";
 import type { EditorIntegration } from "../../types/index.js";
+import { checkAndClaim, prependWarning } from "../coordination/tool-wrapper.js";
 import type { RepoMap } from "../intelligence/repo-map.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
@@ -86,6 +87,8 @@ export function buildTools(
     onApproveFetchPage?: (url: string) => Promise<boolean>;
     onApproveOutsideCwd?: (toolName: string, path: string) => Promise<boolean>;
     onApproveDestructive?: (description: string) => Promise<boolean>;
+    tabId?: string;
+    tabLabel?: string;
   },
 ) {
   const effectiveCwd = cwd ?? process.cwd();
@@ -1078,6 +1081,8 @@ export function buildSubagentCodeTools(opts?: {
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
   repoMap?: RepoMap;
+  tabId?: string;
+  tabLabel?: string;
 }) {
   return {
     ...buildSubagentExploreTools(opts),
@@ -1095,7 +1100,14 @@ export function buildSubagentCodeTools(opts?: {
             "1-indexed line hint from your last read — helps locate the match and shows context on error",
           ),
       }),
-      execute: deferExecute((args) => editFileTool.execute(args)),
+      execute: deferExecute(async (args) => {
+        const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
+        const result = await editFileTool.execute(args);
+        if (warning && typeof result === "string") {
+          return prependWarning(result, warning);
+        }
+        return result;
+      }),
     }),
 
     multi_edit: tool({
@@ -1112,7 +1124,14 @@ export function buildSubagentCodeTools(opts?: {
           )
           .describe("Array of edits to apply atomically"),
       }),
-      execute: deferExecute((args) => multiEditTool.execute(args)),
+      execute: deferExecute(async (args) => {
+        const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
+        const result = await multiEditTool.execute(args);
+        if (warning && typeof result === "string") {
+          return prependWarning(result, warning);
+        }
+        return result;
+      }),
     }),
 
     rename_symbol: tool({

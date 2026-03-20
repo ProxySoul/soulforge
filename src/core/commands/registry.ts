@@ -1,3 +1,4 @@
+import { matchClaimsPrefix, register as registerClaims } from "./claims.js";
 import { matchConfigPrefix, register as registerConfig } from "./config.js";
 import { matchContextPrefix, register as registerContext } from "./context.js";
 import { register as registerDebug } from "./debug.js";
@@ -21,6 +22,7 @@ registerNavigation(commandMap);
 registerProxy(commandMap);
 registerStorage(commandMap);
 registerSecurity(commandMap);
+registerClaims(commandMap);
 
 const prefixMatchers = [
   matchContextPrefix,
@@ -29,6 +31,7 @@ const prefixMatchers = [
   matchSessionPrefix,
   matchNavPrefix,
   matchSecurityPrefix,
+  matchClaimsPrefix,
 ];
 
 function resolveHandler(cmd: string): CommandHandler | null {
@@ -83,6 +86,7 @@ const COMMAND_DEFS: CommandDef[] = [
   { cmd: "/changes", ic: "changes", desc: "Toggle changed files tree" },
   { cmd: "/chat-style", ic: "chat", desc: "Toggle chat layout style" },
   { cmd: "/clear", ic: "clear", desc: "Clear chat history" },
+  { cmd: "/claims", ic: "lock", desc: "Show active file claims across tabs" },
   { cmd: "/close-tab", ic: "tabs", desc: "Close current tab (Ctrl+W)" },
   { cmd: "/co-author-commits", ic: "git", desc: "Toggle co-author trailer" },
   { cmd: "/commit", ic: "git", desc: "Git commit with message" },
@@ -99,6 +103,7 @@ const COMMAND_DEFS: CommandDef[] = [
   { cmd: "/errors", ic: "error", desc: "Browse error log" },
   { cmd: "/export", ic: "changes", desc: "Export chat to markdown" },
   { cmd: "/export json", ic: "changes", desc: "Export chat as JSON" },
+  { cmd: "/force-claim", ic: "lock", desc: "Steal a file claim from another tab" },
   { cmd: "/font", ic: "pencil", desc: "Show/set terminal font" },
   { cmd: "/git", ic: "git", desc: "Git menu" },
   { cmd: "/git-status", ic: "git", desc: "Git status" },
@@ -146,6 +151,8 @@ const COMMAND_DEFS: CommandDef[] = [
   { cmd: "/status", ic: "info", desc: "System status" },
   { cmd: "/storage", ic: "system", desc: "View & manage storage usage" },
   { cmd: "/tabs", ic: "tabs", desc: "List open tabs" },
+  { cmd: "/unclaim", ic: "lock", desc: "Release a file claim from current tab" },
+  { cmd: "/unclaim-all", ic: "lock", desc: "Release all claims from current tab" },
   { cmd: "/verbose", ic: "cog", desc: "Toggle verbose tool output" },
   { cmd: "/vim-hints", ic: "pencil", desc: "Toggle vim keybinding hints" },
   { cmd: "/web-search", ic: "cog", desc: "Web search keys & settings" },

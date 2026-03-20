@@ -277,6 +277,8 @@ interface ForgeAgentOptions {
   planExecution?: boolean;
   drainSteering?: () => string | null;
   disablePruning?: boolean;
+  tabId?: string;
+  tabLabel?: string;
 }
 
 /**
@@ -312,6 +314,8 @@ export function createForgeAgent({
   planExecution,
   drainSteering,
   disablePruning,
+  tabId,
+  tabLabel,
 }: ForgeAgentOptions) {
   const isRestricted = RESTRICTED_MODES.has(forgeMode);
   const repoMap = contextManager.isRepoMapReady() ? contextManager.getRepoMap() : undefined;
@@ -330,6 +334,8 @@ export function createForgeAgent({
     onApproveFetchPage,
     onApproveOutsideCwd,
     onApproveDestructive,
+    tabId: tabId ?? contextManager.getTabId() ?? undefined,
+    tabLabel: tabLabel ?? contextManager.getTabLabel() ?? undefined,
   });
 
   const subagentTools = isRestricted

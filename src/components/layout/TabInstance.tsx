@@ -4,6 +4,7 @@ import type { ScrollBoxRenderable } from "@opentui/core";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ContextManager, type SharedContextResources } from "../../core/context/manager.js";
+import { getWorkspaceCoordinator } from "../../core/coordination/WorkspaceCoordinator.js";
 import { icon } from "../../core/icons.js";
 import type { ProviderStatus } from "../../core/llm/provider.js";
 import { clearTabSessionPatterns } from "../../core/security/forbidden.js";
@@ -36,6 +37,7 @@ import { SystemBanner } from "./SystemBanner.js";
 
 interface TabInstanceProps {
   tabId: string;
+  tabLabel: string;
   visible: boolean;
   effectiveConfig: AppConfig;
   sharedResources: SharedContextResources;
@@ -73,6 +75,7 @@ const SCROLLBOX_STYLE = { contentOptions: { justifyContent: "flex-end" as const 
 
 export const TabInstance = memo(function TabInstance({
   tabId,
+  tabLabel,
   visible,
   effectiveConfig,
   sharedResources,
@@ -111,6 +114,12 @@ export const TabInstance = memo(function TabInstance({
     () => new ContextManager(cwd, sharedResources),
     [cwd, sharedResources],
   );
+
+  // Register tabId with contextManager for cross-tab awareness
+  useEffect(() => {
+    contextManager.setTabId(tabId);
+    contextManager.setTabLabel(tabLabel);
+  }, [tabId, tabLabel, contextManager]);
 
   // Sync shared state into per-tab ContextManager
   useEffect(() => {
@@ -187,16 +196,34 @@ export const TabInstance = memo(function TabInstance({
     }
   }, [visible, chat.tokenUsage]);
 
-  // Report loading state to tab manager
+  // Report loading state to tab manager, sync coordinator idle/active, update claim count
   const prevLoading = useRef(chat.isLoading);
   useEffect(() => {
+    const coordinator = getWorkspaceCoordinator();
     setTabActivity(tabId, { isLoading: chat.isLoading });
     // Mark unread if loading finished while tab is in background
     if (prevLoading.current && !chat.isLoading && !visible) {
       setTabActivity(tabId, { hasUnread: true });
     }
+    // Signal coordinator idle/active state
+    if (!chat.isLoading && prevLoading.current) {
+      coordinator.markIdle(tabId);
+    } else if (chat.isLoading && !prevLoading.current) {
+      coordinator.markActive(tabId);
+    }
     prevLoading.current = chat.isLoading;
   }, [chat.isLoading, tabId, setTabActivity, visible]);
+
+  // Sync claim count to tab activity for tab bar indicator
+  useEffect(() => {
+    const coordinator = getWorkspaceCoordinator();
+    const unsub = coordinator.on((event, eventTabId) => {
+      if (eventTabId === tabId || event === "release") {
+        setTabActivity(tabId, { editedFileCount: coordinator.getClaimCount(tabId) });
+      }
+    });
+    return unsub;
+  }, [tabId, setTabActivity]);
 
   // Auto-label tab from first user message
   // biome-ignore lint/correctness/useExhaustiveDependencies: narrow trigger
@@ -210,6 +237,8 @@ export const TabInstance = memo(function TabInstance({
     return () => {
       contextManager.dispose();
       clearTabSessionPatterns(tabId);
+      // Release all coordinator claims for this tab
+      getWorkspaceCoordinator().releaseAll(tabId);
       // Clean up any pending plan file on disk
       try {
         const p = join(cwd, ".soulforge", "plans", planFileName(chat.sessionId));

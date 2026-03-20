@@ -16,6 +16,7 @@ import {
 } from "../config/index.js";
 import { handleCommand } from "../core/commands/registry.js";
 import { ContextManager } from "../core/context/manager.js";
+import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
 import { setEditorRequestCallback } from "../core/editor/instance.js";
 import { icon, providerIcon, UI_ICONS } from "../core/icons.js";
 import { fetchOpenRouterMetadata } from "../core/llm/models.js";
@@ -478,7 +479,13 @@ export function App({
   hasTabBarRef.current = tabMgr.tabCount > 1;
   editorSplitRef.current = editorSplit;
 
-  const sharedResources = useMemo(() => contextManager.getSharedResources(), [contextManager]);
+  const sharedResources = useMemo(
+    () => ({
+      ...contextManager.getSharedResources(),
+      workspaceCoordinator: getWorkspaceCoordinator(),
+    }),
+    [contextManager],
+  );
 
   const workspaceSnapshotRef = useRef<(() => WorkspaceSnapshot) | null>(null);
   workspaceSnapshotRef.current = () => ({
@@ -565,6 +572,7 @@ export function App({
             renderer.destroy();
             try {
               contextManager.dispose();
+              getWorkspaceCoordinator().releaseAllGlobal();
             } catch (err) {
               logBackgroundError(
                 "shutdown",
@@ -926,6 +934,7 @@ export function App({
           <TabInstance
             key={tab.id}
             tabId={tab.id}
+            tabLabel={tab.label}
             visible={tab.id === tabMgr.activeTabId}
             effectiveConfig={effectiveConfig}
             sharedResources={sharedResources}

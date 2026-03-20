@@ -90,6 +90,7 @@ function buildDispatchGuidance(hasRepoMap: boolean): string[] {
 export interface SharedContextResources {
   repoMap: RepoMap;
   memoryManager: MemoryManager;
+  workspaceCoordinator?: import("../coordination/WorkspaceCoordinator.js").WorkspaceCoordinator;
 }
 
 /**
@@ -136,12 +137,16 @@ export class ContextManager {
 
   private static readonly FILE_TREE_TTL = 30_000; // 30s
   private static readonly PROJECT_INFO_TTL = 300_000; // 5min
+  private shared: SharedContextResources | null = null;
+  private tabId: string | null = null;
+  private tabLabel: string | null = null;
 
   constructor(cwd: string, shared?: SharedContextResources) {
     this.cwd = cwd;
     if (shared) {
       this.repoMap = shared.repoMap;
       this.memoryManager = shared.memoryManager;
+      this.shared = shared;
       this.isChild = true;
       this.wireFileEventHandlers();
     } else {
@@ -177,7 +182,27 @@ export class ContextManager {
   }
 
   getSharedResources(): SharedContextResources {
-    return { repoMap: this.repoMap, memoryManager: this.memoryManager };
+    return {
+      repoMap: this.repoMap,
+      memoryManager: this.memoryManager,
+      workspaceCoordinator: this.shared?.workspaceCoordinator,
+    };
+  }
+
+  setTabId(tabId: string): void {
+    this.tabId = tabId;
+  }
+
+  setTabLabel(tabLabel: string): void {
+    this.tabLabel = tabLabel;
+  }
+
+  getTabId(): string | null {
+    return this.tabId;
+  }
+
+  getTabLabel(): string | null {
+    return this.tabLabel;
   }
 
   private unsubEdit: (() => void) | null = null;
@@ -857,6 +882,33 @@ export class ContextManager {
 
     if (this.skills.size === 0) {
       parts.push("Skills: none loaded. Ctrl+S or /skills to browse.");
+    }
+
+    // Cross-tab file claims awareness
+    if (this.shared?.workspaceCoordinator && this.tabId) {
+      const coordinator = this.shared.workspaceCoordinator;
+      const editors = coordinator.getActiveEditors();
+      const otherClaims: string[] = [];
+      for (const [tabId] of editors) {
+        if (tabId === this.tabId) continue;
+        const tabClaims = coordinator.getClaimsForTab(tabId);
+        const claimPaths: string[] = [];
+        let tabLabel = "Unknown";
+        for (const [path, claim] of tabClaims) {
+          tabLabel = claim.tabLabel;
+          const rel = path.startsWith(`${this.cwd}/`) ? path.slice(this.cwd.length + 1) : path;
+          claimPaths.push(rel);
+        }
+        if (claimPaths.length > 0) {
+          otherClaims.push(`Tab "${tabLabel}": ${claimPaths.join(", ")}`);
+        }
+      }
+      if (otherClaims.length > 0) {
+        parts.push("");
+        parts.push("## Files Being Edited by Other Tabs");
+        parts.push(...otherClaims);
+        parts.push("Avoid editing these files if possible. If you must, expect conflicts.");
+      }
     }
 
     return parts.filter(Boolean).join("\n");

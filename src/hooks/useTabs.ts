@@ -15,6 +15,7 @@ export interface TabActivity {
   isLoading: boolean;
   hasUnread: boolean;
   hasError: boolean;
+  editedFileCount: number;
 }
 
 export interface UseTabsReturn {
@@ -48,7 +49,12 @@ export interface UseTabsReturn {
   ) => void;
 }
 
-const DEFAULT_ACTIVITY: TabActivity = { isLoading: false, hasUnread: false, hasError: false };
+const DEFAULT_ACTIVITY: TabActivity = {
+  isLoading: false,
+  hasUnread: false,
+  hasError: false,
+  editedFileCount: 0,
+};
 
 export function useTabs(): UseTabsReturn {
   const initialId = useRef(crypto.randomUUID()).current;
