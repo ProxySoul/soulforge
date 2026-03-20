@@ -4,6 +4,42 @@ import type { AgentFeatures } from "../../types/index.js";
 import { icon, setNerdFont } from "../icons.js";
 import type { CommandContext, CommandHandler } from "./types.js";
 import { sysMsg } from "./utils.js";
+type ToggleConfig = {
+  configKey: string;
+  title: string;
+  iconName: string;
+  onValue: string;
+  offValue: string;
+  onLabel: string;
+  offLabel: string;
+  onDescription: string;
+  offDescription: string;
+  messageTemplate: (value: string, scope: string) => string;
+};
+
+function createTogglePicker(config: ToggleConfig): CommandHandler {
+  return (_input: string, ctx: CommandContext) => {
+    const currentVal = ctx[config.configKey as keyof CommandContext];
+    const patch = (v: string) => ({ [config.configKey]: v === config.onValue });
+    ctx.openCommandPicker({
+      title: config.title,
+      icon: icon(config.iconName),
+      currentValue: currentVal ? config.onValue : config.offValue,
+      scopeEnabled: true,
+      initialScope: ctx.detectScope(config.configKey),
+      options: [
+        { value: config.onValue, label: config.onLabel, description: config.onDescription },
+        { value: config.offValue, label: config.offLabel, description: config.offDescription },
+      ],
+      onSelect: (value, scope) => {
+        ctx.saveToScope(patch(value), scope ?? "project");
+        sysMsg(ctx, config.messageTemplate(value, scope ?? "project"));
+      },
+      onScopeMove: (value, from, to) => ctx.saveToScope(patch(value), to, from),
+    });
+  };
+}
+
 
 async function handleFont(input: string, ctx: CommandContext): Promise<void> {
   const trimmed = input.trim();
@@ -235,25 +271,19 @@ function handleNvimConfig(input: string, ctx: CommandContext): void {
   }
 }
 
-function handleVerbose(_input: string, ctx: CommandContext): void {
-  const patch = (v: string) => ({ verbose: v === "on" });
-  ctx.openCommandPicker({
-    title: "Verbose Mode",
-    icon: icon("verbose"),
-    currentValue: ctx.verbose ? "on" : "off",
-    scopeEnabled: true,
-    initialScope: ctx.detectScope("verbose"),
-    options: [
-      { value: "on", label: "On", description: "show full tool call output in chat" },
-      { value: "off", label: "Off", description: "show compact tool call summaries" },
-    ],
-    onSelect: (value, scope) => {
-      ctx.saveToScope(patch(value), scope ?? "project");
-      sysMsg(ctx, `Verbose mode ${value === "on" ? "on" : "off"} (${scope ?? "project"})`);
-    },
-    onScopeMove: (value, from, to) => ctx.saveToScope(patch(value), to, from),
-  });
-}
+const handleVerbose = createTogglePicker({
+  configKey: "verbose",
+  title: "Verbose Mode",
+  iconName: "verbose",
+  onValue: "on",
+  offValue: "off",
+  onLabel: "On",
+  offLabel: "Off",
+  onDescription: "show full tool call output in chat",
+  offDescription: "show compact tool call summaries",
+  messageTemplate: (v, s) => `Verbose mode ${v === "on" ? "on" : "off"} (${s})`,
+});
+
 
 function handleReasoning(_input: string, ctx: CommandContext): void {
   const patch = (v: string) => ({ showReasoning: v === "on" });
@@ -460,28 +490,19 @@ function handleSplit(_input: string, ctx: CommandContext): void {
   sysMsg(ctx, `Editor split: ${String(newSplit)}/${String(100 - newSplit)}`);
 }
 
-function handleVimHints(_input: string, ctx: CommandContext): void {
-  const patch = (v: string) => ({ vimHints: v === "visible" });
-  ctx.openCommandPicker({
-    title: "Vim Hints",
-    icon: icon("nvim"),
-    currentValue: ctx.vimHints ? "visible" : "hidden",
-    scopeEnabled: true,
-    initialScope: ctx.detectScope("vimHints"),
-    options: [
-      { value: "visible", label: "Visible", description: "show vim keybinding hints in editor" },
-      { value: "hidden", label: "Hidden", description: "hide vim keybinding hints" },
-    ],
-    onSelect: (value, scope) => {
-      ctx.saveToScope(patch(value), scope ?? "project");
-      sysMsg(
-        ctx,
-        `Vim hints ${value === "visible" ? "visible" : "hidden"} (${scope ?? "project"})`,
-      );
-    },
-    onScopeMove: (value, from, to) => ctx.saveToScope(patch(value), to, from),
-  });
-}
+const handleVimHints = createTogglePicker({
+  configKey: "vimHints",
+  title: "Vim Hints",
+  iconName: "nvim",
+  onValue: "visible",
+  offValue: "hidden",
+  onLabel: "Visible",
+  offLabel: "Hidden",
+  onDescription: "show vim keybinding hints in editor",
+  offDescription: "hide vim keybinding hints",
+  messageTemplate: (v, s) => `Vim hints ${v === "visible" ? "visible" : "hidden"} (${s})`,
+});
+
 
 function handleModelScope(_input: string, ctx: CommandContext): void {
   ctx.openCommandPicker({

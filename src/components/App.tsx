@@ -977,18 +977,7 @@ export function App({
         onSelect={(modelId) => {
           const slot = useUIStore.getState().routerSlotPicking;
           if (slot) {
-            const current = effectiveConfig.taskRouter ?? {
-              planning: null,
-              coding: null,
-              exploration: null,
-              webSearch: null,
-              compact: null,
-              semantic: null,
-              trivial: null,
-              desloppify: null,
-              verify: null,
-              default: null,
-            };
+            const current = effectiveConfig.taskRouter ?? DEFAULT_TASK_ROUTER;
             const updated = { ...current, [slot]: modelId };
             saveToScope({ taskRouter: updated }, routerScope);
             useUIStore.getState().setRouterSlotPicking(null);

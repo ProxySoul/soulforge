@@ -5,10 +5,8 @@ import { icon } from "../../core/icons.js";
 import {
   CATEGORY_COLORS,
   getBackendLabel,
-  TOOL_CATEGORIES,
-  TOOL_ICON_COLORS,
+  resolveToolDisplay,
   TOOL_ICONS,
-  TOOL_LABELS,
   type ToolCategory,
 } from "../../core/tool-display.js";
 import type { PlanOutput } from "../../types/index.js";
@@ -47,6 +45,7 @@ const COLORS = {
 } as const;
 
 export const RENDER_DEBOUNCE = 80;
+
 
 
 export const Spinner = memo(function Spinner({ color }: { color?: string }) {
@@ -133,10 +132,7 @@ const StatusIcon = memo(function StatusIcon({
 
 const ChildStepRow = memo(
   function ChildStepRow({ step }: { step: SubagentStep }) {
-    const icon = TOOL_ICONS[step.toolName] ?? "\uF0AD";
-    const iconColor = TOOL_ICON_COLORS[step.toolName] ?? "#666";
-    const label = TOOL_LABELS[step.toolName] ?? step.toolName;
-    const staticCategory = TOOL_CATEGORIES[step.toolName];
+    const { icon, iconColor, label, category: staticCategory } = resolveToolDisplay(step.toolName, "#666");
     const hasSplit = !!(step.backend && staticCategory && step.backend !== staticCategory);
     const category = hasSplit ? staticCategory : (step.backend ?? staticCategory);
     const backendTag = hasSplit ? step.backend : null;
@@ -348,10 +344,7 @@ const MultiAgentChildRow = memo(
                 </box>
               )}
               {visible.map((step, i) => {
-                const stepIcon = TOOL_ICONS[step.toolName] ?? "\uF0AD";
-                const stepColor = TOOL_ICON_COLORS[step.toolName] ?? "#666";
-                const stepLabel = TOOL_LABELS[step.toolName] ?? step.toolName;
-                const stepStaticCategory = TOOL_CATEGORIES[step.toolName];
+                const { icon: stepIcon, iconColor: stepColor, label: stepLabel, category: stepStaticCategory } = resolveToolDisplay(step.toolName, "#666");
                 const stepHasSplit = !!(
                   step.backend &&
                   stepStaticCategory &&
@@ -539,9 +532,10 @@ const ToolRow = memo(
       return match?.[1] ?? null;
     }, [tc.toolName, tc.state, tc.result]);
 
+    const toolDisplay = resolveToolDisplay(tc.toolName);
     const repoMapIcon = TOOL_ICONS._repomap ?? "◈";
-    const icon = isRepoMapHit ? repoMapIcon : (TOOL_ICONS[tc.toolName] ?? "\uF0AD");
-    const label = isRepoMapHit ? "Soul Map" : (TOOL_LABELS[tc.toolName] ?? tc.toolName);
+    const icon = isRepoMapHit ? repoMapIcon : toolDisplay.icon;
+    const label = isRepoMapHit ? "Soul Map" : toolDisplay.label;
     const argStr = formatArgs(tc.toolName, tc.args);
     const outsideKind = useMemo(
       () => detectOutsideCwd(tc.toolName, tc.args),
@@ -619,10 +613,10 @@ const ToolRow = memo(
       return undefined;
     }, [editDiff, tc.result]);
 
-    const iconColor = isRepoMapHit ? "#2dd4bf" : (TOOL_ICON_COLORS[tc.toolName] ?? "#888");
+    const iconColor = isRepoMapHit ? "#2dd4bf" : toolDisplay.iconColor;
     const staticCategory = isRepoMapHit
       ? ("soul-map" as ToolCategory)
-      : TOOL_CATEGORIES[tc.toolName];
+      : toolDisplay.category;
     const backendCategory = useMemo(() => {
       if (isRepoMapHit) return null;
       if (tc.result) {

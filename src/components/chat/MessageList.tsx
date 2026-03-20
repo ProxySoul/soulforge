@@ -5,8 +5,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { icon } from "../../core/icons.js";
 import {
   CATEGORY_COLORS,
-  TOOL_CATEGORIES,
-  TOOL_ICON_COLORS,
+  resolveToolDisplay,
   TOOL_ICONS,
   TOOL_LABELS,
   type ToolCategory,
@@ -24,7 +23,6 @@ import { DiffView } from "./DiffView.js";
 import { Markdown } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
 
-// ─── Constants ───
 const REVEAL_INTERVAL = 30;
 const MAX_REVEAL_STEPS = 15;
 const CURSOR_CHAR = "\u2588"; // █
@@ -53,7 +51,6 @@ interface Props {
   reasoningExpanded?: boolean;
 }
 
-// ─── Helpers ───
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -81,7 +78,6 @@ function formatToolSummary(tc: ToolCall): string {
   return "";
 }
 
-// ─── Error helpers ───
 
 const RETRY_COLOR = "#fa0";
 
@@ -120,7 +116,6 @@ function parseRetry(text: string): { attempt: string; reason: string; delay: str
   return { attempt: match[1] as string, reason: match[2] as string, delay: match[3] as string };
 }
 
-// ─── SystemMessage ───
 
 function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: boolean }) {
   const time = formatTime(msg.timestamp);
@@ -205,10 +200,8 @@ function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: bo
   );
 }
 
-// ─── Tools that are UI meta-operations (collapsed to minimal display) ───
 const META_TOOLS = new Set(["plan", "update_plan_step", "ask_user", "editor_panel"]);
 
-// ─── ToolCallRow (non-edit) ───
 
 function parseBackend(result?: { output: string }): string | null {
   if (!result) return null;
@@ -234,10 +227,7 @@ function cleanErrorForDisplay(error: string): string {
 
 function ToolCallRow({ tc }: { tc: ToolCall }) {
   const errorsExpanded = useUIStore((s) => s.reasoningExpanded);
-  const icon = TOOL_ICONS[tc.name];
-  const iconColor = TOOL_ICON_COLORS[tc.name] ?? "#888";
-  const label = TOOL_LABELS[tc.name] ?? tc.name;
-  const staticCategory = TOOL_CATEGORIES[tc.name];
+  const { icon, iconColor, label, category: staticCategory } = resolveToolDisplay(tc.name);
   const backend = parseBackend(tc.result);
   const category = backend ?? staticCategory;
   const categoryColor = category ? (CATEGORY_COLORS[category as ToolCategory] ?? "#444") : "#444";
@@ -299,7 +289,6 @@ function ToolCallRow({ tc }: { tc: ToolCall }) {
   );
 }
 
-// ─── Collapsed tool group: groups consecutive meta-tool calls into a single line ───
 
 function CollapsedToolGroup({ calls }: { calls: ToolCall[] }) {
   const count = calls.length;
@@ -317,7 +306,6 @@ function CollapsedToolGroup({ calls }: { calls: ToolCall[] }) {
   );
 }
 
-// ─── EditToolCall (with DiffView) ───
 
 function EditToolCall({
   tc,
@@ -345,7 +333,6 @@ function EditToolCall({
   );
 }
 
-// ─── WritePlanCall (structured plan view) ───
 
 function parsePlanFromArgs(tc: ToolCall): PlanOutput | null {
   if (tc.name !== "write_plan" && tc.name !== "plan") return null;
@@ -401,7 +388,6 @@ function WritePlanCall({ tc }: { tc: ToolCall }) {
   );
 }
 
-// ─── Plan execution detection ───
 
 function isPlanExecution(content: string): boolean {
   return content.startsWith("Execute this plan.");
@@ -412,7 +398,6 @@ function parsePlanTitle(content: string): string {
   return match?.[1] ?? "Plan";
 }
 
-// ─── UserMessage (accent mode) ───
 
 const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMessage }) {
   const time = formatTime(msg.timestamp);
@@ -477,7 +462,6 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
   );
 });
 
-// ─── UserMessage (bubble mode) ───
 
 const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMessage }) {
   const time = formatTime(msg.timestamp);
@@ -499,7 +483,6 @@ const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMe
   );
 });
 
-// ─── AssistantMessage ───
 
 function renderSegments(
   segments: MessageSegment[],
@@ -715,7 +698,6 @@ const AssistantMessage = memo(function AssistantMessage({
   );
 });
 
-// ─── Main Component ───
 
 export const StaticMessage = memo(function StaticMessage({
   msg,

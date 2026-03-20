@@ -51,7 +51,6 @@ import type {
 import { reprimeContextFromMessages, safeParseArgs } from "./chat/message-processing.js";
 import { buildSessionMeta } from "./useSessionBuilder.js";
 
-// ─── Types ───
 
 export interface TabState {
   id: string;
@@ -917,67 +916,61 @@ export function useChat({
     effectiveConfig.compaction?.strategy,
   ]);
 
-  const promptWebAccess = useCallback((label: string): Promise<boolean> => {
-    if (autoApproveWebAccessRef.current) return Promise.resolve(true);
-    const result = webAccessMutexRef.current.then(() => {
-      if (autoApproveWebAccessRef.current) return true;
-      return new Promise<boolean>((resolve) => {
-        setPendingQuestion({
-          id: crypto.randomUUID(),
-          question: `Forge wants to access the web:\n\n${label}`,
-          options: [
-            { label: "Allow", value: "allow", description: "Allow this request" },
-            {
-              label: "Always Allow",
-              value: "always",
-              description: "Auto-approve all web access this session",
+  function createPermissionPrompt(
+    autoApproveRef: React.MutableRefObject<boolean>,
+    mutexRef: React.MutableRefObject<Promise<void>>,
+    questionFn: (...args: string[]) => string,
+    alwaysDescription: string,
+  ) {
+    return (...args: string[]): Promise<boolean> => {
+      if (autoApproveRef.current) return Promise.resolve(true);
+      const result = mutexRef.current.then(() => {
+        if (autoApproveRef.current) return true;
+        return new Promise<boolean>((resolve) => {
+          setPendingQuestion({
+            id: crypto.randomUUID(),
+            question: questionFn(...args),
+            options: [
+              { label: "Allow", value: "allow", description: "Allow this request" },
+              { label: "Always Allow", value: "always", description: alwaysDescription },
+              { label: "Deny", value: "deny", description: "Block this request" },
+            ],
+            allowSkip: false,
+            resolve: (answer: string) => {
+              setPendingQuestion(null);
+              const allowed = answer === "allow" || answer === "always";
+              if (answer === "always") autoApproveRef.current = true;
+              resolve(allowed);
             },
-            { label: "Deny", value: "deny", description: "Block this request" },
-          ],
-          allowSkip: false,
-          resolve: (answer: string) => {
-            setPendingQuestion(null);
-            const allowed = answer === "allow" || answer === "always";
-            if (answer === "always") autoApproveWebAccessRef.current = true;
-            resolve(allowed);
-          },
+          });
         });
       });
-    });
-    webAccessMutexRef.current = result.then(() => {});
-    return result;
-  }, []);
+      mutexRef.current = result.then(() => {});
+      return result;
+    };
+  }
 
-  const promptOutsideCwd = useCallback((toolName: string, path: string): Promise<boolean> => {
-    if (autoApproveOutsideCwdRef.current) return Promise.resolve(true);
-    const result = outsideCwdMutexRef.current.then(() => {
-      if (autoApproveOutsideCwdRef.current) return true;
-      return new Promise<boolean>((resolve) => {
-        setPendingQuestion({
-          id: crypto.randomUUID(),
-          question: `Forge wants to ${toolName} outside project directory:\n\n${path}`,
-          options: [
-            { label: "Allow", value: "allow", description: "Allow this action" },
-            {
-              label: "Always Allow",
-              value: "always",
-              description: "Auto-approve all outside-cwd actions this session",
-            },
-            { label: "Deny", value: "deny", description: "Block this action" },
-          ],
-          allowSkip: false,
-          resolve: (answer: string) => {
-            setPendingQuestion(null);
-            const allowed = answer === "allow" || answer === "always";
-            if (answer === "always") autoApproveOutsideCwdRef.current = true;
-            resolve(allowed);
-          },
-        });
-      });
-    });
-    outsideCwdMutexRef.current = result.then(() => {});
-    return result;
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const promptWebAccess = useCallback(
+    createPermissionPrompt(
+      autoApproveWebAccessRef,
+      webAccessMutexRef,
+      (label) => `Forge wants to access the web:\n\n${label}`,
+      "Auto-approve all web access this session",
+    ),
+    [],
+  );
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const promptOutsideCwd = useCallback(
+    createPermissionPrompt(
+      autoApproveOutsideCwdRef,
+      outsideCwdMutexRef,
+      (toolName, path) => `Forge wants to ${toolName} outside project directory:\n\n${path}`,
+      "Auto-approve all outside-cwd actions this session",
+    ),
+    [],
+  );
 
   const promptDestructive = useCallback((description: string): Promise<boolean> => {
     return new Promise<boolean>((resolve) => {

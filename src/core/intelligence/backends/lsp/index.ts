@@ -27,7 +27,6 @@ import {
 } from "../../types.js";
 import * as nvimBridge from "./nvim-bridge.js";
 import {
-  filePathToUri,
   type LspCallHierarchyItem,
   type LspDocumentSymbol,
   type LspHover,
@@ -129,7 +128,6 @@ export class LspBackend implements IntelligenceBackend {
     return SUPPORTED_LANGUAGES.has(language);
   }
 
-  // ─── Navigation ───
 
   async findDefinition(
     file: string,
@@ -201,7 +199,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Imports & Exports (derived from documentSymbol + file content) ───
 
   async findImports(file: string): Promise<ImportInfo[] | null> {
     const absFile = resolve(file);
@@ -622,7 +619,6 @@ export class LspBackend implements IntelligenceBackend {
     return result;
   }
 
-  // ─── Analysis ───
 
   async getDiagnostics(file: string): Promise<Diagnostic[] | null> {
     if (nvimBridge.isNvimAvailable()) {
@@ -704,7 +700,6 @@ export class LspBackend implements IntelligenceBackend {
     return { symbol, type: typeStr };
   }
 
-  // ─── Code Actions ───
 
   async getCodeActions(
     file: string,
@@ -748,7 +743,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Workspace Symbols ───
 
   async findWorkspaceSymbols(query: string): Promise<SymbolInfo[] | null> {
     // Need a real file buffer to get an LSP client attached
@@ -784,7 +778,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Formatting ───
 
   async formatDocument(file: string): Promise<FormatEdit | null> {
     let edits: LspTextEdit[] | null = null;
@@ -824,7 +817,6 @@ export class LspBackend implements IntelligenceBackend {
     return lspTextEditsToFormatEdit(file, edits);
   }
 
-  // ─── Organize Imports ───
 
   async organizeImports(file: string): Promise<RefactorResult | null> {
     if (nvimBridge.isNvimAvailable()) {
@@ -854,35 +846,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Fix All ───
-
-  async fixAll(file: string): Promise<RefactorResult | null> {
-    if (nvimBridge.isNvimAvailable()) {
-      const actions = await nvimBridge.getCodeActions(file, 0, 0, 0, 0, undefined);
-      if (actions) {
-        const fixAll = actions.find((a) => a.kind === "source.fixAll");
-        if (fixAll?.edit) {
-          return workspaceEditToRefactorResult(fixAll.edit, "fixAll", "applied");
-        }
-      }
-      return null;
-    }
-
-    const client = await this.getStandaloneClient(file);
-    if (!client) return null;
-    try {
-      const actions = await client.textDocumentCodeAction(file, 0, 0, 0, 0, ["source.fixAll"]);
-      const first = actions[0];
-      if (first?.edit) {
-        return workspaceEditToRefactorResult(first.edit, "fixAll", "applied");
-      }
-    } catch {
-      /* fall through */
-    }
-    return null;
-  }
-
-  // ─── Call Hierarchy ───
 
   async getCallHierarchy(
     file: string,
@@ -916,7 +879,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Implementation ───
 
   async findImplementation(
     file: string,
@@ -944,7 +906,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Type Hierarchy ───
 
   async getTypeHierarchy(
     file: string,
@@ -978,7 +939,6 @@ export class LspBackend implements IntelligenceBackend {
     return null;
   }
 
-  // ─── Refactoring ───
 
   async rename(
     file: string,
@@ -1009,58 +969,6 @@ export class LspBackend implements IntelligenceBackend {
 
     if (!edit) return null;
     return workspaceEditToRefactorResult(edit, symbol, newName);
-  }
-
-  // ─── File Rename (workspace/willRenameFiles) ───
-
-  async getFileRenameEdits(
-    files: Array<{ oldPath: string; newPath: string }>,
-  ): Promise<RefactorResult | null> {
-    if (files.length === 0) return null;
-
-    const anchorFile = files[0]?.oldPath;
-    if (!anchorFile) return null;
-
-    const client = await this.getStandaloneClient(anchorFile);
-    if (!client) return null;
-
-    // Ensure all source files are open so the LSP has full project context
-    for (const f of files) client.ensureDocumentOpen(f.oldPath);
-
-    const lspFiles = files.map((f) => ({
-      oldUri: filePathToUri(f.oldPath),
-      newUri: filePathToUri(f.newPath),
-    }));
-
-    const edit = await client.willRenameFiles(lspFiles);
-    if (!edit) return null;
-
-    const result = workspaceEditToRefactorResult(
-      edit,
-      files.map((f) => f.oldPath).join(", "),
-      files.map((f) => f.newPath).join(", "),
-    );
-
-    if (result.edits.length === 0) return null;
-    result.description = `LSP updated imports in ${String(result.edits.length)} file(s) for ${String(files.length)} renamed file(s)`;
-    return result;
-  }
-
-  notifyFilesRenamed(files: Array<{ oldPath: string; newPath: string }>): void {
-    if (files.length === 0) return;
-
-    const lspFiles = files.map((f) => ({
-      oldUri: filePathToUri(f.oldPath),
-      newUri: filePathToUri(f.newPath),
-    }));
-
-    // Close old URIs and open new ones
-    for (const client of this.standaloneClients.values()) {
-      if (!client.isReady) continue;
-      for (const f of files) client.closeDocument(f.oldPath);
-      client.didRenameFiles(lspFiles);
-      for (const f of files) client.ensureDocumentOpen(f.newPath);
-    }
   }
 
   /** Ensure all standalone LSP servers are running for a file, regardless of Neovim state. */
@@ -1127,7 +1035,6 @@ export class LspBackend implements IntelligenceBackend {
     return pids;
   }
 
-  // ─── Lifecycle ───
 
   dispose(): void {
     for (const client of this.standaloneClients.values()) {
@@ -1138,7 +1045,6 @@ export class LspBackend implements IntelligenceBackend {
     this.failedServers.clear();
   }
 
-  // ─── Private ───
 
   /**
    * Resolve symbol name to a line:col position.

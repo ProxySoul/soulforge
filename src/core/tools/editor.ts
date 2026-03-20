@@ -1,8 +1,10 @@
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getNvimInstance, requestEditor, waitForNvim } from "../editor/instance.js";
+import type { NvimInstance } from "../editor/neovim.js";
 import { isForbidden } from "../security/forbidden.js";
 import { emitFileEdited, emitFileRead } from "./file-events.js";
+import { toolDenied, toolError } from "./tool-utils.js";
 
 const NO_EDITOR: ToolResult = {
   success: false,
@@ -187,7 +189,35 @@ async function requireNvim(
   return requestEditor(file);
 }
 
-// ─── editor_read ───
+/** Shared nvim boilerplate: acquire instance → check forbidden buffer → execute → catch errors. */
+async function withNvim(
+  file: string | undefined,
+  fn: (nvim: NvimInstance) => Promise<ToolResult>,
+): Promise<ToolResult> {
+  const nvim = await requireNvim(file);
+  if (!nvim) return NO_EDITOR;
+  try {
+    const forbidden = await checkCurrentBufferForbidden(nvim);
+    if (forbidden) return forbidden;
+    return await fn(nvim);
+  } catch (err: unknown) {
+    return toolError(String(err));
+  }
+}
+
+/** Like withNvim but skips the buffer forbidden check. For tools that don't read buffer content. */
+async function withNvimRaw(
+  fn: (nvim: NvimInstance) => Promise<ToolResult>,
+  file?: string,
+): Promise<ToolResult> {
+  const nvim = await requireNvim(file);
+  if (!nvim) return NO_EDITOR;
+  try {
+    return await fn(nvim);
+  } catch (err: unknown) {
+    return toolError(String(err));
+  }
+}
 
 interface EditorReadArgs {
   startLine?: number;
@@ -199,11 +229,8 @@ export const editorReadTool = {
   name: "editor_read",
   description:
     "Read the live buffer from the embedded neovim editor, including unsaved changes. Optionally specify a line range (1-indexed). Requires the editor panel to be open.",
-  execute: async (args: EditorReadArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim(args.file);
-    if (!nvim) return NO_EDITOR;
-    try {
-      // Auto-navigate to the target file if specified and not already open
+  execute: async (args: EditorReadArgs): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       if (args.file) {
         const targetPath = resolve(args.file);
         const currentBuf = await nvim.api.request("nvim_buf_get_name", [0]);
@@ -226,13 +253,8 @@ export const editorReadTool = {
       }
 
       return { success: true, output: lines.join("\n") };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }, args.file),
 };
-
-// ─── editor_edit ───
 
 interface EditorEditArgs {
   startLine: number;
@@ -245,11 +267,8 @@ export const editorEditTool = {
   name: "editor_edit",
   description:
     "Replace lines startLine through endLine (inclusive, 1-indexed) in the neovim buffer with the replacement text. The replacement ONLY contains the new content — do NOT include the original lines. Changes are instant and undoable. Requires the editor panel to be open. Prefer edit_file for writing changes to disk.",
-  execute: async (args: EditorEditArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim(args.file);
-    if (!nvim) return NO_EDITOR;
-    try {
-      // Auto-navigate to the target file if specified and not already open
+  execute: async (args: EditorEditArgs): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       if (args.file) {
         const targetPath = resolve(args.file);
         const currentBuf = await nvim.api.request("nvim_buf_get_name", [0]);
@@ -281,13 +300,8 @@ export const editorEditTool = {
         success: true,
         output: `Replaced lines ${String(args.startLine)}-${String(args.endLine)} with ${String(count)} line(s) (saved)`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }, args.file),
 };
-
-// ─── editor_navigate ───
 
 interface EditorNavigateArgs {
   file?: string;
@@ -300,15 +314,14 @@ export const editorNavigateTool = {
   name: "editor_navigate",
   description:
     "Open a file, jump to a line:col, or search in the embedded neovim editor. At least one of file, line, or search must be provided. Requires the editor panel to be open. Use to show files to the user.",
-  execute: async (args: EditorNavigateArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim(args.file);
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: EditorNavigateArgs): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       if (args.file) {
         const blocked = isForbidden(args.file);
         if (blocked) {
-          const msg = `Access denied: "${args.file}" matches forbidden pattern "${blocked}". This file is blocked for security.`;
-          return { success: false, output: msg, error: msg };
+          return toolDenied(
+            `Access denied: "${args.file}" matches forbidden pattern "${blocked}". This file is blocked for security.`,
+          );
         }
         await nvim.api.executeLua("vim.cmd.edit(vim.fn.fnameescape(...))", [args.file]);
       }
@@ -328,79 +341,63 @@ export const editorNavigateTool = {
         success: true,
         output: `${typeof bufName === "string" ? bufName : "buffer"} line ${String(line)}, col ${String(col + 1)}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }, args.file),
 };
-
-// ─── editor_diagnostics ───
-
 export const editorDiagnosticsTool = {
   name: "editor_diagnostics",
   description:
     "Get LSP diagnostics (errors, warnings) for the current buffer in the embedded neovim editor. Requires the editor panel to be open.",
-  execute: async (): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
-      const lua = `
-        local diags = vim.diagnostic.get(0)
-        if #diags == 0 then return '[]' end
-        local result = {}
-        local sev_map = { 'error', 'warning', 'info', 'hint' }
-        for _, d in ipairs(diags) do
-          table.insert(result, {
-            line = d.lnum + 1,
-            col = d.col + 1,
-            severity = sev_map[d.severity] or 'unknown',
-            message = d.message,
-            source = d.source or '',
-          })
-        end
-        return vim.json.encode(result)
-      `;
-      const result = await nvim.api.executeLua(lua, []);
-      const parsed: unknown[] = safeJsonParse(result, []);
-      if (parsed.length === 0) {
-        return { success: true, output: "No diagnostics" };
+  execute: async (): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
+      try {
+        const lua = `
+          local diags = vim.diagnostic.get(0)
+          if #diags == 0 then return '[]' end
+          local result = {}
+          local sev_map = { 'error', 'warning', 'info', 'hint' }
+          for _, d in ipairs(diags) do
+            table.insert(result, {
+              line = d.lnum + 1,
+              col = d.col + 1,
+              severity = sev_map[d.severity] or 'unknown',
+              message = d.message,
+              source = d.source or '',
+            })
+          end
+          return vim.json.encode(result)
+        `;
+        const result = await nvim.api.executeLua(lua, []);
+        const parsed: unknown[] = safeJsonParse(result, []);
+        if (parsed.length === 0) {
+          return { success: true, output: "No diagnostics" };
+        }
+        const lines = parsed.map((d: unknown) => {
+          const diag = d as {
+            line: number;
+            col: number;
+            severity: string;
+            message: string;
+            source: string;
+          };
+          const src = diag.source ? ` (${diag.source})` : "";
+          return `${diag.severity} line ${String(diag.line)}:${String(diag.col)}: ${diag.message}${src}`;
+        });
+        return { success: true, output: lines.join("\n") };
+      } catch (err: unknown) {
+        const msg = String(err);
+        if (msg.includes("vim.diagnostic")) {
+          return toolError("LSP not active");
+        }
+        throw err;
       }
-      const lines = parsed.map((d: unknown) => {
-        const diag = d as {
-          line: number;
-          col: number;
-          severity: string;
-          message: string;
-          source: string;
-        };
-        const src = diag.source ? ` (${diag.source})` : "";
-        return `${diag.severity} line ${String(diag.line)}:${String(diag.col)}: ${diag.message}${src}`;
-      });
-      return { success: true, output: lines.join("\n") };
-    } catch (err: unknown) {
-      const msg = String(err);
-      if (msg.includes("vim.diagnostic")) {
-        return { success: false, output: "LSP not active", error: "LSP not active" };
-      }
-      return { success: false, output: msg, error: msg };
-    }
-  },
+    }),
 };
-
-// ─── editor_symbols ───
-
 export const editorSymbolsTool = {
   name: "editor_symbols",
   description:
     "Get document symbols (functions, classes, variables) from the LSP server for the current buffer. Requires the editor panel to be open.",
-  execute: async (): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const lua = `
         local clients = vim.lsp.get_clients({ bufnr = 0 })
         if #clients == 0 then return '__NO_LSP__' end
@@ -440,13 +437,8 @@ export const editorSymbolsTool = {
         return `${sym.kind} ${sym.name} (line ${String(sym.line)})`;
       });
       return { success: true, output: lines.join("\n") };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_references ───
 
 interface EditorReferencesArgs {
   line?: number;
@@ -457,12 +449,8 @@ export const editorReferencesTool = {
   name: "editor_references",
   description:
     "Find all references to the symbol at the current cursor position or a specified line:col via LSP. Requires the editor panel to be open.",
-  execute: async (args: EditorReferencesArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (args: EditorReferencesArgs): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const lua = `
@@ -510,13 +498,8 @@ export const editorReferencesTool = {
         success: true,
         output: `${String(parsed.length)} reference(s):\n${lines.join("\n")}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_definition ───
 
 interface EditorDefinitionArgs {
   line?: number;
@@ -528,12 +511,8 @@ export const editorDefinitionTool = {
   name: "editor_definition",
   description:
     "Go to the definition of the symbol at the current cursor position or a specified line:col via LSP. By default jumps the editor to the first definition. Requires the editor panel to be open.",
-  execute: async (args: EditorDefinitionArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (args: EditorDefinitionArgs): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const shouldJump = args.jump !== false;
@@ -589,13 +568,8 @@ export const editorDefinitionTool = {
         success: true,
         output: `${String(parsed.length)} definition(s)${jumpNote}:\n${lines.join("\n")}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_actions ───
 
 interface EditorActionsArgs {
   line?: number;
@@ -607,12 +581,8 @@ export const editorActionsTool = {
   name: "editor_actions",
   description:
     "List or apply code actions (quick fixes, refactorings) at the current cursor position or a specified line:col via LSP. Pass apply (0-indexed) to apply a specific action. Requires the editor panel to be open.",
-  execute: async (args: EditorActionsArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (args: EditorActionsArgs): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const applyIdx = args.apply ?? -1;
@@ -682,13 +652,8 @@ export const editorActionsTool = {
         success: true,
         output: `${String(parsed.length)} action(s)${appliedNote}:\n${lines.join("\n")}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_rename ───
 
 interface EditorRenameArgs {
   newName: string;
@@ -700,12 +665,8 @@ export const editorRenameTool = {
   name: "editor_rename",
   description:
     "Rename a symbol across the workspace using LSP. Optionally specify line:col to target a specific symbol, otherwise uses the current cursor position. Requires LSP support in the editor.",
-  execute: async (args: EditorRenameArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (args: EditorRenameArgs): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const newName = args.newName;
@@ -755,24 +716,15 @@ export const editorRenameTool = {
         success: true,
         output: `Renamed to "${newName}" — ${String(result)} edit(s) applied`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_lsp_status ───
 
 export const editorLspStatusTool = {
   name: "editor_lsp_status",
   description:
     "Get the status of LSP servers attached to the current buffer, including their names, root directories, and capabilities.",
-  execute: async (): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const lua = `
         local clients = vim.lsp.get_clients({ bufnr = 0 })
         if #clients == 0 then return '__NO_LSP__' end
@@ -812,13 +764,8 @@ export const editorLspStatusTool = {
         return `${srv.name} (id ${String(srv.id)})${srv.root_dir ? ` root: ${srv.root_dir}` : ""}\n  capabilities: ${caps}`;
       });
       return { success: true, output: lines.join("\n\n") };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_format ───
 
 interface EditorFormatArgs {
   startLine?: number;
@@ -829,12 +776,8 @@ export const editorFormatTool = {
   name: "editor_format",
   description:
     "Format the current buffer (or a line range) using the LSP formatter. Requires a language server with formatting capability.",
-  execute: async (args: EditorFormatArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (args: EditorFormatArgs): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const hasRange = args.startLine != null && args.endLine != null;
       const startIdx = hasRange ? (args.startLine as number) - 1 : 0;
       const endIdx = hasRange ? (args.endLine as number) : 0;
@@ -871,13 +814,8 @@ export const editorFormatTool = {
         ? ` (lines ${String(args.startLine)}-${String(args.endLine)})`
         : "";
       return { success: true, output: `Buffer formatted${rangeNote}` };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
-
-// ─── editor_hover ───
 
 interface EditorHoverArgs {
   line?: number;
@@ -888,12 +826,8 @@ export const editorHoverTool = {
   name: "editor_hover",
   description:
     "Get hover/type information from the LSP server at the current cursor position or a specified line:col. Requires the editor panel to be open.",
-  execute: async (args: EditorHoverArgs): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (args: EditorHoverArgs): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const line = args.line ?? 0;
       const col = args.col ?? 0;
       const lua = `
@@ -937,19 +871,12 @@ export const editorHoverTool = {
         return { success: true, output: "No hover information available" };
       }
       return { success: true, output: text };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_select — visually select a line range ───
-
 const editorSelectTool = {
-  execute: async (args: { startLine: number; endLine: number }): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: { startLine: number; endLine: number }): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       await nvim.api.executeLua(
         `
         local s, e = ...
@@ -963,38 +890,24 @@ const editorSelectTool = {
         success: true,
         output: `Selected lines ${String(args.startLine)}-${String(args.endLine)}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_goto_cursor — jump to a specific line/col ───
-
 const editorGotoCursorTool = {
-  execute: async (args: { line: number; col?: number }): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: { line: number; col?: number }): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       const col = Math.max(0, (args.col ?? 1) - 1);
       await nvim.api.executeLua(
         "vim.api.nvim_win_set_cursor(0, {select(1, ...), select(2, ...)}); vim.cmd('normal! zz')",
         [args.line, col],
       );
       return { success: true, output: `Cursor at line ${String(args.line)}` };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_yank — put text into a neovim register ───
-
 const editorYankTool = {
-  execute: async (args: { text: string; register?: string }): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: { text: string; register?: string }): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       const reg = args.register ?? "+";
       await nvim.api.executeLua("vim.fn.setreg(select(1, ...), select(2, ...))", [reg, args.text]);
       const lines = args.text.split("\n").length;
@@ -1002,41 +915,26 @@ const editorYankTool = {
         success: true,
         output: `${String(lines)} line(s) yanked to register "${reg}" — paste with "${reg}p"`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_open_file — open a file in the editor and show it to the user ───
-
 const editorOpenFileTool = {
-  execute: async (args: { file: string }): Promise<ToolResult> => {
-    const nvim = await requireNvim(args.file);
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: { file: string }): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       const blocked = isForbidden(args.file);
       if (blocked) {
-        const msg = `Access denied: "${args.file}" matches forbidden pattern "${blocked}".`;
-        return { success: false, output: msg, error: msg };
+        return toolDenied(`Access denied: "${args.file}" matches forbidden pattern "${blocked}".`);
       }
       await nvim.api.executeLua("vim.cmd.edit(vim.fn.fnameescape(...))", [args.file]);
       return { success: true, output: `Opened ${args.file} in editor` };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }, args.file),
 };
-
-// ─── editor_highlight — ephemeral highlight on a line range (auto-clears after 3s) ───
 
 const HIGHLIGHT_NS = "soulforge_highlight";
 
 const editorHighlightTool = {
-  execute: async (args: { startLine: number; endLine: number }): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: { startLine: number; endLine: number }): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       await nvim.api.executeLua(
         `
         local s, e = ...
@@ -1063,21 +961,12 @@ const editorHighlightTool = {
         success: true,
         output: `Highlighted lines ${String(args.startLine)}-${String(args.endLine)} (clears in 5s)`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_cursor_context — get the symbol/function at cursor via tree-sitter ───
-
 const editorCursorContextTool = {
-  execute: async (): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
-      const forbidden = await checkCurrentBufferForbidden(nvim);
-      if (forbidden) return forbidden;
+  execute: async (): Promise<ToolResult> =>
+    withNvim(undefined, async (nvim) => {
       const lua = `
         local cursor = vim.api.nvim_win_get_cursor(0)
         local row = cursor[1] - 1
@@ -1141,19 +1030,12 @@ const editorCursorContextTool = {
         success: true,
         output: `Cursor at ${String(parsed.file ?? "buffer")} line ${String(parsed.cursorLine)}:${String(parsed.cursorCol)}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_buffers — list all open buffers ───
-
 const editorBuffersTool = {
-  execute: async (): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       const lua = `
         local bufs = {}
         local current = vim.api.nvim_get_current_buf()
@@ -1198,19 +1080,12 @@ const editorBuffersTool = {
         return `${buf.current ? ">" : " "} ${buf.name}${flags ? ` (${flags})` : ""}`;
       });
       return { success: true, output: `${String(parsed.length)} buffer(s):\n${lines.join("\n")}` };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_quickfix — read the quickfix list ───
-
 const editorQuickfixTool = {
-  execute: async (): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       const lua = `
         local qf = vim.fn.getqflist()
         if #qf == 0 then return '__EMPTY__' end
@@ -1257,19 +1132,12 @@ const editorQuickfixTool = {
         success: true,
         output: `${String(parsed.length)} quickfix item(s):\n${lines.join("\n")}`,
       };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };
 
-// ─── editor_terminal_output — read last N lines from terminal buffers ───
-
 const editorTerminalOutputTool = {
-  execute: async (args: { count?: number }): Promise<ToolResult> => {
-    const nvim = await requireNvim();
-    if (!nvim) return NO_EDITOR;
-    try {
+  execute: async (args: { count?: number }): Promise<ToolResult> =>
+    withNvimRaw(async (nvim) => {
       const maxLines = args.count ?? 100;
       const lua = `
         local max_lines = ${String(maxLines)}
@@ -1320,8 +1188,5 @@ const editorTerminalOutputTool = {
         return `── ${label} (${String(term.total_lines)} lines, showing last ${String(maxLines)}) ──\n${term.content}`;
       });
       return { success: true, output: sections.join("\n\n") };
-    } catch (err: unknown) {
-      return { success: false, output: String(err), error: String(err) };
-    }
-  },
+    }),
 };

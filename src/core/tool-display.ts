@@ -1,5 +1,3 @@
-// ─── Tool Categories ───
-// Displayed as a dim tag before the tool label, e.g. [lsp] Definition
 
 export type ToolCategory =
   | "file"
@@ -108,7 +106,6 @@ export function getBackendLabel(tag: string): string {
   return BACKEND_LABELS_BASE[tag] ?? tag;
 }
 
-// ─── Tool Icons ───
 
 import { icon } from "./icons.js";
 
@@ -157,7 +154,6 @@ export const TOOL_ICONS = new Proxy({} as Record<string, string>, {
   },
 });
 
-// ─── Tool Labels ───
 
 export const TOOL_LABELS: Record<string, string> = {
   read_file: "Reading",
@@ -192,7 +188,16 @@ export const TOOL_LABELS: Record<string, string> = {
   _nudge: "Output nudge",
 };
 
-// ─── Tool Icon Colors ───
+
+/** Resolve all display properties for a tool in one call. */
+export function resolveToolDisplay(toolName: string, defaultColor = "#888") {
+  return {
+    icon: TOOL_ICONS[toolName] ?? "\uF0AD",
+    iconColor: TOOL_ICON_COLORS[toolName] ?? defaultColor,
+    label: TOOL_LABELS[toolName] ?? toolName,
+    category: TOOL_CATEGORIES[toolName] as ToolCategory | undefined,
+  };
+}
 
 export const TOOL_ICON_COLORS: Record<string, string> = {
   read_file: "#5C9FD6",

@@ -300,12 +300,7 @@ function stripOldEditArgs(messages: ModelMessage[], cutoff: number): ModelMessag
   }) as ModelMessage[];
 }
 
-// ─── Age-based tool result summarization (step 3+) ───
-// NOTE: This function is NOT called from any production code path.
-// It was previously wired into buildPrepareStep but was removed.
-// The main agent relies on v1/v2 compaction for context management.
-// Subagents use semanticPrune + stripOldEditArgs instead (above).
-// Exported for tests and potential future reactivation.
+/** Unused in production — retained for test coverage and possible future reactivation. */
 
 function compactOldToolResults(
   messages: ModelMessage[],
