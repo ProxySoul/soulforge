@@ -744,7 +744,7 @@ export function App({
         vimHints: effectiveConfig.vimHints !== false,
         verbose: effectiveConfig.verbose === true,
         diffStyle: effectiveConfig.diffStyle ?? "default",
-        compactionStrategy: effectiveConfig.compaction?.strategy ?? "v1",
+        compactionStrategy: effectiveConfig.compaction?.strategy ?? "v2",
         disablePruning: effectiveConfig.compaction?.disablePruning === true,
         showReasoning: uiState.showReasoning,
         setShowReasoning: uiState.setShowReasoning,

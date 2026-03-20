@@ -40,7 +40,7 @@ export function TabBar({ tabs, activeTabId, onSwitch: _onSwitch, getActivity }: 
         const num = String(i + 1);
         const activity = activities.get(tab.id);
         const isDefault = /^Tab \d+$/.test(tab.label);
-        const label = isDefault ? "" : ` ${truncateLabel(tab.label, 20)}`;
+        const label = isDefault ? " New tab" : ` ${truncateLabel(tab.label, 20)}`;
 
         const isLoading = activity?.isLoading ?? false;
         const hasError = activity?.hasError ?? false;

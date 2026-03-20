@@ -88,7 +88,7 @@ const COMMAND_DEFS: CommandDef[] = [
   { cmd: "/commit", ic: "git", desc: "Git commit with message" },
   { cmd: "/compact", ic: "compress", desc: "Compact conversation context" },
   { cmd: "/compact-v2-logs", ic: "plan", desc: "View compaction events" },
-  { cmd: "/compaction", ic: "compress", desc: "Switch compaction strategy (v1/v2)" },
+  { cmd: "/compaction", ic: "compress", desc: "Compaction strategy & pruning settings" },
   { cmd: "/context", ic: "context", desc: "Show/clear context budget" },
   { cmd: "/continue", ic: "play", desc: "Continue interrupted generation" },
   { cmd: "/diagnose", ic: "brain", desc: "Intelligence health check — probe all backends" },

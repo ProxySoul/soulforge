@@ -185,7 +185,7 @@ export interface ContextManagementConfig {
 }
 
 export interface CompactionConfig {
-  /** "v1" = LLM batch summarization (default), "v2" = incremental structured extraction, "disabled" = no auto-compaction */
+  /** "v1" = LLM batch summarization, "v2" = incremental structured extraction (default), "disabled" = no auto-compaction */
   strategy?: "v1" | "v2" | "disabled";
   /** Threshold (0-1) at which auto-compaction triggers. Default: 0.7 */
   triggerThreshold?: number;

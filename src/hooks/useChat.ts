@@ -465,7 +465,7 @@ export function useChat({
   const isCompactingRef = useRef(false);
   const compactAbortRef = useRef<AbortController | null>(null);
   const pendingCompactRef = useRef(false);
-  const initialStrategy = effectiveConfig.compaction?.strategy ?? "v1";
+  const initialStrategy = effectiveConfig.compaction?.strategy ?? "v2";
   const workingStateRef = useRef<WorkingStateManager | null>(
     initialStrategy === "v2" ? new WorkingStateManager(effectiveConfig.compaction) : null,
   );
@@ -508,7 +508,7 @@ export function useChat({
   // React to compaction strategy changes: create/destroy WSM as needed
   if (effectiveConfig.compaction?.strategy !== prevCompactionStrategy.current) {
     prevCompactionStrategy.current = effectiveConfig.compaction?.strategy;
-    const strategy = effectiveConfig.compaction?.strategy ?? "v1";
+    const strategy = effectiveConfig.compaction?.strategy ?? "v2";
     if (visible) useStatusBarStore.getState().setCompactionStrategy(strategy);
     logCompaction("strategy-change", `Strategy → ${strategy}`);
     if (strategy === "v2") {

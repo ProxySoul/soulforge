@@ -31,7 +31,7 @@ const LINES: HelpLine[] = [
   },
   { type: "entry", label: "/compact", desc: "compact conversation to save context" },
   { type: "entry", label: "/compact-v2-logs", desc: "view compaction events & summaries" },
-  { type: "entry", label: "/compaction", desc: "switch compaction strategy (v1/v2)" },
+  { type: "entry", label: "/compaction", desc: "compaction strategy & pruning settings" },
   { type: "entry", label: "/context", desc: "show context budget breakdown" },
   { type: "entry", label: "/context clear", desc: "reset context (git|skills|memory|all)" },
   { type: "entry", label: "/continue", desc: "continue interrupted generation" },

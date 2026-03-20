@@ -33,7 +33,7 @@ const TOOL_GUIDANCE_BASE = [
   "What's the structure of this file? → analyze(action: outline) — symbols without reading content. Not read_file.",
   "Are there type errors after my edit? → analyze(action: diagnostics) — instant LSP check. Not project(typecheck).",
   "How widespread is this pattern? → soul_grep(count: true) — per-file counts from index. Not grep.",
-  "Where does this file/symbol live? → soul_find — PageRank-ranked fuzzy search. Not glob.",
+  "Where does this file/symbol live? → soul_find — PageRank-ranked fuzzy search. Not glob. Use specific names (RepoMap, useTabs, AgentBus), not generic words (index, utils, store) that match many files.",
   "What breaks if I change this file? → soul_impact(action: blast_radius) — from dependency graph. Not grep.",
   "What depends on this / what does this depend on? → soul_impact(action: dependents/dependencies).",
   "Is this export used anywhere? → soul_analyze(action: unused_exports) — dead code detection.",
@@ -53,7 +53,7 @@ const TOOL_GUIDANCE_BASE = [
 
 const TOOL_GUIDANCE_LOW_LEVEL_WITH_MAP = [
   "FALLBACK tools (only when intelligence tools above can't answer your question): read_file for config/json/yaml/markdown. grep for string literals, non-code patterns. glob for files not in Soul Map. shell only when project tool can't handle it.",
-  "Soul Map tools (zero-token, no file reads needed): soul_grep for count-mode + word boundary. soul_find for fuzzy file/symbol discovery (PageRank + signatures). soul_analyze for frequency, unused exports, profiles, top files, packages, symbol lookup by kind/name. soul_impact for dependency graphs, blast radius, cochanges.",
+  "Soul Map tools (zero-token, no file reads needed): soul_grep for count-mode + word boundary. soul_find for fuzzy file/symbol discovery (PageRank + signatures) — query with specific identifiers not generic words. soul_analyze for frequency, unused exports, profiles, top files, packages, symbol lookup by kind/name. soul_impact for dependency graphs, blast radius, cochanges.",
   "Cross-cutting analysis: soul_grep count + soul_analyze for broad patterns, grep for specific multi-line patterns. Dispatch investigation agents for parallel scanning.",
 ];
 

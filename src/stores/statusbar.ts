@@ -57,7 +57,7 @@ export const useStatusBarStore = create<StatusBarState>()(
     rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     compacting: false,
     compactElapsed: 0,
-    compactionStrategy: "v1",
+    compactionStrategy: "v2",
     v2Slots: 0,
 
     setTokenUsage: (usage) => set({ tokenUsage: usage }),
@@ -88,7 +88,7 @@ export function resetStatusBarStore(): void {
     rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     compacting: false,
     compactElapsed: 0,
-    compactionStrategy: "v1",
+    compactionStrategy: "v2",
     v2Slots: 0,
   });
 }

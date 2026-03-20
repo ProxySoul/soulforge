@@ -48,8 +48,10 @@ const RETURN_FORMAT_INSTRUCTIONS: Record<import("./agent-bus.js").ReturnFormat, 
     "No code blocks unless they directly support the verdict.",
 };
 
-function isRetryable(error: unknown): boolean {
+function isRetryable(error: unknown, abortSignal?: AbortSignal): boolean {
   if (error instanceof DependencyFailedError) return false;
+  // User-initiated abort (parent dispatch cancelled) — don't retry
+  if (abortSignal?.aborted) return false;
   // AI SDK wraps retried failures in RetryError — always retry at our level too
   if (RetryError.isInstance(error)) return true;
   const msg = error instanceof Error ? error.message : String(error);
@@ -71,7 +73,8 @@ function isRetryable(error: unknown): boolean {
     lower.includes("failed to fetch") ||
     lower.includes("cannot connect") ||
     lower.includes("network") ||
-    lower.includes("socket hang up")
+    lower.includes("socket hang up") ||
+    lower.includes("aborted")
   );
 }
 
@@ -290,7 +293,7 @@ export async function runAgentTask(
         result = await agent.generate({
           prompt: enrichedPrompt,
           abortSignal,
-          timeout: { stepMs: 180_000 },
+          timeout: { stepMs: 300_000 },
           ...callbacks,
         });
       } catch (genErr: unknown) {
@@ -447,7 +450,7 @@ export async function runAgentTask(
       return { doneResult, resultText, callbacks, result: agentResult };
     } catch (error) {
       lastError = error;
-      if (isRetryable(error)) {
+      if (isRetryable(error, abortSignal)) {
         const tripped = bus.recordProviderFailure();
         if (tripped || attempt === MAX_RETRIES) break;
       } else {

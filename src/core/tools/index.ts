@@ -279,7 +279,11 @@ export function buildTools(
     soul_find: tool({
       description: soulFindTool.description,
       inputSchema: z.object({
-        query: z.string().describe("Fuzzy search query — file name, symbol name, or concept"),
+        query: z
+          .string()
+          .describe(
+            "Fuzzy search query — use specific symbol/file names (e.g. 'RepoMap', 'useTabs'), not generic words like 'index', 'utils', 'config' that match dozens of files",
+          ),
         type: z
           .enum(["test", "component", "config", "types", "style"])
           .optional()

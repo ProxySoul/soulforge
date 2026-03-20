@@ -317,12 +317,12 @@ function handleCompaction(_input: string, ctx: CommandContext): void {
     {
       value: "v1",
       label: `V1 — LLM Summarization${localStrategy === "v1" ? " ●" : ""}`,
-      description: "batch summarize with LLM when context is full (default)",
+      description: "batch summarize with LLM when context is full",
     },
     {
       value: "v2",
       label: `V2 — Incremental Extraction${localStrategy === "v2" ? " ●" : ""}`,
-      description: "extract structured state as-you-go, cheap gap-fill on compact",
+      description: "extract structured state as-you-go, cheap gap-fill on compact (default)",
     },
     {
       value: "disabled",
