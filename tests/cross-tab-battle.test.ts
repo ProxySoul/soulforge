@@ -3068,3 +3068,64 @@ describe("cog: full 3-tab autonomous session — no manual intervention needed",
     expect(events.some((e) => e.event === "conflict")).toBe(true);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// REGRESSION: VERIFIER PHASING + GIT ERROR WORDING
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("regression: verifier releases git lock early", () => {
+  it("agentFinished fires after desloppify — simulated dispatch lifecycle", () => {
+    // Code agents phase
+    coord.agentStarted("tab-1");
+    coord.claimFiles("tab-1", "Dispatch", ["/a.ts", "/b.ts"]);
+    expect(coord.getTabsWithActiveAgents("tab-2")).toHaveLength(1);
+
+    // Desloppify phase (still editing)
+    expect(coord.getTabsWithActiveAgents("tab-2")).toHaveLength(1);
+
+    // agentFinished fires AFTER desloppify, BEFORE verifier
+    coord.agentFinished("tab-1");
+    expect(coord.getTabsWithActiveAgents("tab-2")).toHaveLength(0);
+
+    // Verifier phase (read-only) — git is unblocked
+    // Other tabs can now commit while verifier runs
+    const result = coord.claimFiles("tab-2", "Other", ["/c.ts"]);
+    expect(result.granted).toHaveLength(1);
+  });
+
+  it("if agentFinished is accidentally removed, git stays blocked", () => {
+    coord.agentStarted("tab-1");
+    // Without agentFinished, the agent count stays elevated
+    expect(coord.getTabsWithActiveAgents("tab-2")).toHaveLength(1);
+    // Cleanup
+    coord.agentFinished("tab-1");
+  });
+});
+
+describe("regression: git error message prevents retry loop", () => {
+  it("git commit error says 'do not attempt again'", async () => {
+    coord.agentStarted("tab-1");
+    coord.claimFiles("tab-1", "Worker", ["/a.ts"]);
+
+    const result = await gitTool.execute(
+      { action: "commit", message: "test" },
+      "tab-2",
+    );
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("do not attempt again");
+    expect(result.output).not.toContain("Wait");
+  });
+
+  it("git stash error says 'do not attempt again'", async () => {
+    coord.agentStarted("tab-1");
+    coord.claimFiles("tab-1", "Worker", ["/a.ts"]);
+
+    const result = await gitTool.execute(
+      { action: "stash" },
+      "tab-2",
+    );
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("do not attempt again");
+    expect(result.output).not.toContain("Wait");
+  });
+});

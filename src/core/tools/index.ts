@@ -747,11 +747,14 @@ export function buildTools(
           const gate = await gateOutsideCwd("rename_symbol", resolve(args.file));
           if (gate.blocked) return gate.result;
         }
+        const warning = args.file
+          ? checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.file))
+          : null;
         const result = await renameSymbolTool.execute(args);
         if (result.success && args.file) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.file]);
         }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 
@@ -765,11 +768,13 @@ export function buildTools(
       execute: deferExecute(async (args) => {
         const gate = await gateOutsideCwd("move_symbol", resolve(args.to));
         if (gate.blocked) return gate.result;
+        const fromWarn = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.from));
+        const toWarn = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.to));
         const result = await moveSymbolTool.execute(args);
         if (result.success) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
         }
-        return result;
+        return prependWarning(prependWarning(result, toWarn), fromWarn);
       }),
     }),
 
@@ -782,11 +787,12 @@ export function buildTools(
       execute: deferExecute(async (args) => {
         const gate = await gateOutsideCwd("rename_file", resolve(args.to));
         if (gate.blocked) return gate.result;
+        const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.from));
         const result = await renameFileTool.execute(args);
         if (result.success) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
         }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 
@@ -819,11 +825,14 @@ export function buildTools(
           const gate = await gateOutsideCwd("refactor", resolve(args.file));
           if (gate.blocked) return gate.result;
         }
+        const warning = args.file
+          ? checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.file))
+          : null;
         const result = await refactorTool.execute(args);
         if (result.success && args.file) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.file]);
         }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 
@@ -878,7 +887,13 @@ export function buildTools(
           .describe("Test framework (auto-detected from project toolchain)"),
         output: z.string().optional().describe("Output path for test file"),
       }),
-      execute: deferExecute((args) => testScaffoldTool.execute(args)),
+      execute: deferExecute(async (args) => {
+        const result = await testScaffoldTool.execute(args);
+        if (result.success && args.output) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [resolve(args.output)]);
+        }
+        return result;
+      }),
     }),
 
     project: tool({
@@ -1335,11 +1350,14 @@ export function buildSubagentCodeTools(opts?: {
         file: z.string().optional().describe("File where the symbol is defined (optional)"),
       }),
       execute: deferExecute(async (args) => {
+        const warning = args.file
+          ? checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.file))
+          : null;
         const result = await renameSymbolTool.execute(args);
         if (result.success && args.file) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.file]);
         }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 
@@ -1351,11 +1369,13 @@ export function buildSubagentCodeTools(opts?: {
         to: z.string().describe("Target file path"),
       }),
       execute: deferExecute(async (args) => {
+        const fromWarn = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.from));
+        const toWarn = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.to));
         const result = await moveSymbolTool.execute(args);
         if (result.success) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
         }
-        return result;
+        return prependWarning(prependWarning(result, toWarn), fromWarn);
       }),
     }),
 
@@ -1366,11 +1386,12 @@ export function buildSubagentCodeTools(opts?: {
         to: z.string().describe("New file path"),
       }),
       execute: deferExecute(async (args) => {
+        const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.from));
         const result = await renameFileTool.execute(args);
         if (result.success) {
           claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
         }
-        return result;
+        return prependWarning(result, warning);
       }),
     }),
 
@@ -1386,6 +1407,12 @@ export function buildSubagentCodeTools(opts?: {
         const result = await shellTool.execute(args, abortSignal);
         if (result.success && opts?.repoMap?.isReady) {
           opts.repoMap.recheckModifiedFiles();
+        }
+        if (result.success && opts?.tabId && opts?.tabLabel) {
+          const written = extractWrittenFiles(args.command);
+          if (written.length > 0) {
+            claimAfterCompoundEdit(opts.tabId, opts.tabLabel, written);
+          }
         }
         if (!result.success) return result;
         return { ...result, output: truncateBytes(result.output) };
