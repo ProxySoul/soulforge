@@ -29,8 +29,11 @@ const MAX_SUBAGENT_CONTEXT = 200_000;
 const KEEP_RECENT_MESSAGES = 4;
 
 // Step-count limits — hard caps to prevent runaway loops.
-const EXPLORE_MAX_STEPS = 25;
-const CODE_MAX_STEPS = 15;
+// Bumped +3 from original (25/15) to compensate for the final step being
+// forced to toolChoice:"none" (text-only) — agents need room to finish work
+// before the hard JSON-output lockdown kicks in.
+const EXPLORE_MAX_STEPS = 28;
+const CODE_MAX_STEPS = 18;
 // Step at which we inject a "wrap up" nudge (before hard stop)
 const STEP_NUDGE_EXPLORE = 18;
 const STEP_NUDGE_CODE = 10;
