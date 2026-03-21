@@ -1706,11 +1706,7 @@ export function useChat({
                           (m) => m.role !== "system" || m.showInChat,
                         ),
                       });
-                      try {
-                        sessionManager.saveSession(meta, tabMessages);
-                      } catch {
-                        // Incremental save is best-effort — final save will retry
-                      }
+                      sessionManager.saveSession(meta, tabMessages).catch(() => {});
                       return prev;
                     });
                   } catch {
@@ -1822,18 +1818,14 @@ export function useChat({
           queueMicrotask(() => {
             const snapshot = getWorkspaceSnapshot?.();
             if (snapshot) {
-              try {
-                const { meta, tabMessages } = buildSessionMeta({
-                  sessionId: sessionIdRef.current,
-                  title: SessionManager.deriveTitle(allMsgs),
-                  cwd,
-                  snapshot,
-                  currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
-                });
-                sessionManager.saveSession(meta, tabMessages);
-              } catch {
-                // best-effort — exit save is the final fallback
-              }
+              const { meta, tabMessages } = buildSessionMeta({
+                sessionId: sessionIdRef.current,
+                title: SessionManager.deriveTitle(allMsgs),
+                cwd,
+                snapshot,
+                currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
+              });
+              sessionManager.saveSession(meta, tabMessages).catch(() => {});
             }
           });
           return allMsgs;

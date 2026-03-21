@@ -19,6 +19,7 @@ function exploreBase(): string {
     "DEPTH: After reading targets, trace one level of callers (navigate references). Flag disconnects: stated vs actual behavior, missing enforcement, edge cases.",
     "Use read_file with target + name for specific symbols instead of re-reading full files.",
     "STEP BUDGET: ~15 tool calls. Past 10 reads = you likely have enough.",
+    'OUTPUT: When done with tools, respond with a JSON object: {"summary":"...","filesExamined":[...],"keyFindings":[{"file":"...","detail":"paste actual code"}],"gaps":[...],"connections":[...]}. Paste full code in keyFindings — the parent is BLIND to your tool results.',
   ].join("\n");
 }
 

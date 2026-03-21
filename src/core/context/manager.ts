@@ -814,7 +814,7 @@ export class ContextManager {
 
     parts.push(
       "Style: zero filler. No narration ('Let me...', 'Now I'll...', 'I can see that...'). No restating what the user said. No transition sentences between tool calls. Deliver results, not commentary. Code blocks with language hints.",
-      "Prior messages are automatically compressed as the conversation approaches context limits — your conversation is not limited by the context window. Do NOT preemptively save, dump, or repeat state in your text output.",
+      "Context is managed for you — your conversation has no effective length limit. Stay focused on the current task.",
       ...(isMinimal
         ? ["On tool failure: read the error, adjust approach. Never retry the exact same call."]
         : [

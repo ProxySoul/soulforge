@@ -73,6 +73,9 @@ function formatToolArgs(toolCall: { toolName: string; input?: unknown }): string
 
 export function buildStepCallbacks(parentToolCallId: string, agentId?: string) {
   const acc = { toolUses: 0, stepCount: 0, input: 0, output: 0, cacheRead: 0 };
+  // Accumulate steps so they survive NoObjectGeneratedError (AI SDK doesn't attach steps to that error)
+  // biome-ignore lint/suspicious/noExplicitAny: step shape varies across SDK versions
+  const steps: any[] = [];
 
   return {
     experimental_onToolCallStart: (event: { toolCall?: { toolName: string; input?: unknown } }) => {
@@ -111,12 +114,14 @@ export function buildStepCallbacks(parentToolCallId: string, agentId?: string) {
     },
     onStepFinish: (step: {
       toolCalls?: unknown[];
+      toolResults?: unknown[];
       usage?: {
         inputTokens?: number;
         outputTokens?: number;
         inputTokenDetails?: { cacheReadTokens?: number };
       };
     }) => {
+      steps.push(step);
       acc.stepCount++;
       acc.toolUses += step.toolCalls?.length ?? 0;
       acc.input += step.usage?.inputTokens ?? 0;
@@ -134,6 +139,7 @@ export function buildStepCallbacks(parentToolCallId: string, agentId?: string) {
       }
     },
     _acc: acc,
+    _steps: steps,
   };
 }
 
@@ -404,6 +410,7 @@ export function buildSubagentTools(models: SubagentModels) {
             }
 
             // Completeness check: for code tasks, warn about missing dependents
+            // Skip files not in the repo map index — they were likely just created
             if (repoMap) {
               const codeFiles = rawArgs.tasks
                 .filter((t) => t.role === "code")
@@ -411,6 +418,7 @@ export function buildSubagentTools(models: SubagentModels) {
               if (codeFiles.length > 0) {
                 const missingDeps: string[] = [];
                 for (const f of codeFiles) {
+                  if (!verified.includes(f)) continue; // skip files not in repo map
                   const importers = repoMap.getFileDependents(f);
                   for (const imp of importers.slice(0, 5)) {
                     if (!contractSet.has(imp.path) && !codeFiles.includes(imp.path)) {
@@ -684,6 +692,29 @@ export function buildSubagentTools(models: SubagentModels) {
             };
           });
 
+          // Auto-serialize code agents that target the same file —
+          // concurrent edits to the same file cause old_string mismatch failures.
+          // Build a LINEAR chain per file: A→B→C so each agent edits after
+          // the previous one finishes (prevents concurrent edit conflicts).
+          if (tasks.length > 1) {
+            const lastEditor = new Map<string, string>(); // file → most recent agent's id
+            for (let i = 0; i < args.tasks.length; i++) {
+              const t = args.tasks[i];
+              const task = tasks[i];
+              if (!t || !task || task.role !== "code") continue;
+              for (const f of t.targetFiles) {
+                const prev = lastEditor.get(f);
+                if (prev && prev !== task.agentId) {
+                  if (!task.dependsOn) task.dependsOn = [];
+                  if (!task.dependsOn.includes(prev)) {
+                    task.dependsOn.push(prev);
+                  }
+                }
+                lastEditor.set(f, task.agentId);
+              }
+            }
+          }
+
           bus.registerTasks(tasks);
 
           bus.onCacheEvent = (agentId, type, path, sourceAgentId) => {
@@ -823,6 +854,21 @@ export function buildSubagentTools(models: SubagentModels) {
             const delay = hasDeps ? 0 : idx * STAGGER_MS + jitter;
 
             const run = async () => {
+              // Wait for dependencies BEFORE acquiring a concurrency slot.
+              // Otherwise dependent agents hold slots while waiting, deadlocking
+              // the agents they depend on from ever starting.
+              // DependencyFailedError is caught so runAgentTask can handle it
+              // gracefully (emit events, set bus result) instead of crashing Promise.all.
+              if (hasDeps && task.dependsOn) {
+                try {
+                  await Promise.all(
+                    task.dependsOn.map((dep) => bus.waitForAgent(dep, task.timeoutMs ?? 300_000)),
+                  );
+                } catch {
+                  // Dep failed or timed out — fall through to runAgentTask which
+                  // will detect the same condition and handle it with proper eventing
+                }
+              }
               await acquireConcurrencySlot();
               try {
                 const { doneResult } = await runAgentTask(

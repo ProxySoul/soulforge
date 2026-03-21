@@ -328,10 +328,12 @@ export function App({
 
   // Kick the renderer after layout-affecting transitions to prevent stale paints.
   // requestRender() is a no-op if nothing is dirty — safe to call.
+  const reasoningExpanded = useUIStore((s) => s.reasoningExpanded);
+  const codeExpanded = useUIStore((s) => s.codeExpanded);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-run on layout transitions, not just renderer change
   useEffect(() => {
     renderer.requestRender();
-  }, [editorOpen, editorVisible, focusMode, renderer]);
+  }, [editorOpen, editorVisible, focusMode, reasoningExpanded, codeExpanded, renderer]);
 
   const handleEditorClosed = useCallback(() => {
     setEditorVisible(false);
@@ -537,7 +539,7 @@ export function App({
       }
       setShutdownPhase(1);
 
-      schedule(() => {
+      schedule(async () => {
         try {
           const activeChat = tabMgrRef.current.getActiveChat();
           const hasUserMessages = activeChat?.messages.some(
@@ -554,7 +556,7 @@ export function App({
                 (m: ChatMessage) => m.role !== "system" || m.showInChat,
               ),
             });
-            sessionManager.saveSession(meta, tabMessages);
+            await sessionManager.saveSession(meta, tabMessages);
             setExitSessionId(meta.id);
             savedSessionIdRef.current = meta.id;
           }

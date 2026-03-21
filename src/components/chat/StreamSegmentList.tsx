@@ -67,12 +67,14 @@ export const StreamSegmentList = memo(function StreamSegmentList({
           );
         }
         if (seg.type === "reasoning") {
+          const rkey = `${seg.id}-${reasoningExpanded ? "exp" : "col"}`;
           return (
-            <box key={seg.id} marginTop={needsGap}>
+            <box key={rkey} flexDirection="column" marginTop={needsGap}>
               <ReasoningBlock
                 content={seg.content}
                 expanded={reasoningExpanded}
                 isStreaming={!seg.done}
+                id={seg.id}
               />
             </box>
           );

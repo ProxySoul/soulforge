@@ -126,14 +126,14 @@ describe("Concurrency — SessionManager", () => {
 	it("save during load doesn't produce half-written state", async () => {
 		const meta = makeMeta("save-load-race");
 		const msgs = [makeMessage("user", "original")];
-		manager.saveSession(meta, new Map([["tab-1", msgs]]));
+		await manager.saveSession(meta, new Map([["tab-1", msgs]]));
 
 		const results = await Promise.all([
 			Promise.resolve().then(() => manager.loadSession("save-load-race")),
 			Promise.resolve().then(() => {
 				const newMeta = makeMeta("save-load-race");
 				newMeta.title = "Updated";
-				manager.saveSession(newMeta, new Map([["tab-1", [makeMessage("user", "updated")]]]));
+				return manager.saveSession(newMeta, new Map([["tab-1", [makeMessage("user", "updated")]]]));
 			}),
 		]);
 
@@ -153,7 +153,7 @@ describe("Concurrency — SessionManager", () => {
 	});
 
 	it("concurrent deletes don't throw", async () => {
-		manager.saveSession(makeMeta("del-race"), new Map([["tab-1", []]]));
+		await manager.saveSession(makeMeta("del-race"), new Map([["tab-1", []]]));
 
 		const results = await Promise.allSettled([
 			Promise.resolve().then(() => manager.deleteSession("del-race")),
@@ -764,19 +764,19 @@ describe("Error paths — SessionManager", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("save with empty tabMessages map still creates valid session", () => {
+	it("save with empty tabMessages map still creates valid session", async () => {
 		const meta = makeMeta("empty-tabs");
-		manager.saveSession(meta, new Map());
+		await manager.saveSession(meta, new Map());
 
 		const loaded = manager.loadSession("empty-tabs");
 		expect(loaded).not.toBeNull();
 		expect(loaded!.tabMessages.get("tab-1")).toHaveLength(0);
 	});
 
-	it("session with messages containing newlines roundtrips", () => {
+	it("session with messages containing newlines roundtrips", async () => {
 		const meta = makeMeta("newline-msg");
 		const msgs = [makeMessage("user", "line1\nline2\nline3")];
-		manager.saveSession(meta, new Map([["tab-1", msgs]]));
+		await manager.saveSession(meta, new Map([["tab-1", msgs]]));
 
 		const loaded = manager.loadSession("newline-msg");
 		expect(loaded).not.toBeNull();
@@ -785,42 +785,42 @@ describe("Error paths — SessionManager", () => {
 		expect(loadedMsgs![0]!.content).toBe("line1\nline2\nline3");
 	});
 
-	it("session with unicode messages roundtrips", () => {
+	it("session with unicode messages roundtrips", async () => {
 		const meta = makeMeta("unicode-msg");
 		const msgs = [makeMessage("user", "日本語 🎉 émoji café")];
-		manager.saveSession(meta, new Map([["tab-1", msgs]]));
+		await manager.saveSession(meta, new Map([["tab-1", msgs]]));
 
 		const loaded = manager.loadSession("unicode-msg");
 		expect(loaded!.tabMessages.get("tab-1")![0]!.content).toBe("日本語 🎉 émoji café");
 	});
 
-	it("session with very large message roundtrips", () => {
+	it("session with very large message roundtrips", async () => {
 		const meta = makeMeta("large-msg");
 		const bigContent = "x".repeat(1_000_000);
 		const msgs = [makeMessage("user", bigContent)];
-		manager.saveSession(meta, new Map([["tab-1", msgs]]));
+		await manager.saveSession(meta, new Map([["tab-1", msgs]]));
 
 		const loaded = manager.loadSession("large-msg");
 		expect(loaded!.tabMessages.get("tab-1")![0]!.content.length).toBe(1_000_000);
 	});
 
-	it("overwriting a session replaces cleanly", () => {
+	it("overwriting a session replaces cleanly", async () => {
 		const meta1 = makeMeta("overwrite");
 		meta1.title = "First version";
-		manager.saveSession(meta1, new Map([["tab-1", [makeMessage("user", "v1")]]]));
+		await manager.saveSession(meta1, new Map([["tab-1", [makeMessage("user", "v1")]]]));
 
 		const meta2 = makeMeta("overwrite");
 		meta2.title = "Second version";
-		manager.saveSession(meta2, new Map([["tab-1", [makeMessage("user", "v2")]]]));
+		await manager.saveSession(meta2, new Map([["tab-1", [makeMessage("user", "v2")]]]));
 
 		const loaded = manager.loadSession("overwrite");
 		expect(loaded!.meta.title).toBe("Second version");
 		expect(loaded!.tabMessages.get("tab-1")![0]!.content).toBe("v2");
 	});
 
-	it("meta.json with extra unknown fields loads gracefully", () => {
+	it("meta.json with extra unknown fields loads gracefully", async () => {
 		const meta = makeMeta("extra-fields");
-		manager.saveSession(meta, new Map([["tab-1", [makeMessage("user", "test")]]]));
+		await manager.saveSession(meta, new Map([["tab-1", [makeMessage("user", "test")]]]));
 
 		// Inject extra field into meta.json
 		const metaPath = join(dir, ".soulforge", "sessions", "extra-fields", "meta.json");
@@ -854,8 +854,8 @@ describe("Error paths — SessionManager", () => {
 		expect(title.endsWith("...")).toBe(true);
 	});
 
-	it("findByPrefix is case-insensitive", () => {
-		manager.saveSession(makeMeta("MySession-123"), new Map([["tab-1", []]]));
+	it("findByPrefix is case-insensitive", async () => {
+		await manager.saveSession(makeMeta("MySession-123"), new Map([["tab-1", []]]));
 		expect(manager.findByPrefix("mysession")).toBe("MySession-123");
 		expect(manager.findByPrefix("MYSESSION")).toBe("MySession-123");
 		expect(manager.findByPrefix("MySession")).toBe("MySession-123");
@@ -969,7 +969,7 @@ describe("Data integrity — SessionManager messageRange", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("multi-tab message ranges don't overlap", () => {
+	it("multi-tab message ranges don't overlap", async () => {
 		const meta = makeMeta("range-test", [{ id: "t1" }, { id: "t2" }, { id: "t3" }]);
 		const tabMessages = new Map([
 			["t1", [makeMessage("user", "t1-msg1"), makeMessage("assistant", "t1-msg2")]],
@@ -977,7 +977,7 @@ describe("Data integrity — SessionManager messageRange", () => {
 			["t3", [makeMessage("user", "t3-msg1"), makeMessage("assistant", "t3-msg2"), makeMessage("user", "t3-msg3")]],
 		]);
 
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 		const loaded = manager.loadSession("range-test");
 		expect(loaded).not.toBeNull();
 
@@ -997,14 +997,14 @@ describe("Data integrity — SessionManager messageRange", () => {
 		expect(t3Msgs[2]!.content).toBe("t3-msg3");
 	});
 
-	it("tab with no messages in tabMessages gets empty array", () => {
+	it("tab with no messages in tabMessages gets empty array", async () => {
 		const meta = makeMeta("missing-tab", [{ id: "t1" }, { id: "t2" }]);
 		// Only provide messages for t1, not t2
 		const tabMessages = new Map([
 			["t1", [makeMessage("user", "hello")]],
 		]);
 
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 		const loaded = manager.loadSession("missing-tab");
 		expect(loaded).not.toBeNull();
 

@@ -403,6 +403,7 @@ export const InputBox = memo(function InputBox({
           isNavigatingHistory.current = true;
           setValue(selected.entry);
           textareaRef.current?.setText(selected.entry);
+          textareaRef.current?.gotoBufferEnd();
           lineCountRef.current = (selected.entry.match(/\n/g)?.length ?? 0) + 1;
           cursorLineRef.current = 0;
         }

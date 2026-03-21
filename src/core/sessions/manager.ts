@@ -1,13 +1,5 @@
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { ChatMessage } from "../../types/index.js";
@@ -48,7 +40,7 @@ export class SessionManager {
     return total;
   }
 
-  saveSession(meta: SessionMeta, tabMessages: Map<string, ChatMessage[]>): void {
+  async saveSession(meta: SessionMeta, tabMessages: Map<string, ChatMessage[]>): Promise<void> {
     this.ensureDir();
     const sessionDir = join(this.dir, meta.id);
     if (!existsSync(sessionDir)) {
@@ -73,15 +65,16 @@ export class SessionManager {
     const jsonlPath = join(sessionDir, "messages.jsonl");
     const lines = allMessages.map((m) => JSON.stringify(m)).join("\n");
 
-    const metaTmp = `${metaPath}.tmp`;
-    const jsonlTmp = `${jsonlPath}.tmp`;
-    writeFileSync(metaTmp, JSON.stringify(updatedMeta, null, 2), {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const metaTmp = `${metaPath}.${suffix}.tmp`;
+    const jsonlTmp = `${jsonlPath}.${suffix}.tmp`;
+    await writeFile(metaTmp, JSON.stringify(updatedMeta, null, 2), {
       encoding: "utf-8",
       mode: 0o600,
     });
-    writeFileSync(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
-    renameSync(jsonlTmp, jsonlPath);
-    renameSync(metaTmp, metaPath);
+    await writeFile(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
+    await rename(jsonlTmp, jsonlPath);
+    await rename(metaTmp, metaPath);
   }
 
   loadSession(id: string): { meta: SessionMeta; tabMessages: Map<string, ChatMessage[]> } | null {

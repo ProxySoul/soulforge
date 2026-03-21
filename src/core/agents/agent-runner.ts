@@ -303,22 +303,21 @@ export async function runAgentTask(
         });
       } catch (genErr: unknown) {
         // Output.object() throws NoObjectGeneratedError when the model's final
-        // response can't be parsed into the Zod schema. ToolLoopAgent throws
-        // NoOutputGeneratedError when no output is produced at all. Both lack
-        // .steps in AI SDK v6 (vercel/ai#13075), so we synthesize from bus data.
+        // response can't be parsed into the Zod schema (e.g. model returns "."
+        // instead of JSON). ToolLoopAgent throws NoOutputGeneratedError when no
+        // output is produced at all. Neither carries .steps, so we recover them
+        // from the onStepFinish callback accumulator.
         const errWithSteps = genErr as { steps?: unknown[]; text?: string; totalUsage?: unknown };
-        if (errWithSteps.steps && Array.isArray(errWithSteps.steps)) {
-          result = {
-            text: errWithSteps.text ?? "",
-            output: undefined,
-            steps: errWithSteps.steps,
-            totalUsage: errWithSteps.totalUsage ?? { inputTokens: 0, outputTokens: 0 },
-          };
-          logBackgroundError(
-            task.agentId,
-            `Output schema failed: ${genErr instanceof Error ? genErr.message : String(genErr)}`,
-          );
-        } else if (
+        // Prefer steps from the error object, fall back to callback-accumulated steps
+        const recoveredSteps =
+          errWithSteps.steps && Array.isArray(errWithSteps.steps)
+            ? errWithSteps.steps
+            : callbacks._steps.length > 0
+              ? callbacks._steps
+              : [];
+
+        if (
+          errWithSteps.steps ||
           NoObjectGeneratedError.isInstance(genErr) ||
           NoOutputGeneratedError.isInstance(genErr)
         ) {
@@ -331,23 +330,19 @@ export async function runAgentTask(
           result = {
             text: errObj.text ?? "",
             output: undefined,
-            steps: [],
+            steps: recoveredSteps,
             totalUsage: {
               inputTokens: errObj.usage?.inputTokens ?? callbacks._acc.input,
               outputTokens: errObj.usage?.outputTokens ?? callbacks._acc.output,
             },
           };
           const diagParts = [
-            `Output schema failed: ${genErr instanceof Error ? genErr.message : String(genErr)}`,
+            `Output schema failed (${String(recoveredSteps.length)} steps recovered): ${genErr instanceof Error ? genErr.message : String(genErr)}`,
           ];
           if (errObj.finishReason) diagParts.push(`finishReason: ${errObj.finishReason}`);
           if (errObj.cause)
             diagParts.push(
               `cause: ${errObj.cause instanceof Error ? errObj.cause.message : String(errObj.cause)}`,
-            );
-          if (errObj.text)
-            diagParts.push(
-              `text (${String(errObj.text.length)} chars): ${errObj.text.slice(0, 500)}`,
             );
           logBackgroundError(task.agentId, diagParts.join("\n"));
         } else {
@@ -416,6 +411,14 @@ export async function runAgentTask(
         // Synthesis with real findings from bus or steps counts as done
         if (agentFindings.length > 0 || result.steps.length > 0) {
           calledDone = true;
+        }
+      }
+
+      // Code agents that report done but edited nothing are false positives
+      if (calledDone && task.role === "code") {
+        const agentEdits = bus.getEditedFiles(task.agentId);
+        if (agentEdits.size === 0) {
+          calledDone = false;
         }
       }
 

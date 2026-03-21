@@ -29,11 +29,11 @@ const MAX_SUBAGENT_CONTEXT = 200_000;
 const KEEP_RECENT_MESSAGES = 4;
 
 // Step-count limits — hard caps to prevent runaway loops.
-const EXPLORE_MAX_STEPS = 20;
-const CODE_MAX_STEPS = 12;
+const EXPLORE_MAX_STEPS = 25;
+const CODE_MAX_STEPS = 15;
 // Step at which we inject a "wrap up" nudge (before hard stop)
-const STEP_NUDGE_EXPLORE = 14;
-const STEP_NUDGE_CODE = 7;
+const STEP_NUDGE_EXPLORE = 18;
+const STEP_NUDGE_CODE = 10;
 // Consecutive read operations before injecting a "stop reading, start editing" hint
 const CONSECUTIVE_READ_LIMIT = 3;
 
@@ -502,22 +502,33 @@ export function buildPrepareStep({
       if (consecutiveReads >= CONSECUTIVE_READ_LIMIT) {
         const existing = result.system ?? "";
         const hint = isExplore
-          ? "Act on what you have: produce your structured output, or use a search tool (soul_grep, grep) if you need something specific."
+          ? 'Act on what you have: produce your JSON output {"summary":"...","filesExamined":[...],"keyFindings":[...]}, or use a search tool (soul_grep, grep) if you need something specific.'
           : "You have the file contents. Apply your edits with multi_edit NOW.";
         result.system =
           `${existing}\n\n${String(consecutiveReads)} consecutive reads without action. ${hint}`.trim();
       }
     }
 
-    // Step-count nudge: approaching hard step limit, tell agent to wrap up
-    if (stepNumber >= stepNudgeAt && !nudgeFired) {
+    // Step-count nudge: progressively stronger as agent approaches step limit
+    if (stepNumber >= stepNudgeAt) {
       const remaining = maxSteps - stepNumber;
       const existing = result.system ?? "";
-      const hint = isExplore
-        ? "Produce your structured output now with all findings gathered so far."
-        : "Apply your edits NOW with multi_edit and produce your structured output. No more reading.";
-      result.system =
-        `${existing}\n\n⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. ${hint}`.trim();
+      if (remaining <= 2) {
+        // Final warning — restrict to edit/done tools only
+        const hint = isExplore
+          ? 'Produce your JSON output NOW: {"summary":"...","filesExamined":[...],"keyFindings":[{"file":"...","detail":"paste code"}]}. No more tool calls.'
+          : 'Apply edits with multi_edit NOW then produce JSON output: {"summary":"...","filesEdited":[{"file":"...","changes":"..."}]}. Last chance.';
+        result.system = `${existing}\n\n🛑 ${String(remaining)} steps left. ${hint}`.trim();
+        if (!isExplore) {
+          result.activeTools = ["edit_file", "multi_edit", "done", "report_finding"];
+        }
+      } else {
+        const hint = isExplore
+          ? 'Produce your JSON output now: {"summary":"...","filesExamined":[...],"keyFindings":[{"file":"...","detail":"paste code"}]}.'
+          : 'Apply your edits NOW with multi_edit then produce JSON output: {"summary":"...","filesEdited":[...]}. No more reading.';
+        result.system =
+          `${existing}\n\n⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. ${hint}`.trim();
+      }
     }
 
     // Nudge structured output before tokenStop fires.
@@ -543,7 +554,7 @@ export function buildPrepareStep({
           content: [
             {
               type: "text" as const,
-              text: "Stop calling tools. Produce your structured output now with all findings gathered so far.",
+              text: 'Stop calling tools. Respond with a JSON object now: {"summary":"...","filesExamined":[...],"keyFindings":[{"file":"...","detail":"paste code"}]}.',
             },
           ],
         },

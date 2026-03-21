@@ -51,12 +51,12 @@ describe("SessionManager", () => {
 		if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
 	});
 
-	it("saves and loads a session round-trip", () => {
+	it("saves and loads a session round-trip", async () => {
 		const meta = makeMeta("sess-1");
 		const msgs = [makeMessage("user", "hello"), makeMessage("assistant", "hi")];
 		const tabMessages = new Map([["tab-1", msgs]]);
 
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 		const loaded = manager.loadSession("sess-1");
 
 		expect(loaded).not.toBeNull();
@@ -67,11 +67,11 @@ describe("SessionManager", () => {
 		expect(loadedMsgs![1]!.content).toBe("hi");
 	});
 
-	it("atomic writes — no .tmp files left after save", () => {
+	it("atomic writes — no .tmp files left after save", async () => {
 		const meta = makeMeta("sess-2");
 		const tabMessages = new Map([["tab-1", [makeMessage("user", "test")]]]);
 
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 
 		const sessionDir = join(TEST_DIR, ".soulforge", "sessions", "sess-2");
 		expect(existsSync(join(sessionDir, "meta.json"))).toBe(true);
@@ -80,10 +80,10 @@ describe("SessionManager", () => {
 		expect(existsSync(join(sessionDir, "messages.jsonl.tmp"))).toBe(false);
 	});
 
-	it("handles corrupted meta.json gracefully", () => {
+	it("handles corrupted meta.json gracefully", async () => {
 		const meta = makeMeta("sess-corrupt");
 		const tabMessages = new Map([["tab-1", [makeMessage("user", "test")]]]);
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 
 		const metaPath = join(TEST_DIR, ".soulforge", "sessions", "sess-corrupt", "meta.json");
 		writeFileSync(metaPath, "{ broken json ---");
@@ -92,11 +92,11 @@ describe("SessionManager", () => {
 		expect(loaded).toBeNull();
 	});
 
-	it("recovers valid lines before corruption in messages.jsonl", () => {
+	it("recovers valid lines before corruption in messages.jsonl", async () => {
 		const meta = makeMeta("sess-jsonl-corrupt");
 		const msgs = [makeMessage("user", "hello"), makeMessage("assistant", "hi")];
 		const tabMessages = new Map([["tab-1", msgs]]);
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 
 		const jsonlPath = join(
 			TEST_DIR,
@@ -114,10 +114,10 @@ describe("SessionManager", () => {
 		expect((tabMsgs[0] as { role: string }).role).toBe("user");
 	});
 
-	it("handles missing messages.jsonl (meta exists, data missing)", () => {
+	it("handles missing messages.jsonl (meta exists, data missing)", async () => {
 		const meta = makeMeta("sess-no-jsonl");
 		const tabMessages = new Map([["tab-1", [makeMessage("user", "test")]]]);
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 
 		const jsonlPath = join(
 			TEST_DIR,
@@ -133,21 +133,21 @@ describe("SessionManager", () => {
 		expect(loaded!.tabMessages.get("tab-1")).toHaveLength(0);
 	});
 
-	it("handles empty messages.jsonl", () => {
+	it("handles empty messages.jsonl", async () => {
 		const meta = makeMeta("sess-empty");
 		const tabMessages = new Map([["tab-1", []]]);
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 
 		const loaded = manager.loadSession("sess-empty");
 		expect(loaded).not.toBeNull();
 		expect(loaded!.tabMessages.get("tab-1")).toHaveLength(0);
 	});
 
-	it("handles truncated messages.jsonl (partial last line)", () => {
+	it("handles truncated messages.jsonl (partial last line)", async () => {
 		const meta = makeMeta("sess-trunc");
 		const msgs = [makeMessage("user", "hello"), makeMessage("assistant", "world")];
 		const tabMessages = new Map([["tab-1", msgs]]);
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 
 		const jsonlPath = join(
 			TEST_DIR,
@@ -169,20 +169,20 @@ describe("SessionManager", () => {
 		expect(manager.loadSession("does-not-exist")).toBeNull();
 	});
 
-	it("deletes a session", () => {
+	it("deletes a session", async () => {
 		const meta = makeMeta("sess-del");
-		manager.saveSession(meta, new Map([["tab-1", []]]));
+		await manager.saveSession(meta, new Map([["tab-1", []]]));
 		expect(manager.deleteSession("sess-del")).toBe(true);
 		expect(manager.loadSession("sess-del")).toBeNull();
 	});
 
-	it("lists sessions sorted by updatedAt descending", () => {
+	it("lists sessions sorted by updatedAt descending", async () => {
 		const m1 = makeMeta("sess-old");
 		m1.updatedAt = 1000;
 		const m2 = makeMeta("sess-new");
 		m2.updatedAt = 2000;
-		manager.saveSession(m1, new Map([["tab-1", []]]));
-		manager.saveSession(m2, new Map([["tab-1", []]]));
+		await manager.saveSession(m1, new Map([["tab-1", []]]));
+		await manager.saveSession(m2, new Map([["tab-1", []]]));
 
 		const list = manager.listSessions();
 		expect(list).toHaveLength(2);
@@ -190,15 +190,15 @@ describe("SessionManager", () => {
 		expect(list[1]!.id).toBe("sess-old");
 	});
 
-	it("sessionCount returns correct count", () => {
-		manager.saveSession(makeMeta("s1"), new Map([["tab-1", []]]));
-		manager.saveSession(makeMeta("s2"), new Map([["tab-1", []]]));
+	it("sessionCount returns correct count", async () => {
+		await manager.saveSession(makeMeta("s1"), new Map([["tab-1", []]]));
+		await manager.saveSession(makeMeta("s2"), new Map([["tab-1", []]]));
 		expect(manager.sessionCount()).toBe(2);
 	});
 
-	it("clearAllSessions removes everything", () => {
-		manager.saveSession(makeMeta("s1"), new Map([["tab-1", []]]));
-		manager.saveSession(makeMeta("s2"), new Map([["tab-1", []]]));
+	it("clearAllSessions removes everything", async () => {
+		await manager.saveSession(makeMeta("s1"), new Map([["tab-1", []]]));
+		await manager.saveSession(makeMeta("s2"), new Map([["tab-1", []]]));
 		const cleared = manager.clearAllSessions();
 		expect(cleared).toBe(2);
 		expect(manager.sessionCount()).toBe(0);
@@ -211,14 +211,14 @@ describe("SessionManager", () => {
 		expect(title.endsWith("...")).toBe(true);
 	});
 
-	it("multi-tab session preserves per-tab messages", () => {
+	it("multi-tab session preserves per-tab messages", async () => {
 		const meta = makeMeta("sess-multi", [{ id: "tab-a" }, { id: "tab-b" }]);
 		const tabMessages = new Map([
 			["tab-a", [makeMessage("user", "tab a msg")]],
 			["tab-b", [makeMessage("user", "tab b msg1"), makeMessage("assistant", "tab b msg2")]],
 		]);
 
-		manager.saveSession(meta, tabMessages);
+		await manager.saveSession(meta, tabMessages);
 		const loaded = manager.loadSession("sess-multi");
 
 		expect(loaded).not.toBeNull();

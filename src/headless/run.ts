@@ -241,15 +241,15 @@ async function streamTurn(
   return { output, steps, tokens, toolCalls, filesEdited: [...filesEdited], error, exitCode };
 }
 
-function saveSession(
+async function saveSession(
   env: AgentEnv,
   chatMessages: ChatMessage[],
   tokens: { input: number; output: number; cacheRead: number },
   showProgress: boolean,
   isEvents: boolean,
-): string {
+): Promise<string> {
   const sessionId = crypto.randomUUID();
-  env.sessionManager.saveSession(
+  await env.sessionManager.saveSession(
     {
       id: sessionId,
       title: SessionManager.deriveTitle(chatMessages),
@@ -394,7 +394,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
       { id: crypto.randomUUID(), role: "user", content: prompt, timestamp: startTime },
       { id: crypto.randomUUID(), role: "assistant", content: turn.output, timestamp: Date.now() },
     ];
-    const savedId = saveSession(env, chatMessages, turn.tokens, showProgress, isEvents);
+    const savedId = await saveSession(env, chatMessages, turn.tokens, showProgress, isEvents);
     if (showProgress) {
       const shortId = savedId.slice(0, 8);
       process.stderr.write(
@@ -558,10 +558,10 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   let aborted = false;
   const turnAbort = new AbortController();
 
-  function cleanupAndExit(code: number): void {
+  async function cleanupAndExit(code: number): Promise<void> {
     let savedId: string | undefined;
     if (chatHistory.length > 0) {
-      savedId = saveSession(env, chatHistory, totalTokens, showProgress, isEvents);
+      savedId = await saveSession(env, chatHistory, totalTokens, showProgress, isEvents);
     }
 
     if (isEvents) {
@@ -681,5 +681,5 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     if (turn.error) break;
   }
 
-  cleanupAndExit(aborted ? EXIT_ABORT : EXIT_OK);
+  await cleanupAndExit(aborted ? EXIT_ABORT : EXIT_OK);
 }

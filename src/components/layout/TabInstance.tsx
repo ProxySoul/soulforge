@@ -528,14 +528,20 @@ export const TabInstance = memo(function TabInstance({
           {(hasChangedFiles || chat.messageQueue.length > 0) && (
             <box flexShrink={0} paddingX={1} flexDirection="row" gap={1}>
               {hasChangedFiles && <ChangedFilesBar messages={chat.messages} />}
-              {chat.messageQueue.length > 0 && (
-                <text fg="#FF8C00" truncate>
-                  │ Steering: {chat.messageQueue[chat.messageQueue.length - 1]?.content ?? ""}
-                  {chat.messageQueue.length > 1 && (
-                    <span fg="#666"> (+{String(chat.messageQueue.length - 1)})</span>
-                  )}
-                </text>
-              )}
+              {chat.messageQueue.length > 0 &&
+                (() => {
+                  const latest = chat.messageQueue[chat.messageQueue.length - 1]?.content ?? "";
+                  const firstLine = latest.split("\n")[0] ?? "";
+                  const extraLines = latest.split("\n").length - 1;
+                  const prevCount = chat.messageQueue.length - 1;
+                  return (
+                    <text fg="#FF8C00" truncate>
+                      │ Steering: {firstLine}
+                      {extraLines > 0 && <span fg="#666"> (+{String(extraLines)} lines)</span>}
+                      {prevCount > 0 && <span fg="#666"> (+{String(prevCount)} queued)</span>}
+                    </text>
+                  );
+                })()}
             </box>
           )}
           <box flexShrink={0} zIndex={10}>

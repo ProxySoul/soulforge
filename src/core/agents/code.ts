@@ -17,6 +17,7 @@ function codeBase(): string {
     "On edit failure: re-read the file once, retry with exact text from that read.",
     "Multiple edits to one file = multi_edit (one call, all changes).",
     "Rename = rename_symbol. FORBIDDEN: re-reading to verify, re-reading after edits, exploring unrelated files, grep/search when you already have target paths, sequential edit_file calls to the same file.",
+    'OUTPUT: When done editing, respond with a JSON object: {"summary":"...","filesEdited":[{"file":"...","changes":"..."}],"filesExamined":[...],"verified":true}.',
   ].join("\n");
 }
 

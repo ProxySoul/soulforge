@@ -4,7 +4,7 @@ import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
 const brainIcon = () => icon("brain");
 const BORDER = "#333";
 const BORDER_ACTIVE = "#3a3050";
-const TEXT_COLOR = "#444";
+const TEXT_COLOR = "#888";
 const MUTED = "#333";
 const DIMMED = "#3a3a3a";
 
@@ -12,6 +12,7 @@ interface Props {
   content: string;
   expanded: boolean;
   isStreaming?: boolean;
+  id: string;
 }
 
 function ThinkingSpinner() {
@@ -19,30 +20,29 @@ function ThinkingSpinner() {
   return <text fg="#5a4a70">{SPINNER_FRAMES[frame]}</text>;
 }
 
-export function ReasoningBlock({ content, expanded, isStreaming }: Props) {
+export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
   const lines = content.split("\n");
   const lineCount = lines.length;
 
   if (!expanded) {
     if (isStreaming) {
       return (
-        <box height={1} flexShrink={0} flexDirection="row">
+        <box key={`${id}-col`} height={1} flexShrink={0} flexDirection="row">
           <ThinkingSpinner />
           <text fg={DIMMED}> {brainIcon()} reasoning</text>
           {lineCount > 1 && <text fg={MUTED}> ({String(lineCount)} lines)</text>}
-          <text fg="#2a2a2a"> ^T</text>
+          <text fg="#2a2a2a"> ^O</text>
         </box>
       );
     }
     const firstLine = (lines[0] ?? "").trim();
     const preview = firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
     return (
-      <box height={1} flexShrink={0}>
+      <box key={`${id}-col`} height={1} flexShrink={0}>
         <text fg={DIMMED} truncate>
-          <span fg="#1a5">✓</span> {brainIcon()}{" "}
-          <span fg={TEXT_COLOR}>{preview || "Reasoned"}</span>
+          <span fg="#1a5">✓</span> {brainIcon()} <span fg={DIMMED}>{preview || "Reasoned"}</span>
           {lineCount > 1 && <span fg={MUTED}> ({String(lineCount)} lines)</span>}
-          <span fg="#333"> ^T</span>
+          <span fg="#333"> ^O</span>
         </text>
       </box>
     );
@@ -53,7 +53,14 @@ export function ReasoningBlock({ content, expanded, isStreaming }: Props) {
   const trimmed = content.trim();
 
   return (
-    <box flexDirection="column" flexShrink={0} border borderStyle="rounded" borderColor={bc}>
+    <box
+      key={`${id}-exp`}
+      flexDirection="column"
+      flexShrink={0}
+      border
+      borderStyle="rounded"
+      borderColor={bc}
+    >
       <box
         height={1}
         flexShrink={0}
@@ -64,11 +71,16 @@ export function ReasoningBlock({ content, expanded, isStreaming }: Props) {
       >
         <text truncate>
           <span fg="#5a4a70">{brainIcon()}</span> <span fg="#6a5a80">{label}</span>
-          <span fg="#333"> ^T</span>
+          <span fg="#333"> ^O</span>
         </text>
       </box>
-      <box paddingX={1}>
-        <text fg={TEXT_COLOR}>{trimmed || " "}</text>
+      <box flexDirection="column" paddingX={1}>
+        {trimmed.split("\n").map((line, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static split lines don't reorder
+          <text key={i} fg={TEXT_COLOR}>
+            {line}
+          </text>
+        ))}
       </box>
     </box>
   );

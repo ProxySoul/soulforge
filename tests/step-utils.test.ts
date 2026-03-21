@@ -755,7 +755,7 @@ describe("buildPrepareStep — token budgets", () => {
 		expect(result?.activeTools).toEqual([]);
 		const lastMsg = result!.messages![result!.messages!.length - 1];
 		const text = (lastMsg?.content as Array<{ text: string }>)[0]?.text;
-		expect(text).toContain("structured output");
+		expect(text).toContain("JSON object");
 	});
 
 	it("no nudge below 80% of context", () => {
