@@ -85,7 +85,11 @@ export function TabBar({ tabs, activeTabId, onSwitch: _onSwitch, getActivity }: 
               </text>
             )}
             {(activity?.editedFileCount ?? 0) > 0 && (
-              <text fg="#4a7"> 🔒{String(activity?.editedFileCount ?? 0)}</text>
+              <text fg="#4a7">
+                {" "}
+                {icon("lock")}
+                {String(activity?.editedFileCount ?? 0)}
+              </text>
             )}
             {hasUnread && !isLoading && !needsAttention && <text fg="#b87333"> ●</text>}
             {hasError && !isLoading && !needsAttention && <text fg="#a55"> ✗</text>}
