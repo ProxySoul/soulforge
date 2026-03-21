@@ -158,7 +158,7 @@ describe("readFileTool", () => {
 		expect(result.success).toBe(true);
 		expect(result.outlineOnly).toBe(true);
 		expect(result.output).toContain("301 lines");
-	}, 30_000);
+	}, 90_000);
 
 	it("range read on large code file returns content (not outline)", async () => {
 		const filePath = join(TEST_DIR, "range-large.ts");

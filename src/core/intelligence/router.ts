@@ -482,7 +482,12 @@ export class CodeIntelligenceRouter {
     }
     try {
       if (backend.initialize) {
-        await backend.initialize(this.cwd);
+        await Promise.race([
+          backend.initialize(this.cwd),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`${backend.name} init timeout`)), 10_000),
+          ),
+        ]);
       }
       this.initialized.add(backend.name);
     } catch (err) {
