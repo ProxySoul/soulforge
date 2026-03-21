@@ -18,6 +18,7 @@ interface EditEntry {
 interface MultiEditArgs {
   path: string;
   edits: EditEntry[];
+  tabId?: string;
 }
 
 /**
@@ -105,7 +106,7 @@ export const multiEditTool = {
       }
 
       // Push single undo entry for the entire batch
-      pushEdit(filePath, originalContent);
+      pushEdit(filePath, originalContent, args.tabId);
 
       await writeFile(filePath, content, "utf-8");
       emitFileEdited(filePath, content);

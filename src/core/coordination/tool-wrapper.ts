@@ -64,3 +64,19 @@ export function prependWarning<T>(result: T, warning: string | null): T {
   }
   return result;
 }
+
+/**
+ * Post-hoc claim files after a compound tool (rename_symbol, move_symbol, etc.) succeeds.
+ * These tools modify files but don't go through edit_file/multi_edit, so they need
+ * explicit claiming to keep other tabs informed.
+ */
+export function claimAfterCompoundEdit(
+  tabId: string | undefined,
+  tabLabel: string | undefined,
+  paths: string[],
+): void {
+  if (!tabId || !tabLabel || paths.length === 0) return;
+  const coordinator = getWorkspaceCoordinator();
+  const absPaths = paths.filter(Boolean).map((p) => resolve(p));
+  coordinator.claimFiles(tabId, tabLabel, absPaths);
+}

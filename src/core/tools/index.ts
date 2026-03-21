@@ -3,7 +3,12 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { tool } from "ai";
 import { z } from "zod";
 import type { EditorIntegration } from "../../types/index.js";
-import { checkAndClaim, prependWarning } from "../coordination/tool-wrapper.js";
+import {
+  checkAndClaim,
+  claimAfterCompoundEdit,
+  prependWarning,
+} from "../coordination/tool-wrapper.js";
+import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
 import type { RepoMap } from "../intelligence/repo-map.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
@@ -67,6 +72,105 @@ function deferExecute<T, R>(fn: (args: T) => Promise<R>): (args: T) => Promise<R
     await new Promise<void>((r) => setTimeout(r, 0));
     return fn(args);
   };
+}
+
+/**
+/** @internal — exported for testing */
+export const GIT_MUTATING_SHELL_RE =
+  /\bgit\s+(commit|stash|restore|switch|merge|rebase|cherry-pick|reset)\b|\bgit\s+checkout\s+--/;
+
+export function isGitMutatingShellCommand(command: string): boolean {
+  return GIT_MUTATING_SHELL_RE.test(command);
+}
+
+/** Detect shell commands that write to specific files (sed -i, cp, mv, tee, etc.) */
+export const FILE_WRITE_SHELL_PATTERNS: Array<{
+  re: RegExp;
+  extractor: (m: RegExpMatchArray) => string[];
+}> = [
+  // sed -i / sed --in-place — file is the LAST argument
+  {
+    re: /\bsed\s+(?:-[^\s]*i[^\s]*|--in-place)\s+(.+)/,
+    extractor: (m) => {
+      const rest = (m[1] ?? "").trim();
+      // Split on whitespace, skip quoted expressions and flags
+      const tokens = rest.match(/(?:'[^']*'|"[^"]*"|[^\s]+)/g) ?? [];
+      // File is the last non-flag, non-quoted-expression token
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        const t = tokens[i];
+        if (!t || t.startsWith("-") || t.startsWith("'") || t.startsWith('"')) continue;
+        if (/^s[/|#]/.test(t)) continue; // skip s/pattern/repl/ without quotes
+        return [t];
+      }
+      return [];
+    },
+  },
+  // perl -i / perl -pi -e
+  {
+    re: /\bperl\s+(?:-[^\s]*i[^\s]*)\s+.*?([^\s'"|;&>]+\.\w+)/,
+    extractor: (m) => (m[1] ? [m[1]] : []),
+  },
+  // cp/mv target (last arg)
+  {
+    re: /\b(cp|mv)\s+(?:-[^\s]+\s+)*(.+)/,
+    extractor: (m) => {
+      const args = (m[2] ?? "")
+        .trim()
+        .split(/\s+/)
+        .filter((a) => !a.startsWith("-"));
+      const last = args[args.length - 1];
+      return args.length >= 2 && last ? [last] : [];
+    },
+  },
+  // tee file
+  {
+    re: /\btee\s+(?:-[^\s]+\s+)*([^\s|;&>]+)/,
+    extractor: (m) => (m[1] ? [m[1]] : []),
+  },
+  // echo/printf > file or >> file
+  {
+    re: />{1,2}\s*([^\s|;&]+)/,
+    extractor: (m) => (m[1] ? [m[1]] : []),
+  },
+];
+
+/** Build a warning string showing other tabs' file claims for destructive command approval */
+function buildCrossTabDestructiveWarning(tabId?: string): string | null {
+  if (!tabId) return null;
+  const wc = getWorkspaceCoordinator();
+  const editors = wc.getActiveEditors();
+  const lines: string[] = [];
+  for (const [tid] of editors) {
+    if (tid === tabId) continue;
+    const tabClaims = wc.getClaimsForTab(tid);
+    if (tabClaims.size === 0) continue;
+    let label = "Unknown";
+    const paths: string[] = [];
+    for (const [p, claim] of tabClaims) {
+      label = claim.tabLabel;
+      paths.push(p);
+    }
+    const shown = paths.slice(0, 5);
+    const extra = paths.length > 5 ? ` (+${String(paths.length - 5)} more)` : "";
+    lines.push(`  Tab "${label}": ${shown.join(", ")}${extra}`);
+  }
+  if (lines.length === 0) return null;
+  return `⚠️ Other tabs are editing files:\n${lines.join("\n")}`;
+}
+
+export function extractWrittenFiles(command: string): string[] {
+  const files: string[] = [];
+  for (const { re, extractor } of FILE_WRITE_SHELL_PATTERNS) {
+    const m = command.match(re);
+    if (m) {
+      for (const f of extractor(m)) {
+        if (f && !f.startsWith("-") && !f.startsWith("/dev/")) {
+          files.push(f);
+        }
+      }
+    }
+  }
+  return files;
 }
 
 /**
@@ -212,7 +316,7 @@ export function buildTools(
           }
         }
         const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
-        const result = await editFileTool.execute(args);
+        const result = await editFileTool.execute({ ...args, tabId: opts?.tabId });
         if (warning && typeof result === "string") {
           return prependWarning(result, warning);
         }
@@ -226,7 +330,7 @@ export function buildTools(
         path: z.string().describe("File path to undo"),
         steps: z.number().optional().describe("Number of edits to undo (default 1, max 10)"),
       }),
-      execute: deferExecute((args) => undoEditTool.execute(args)),
+      execute: deferExecute((args) => undoEditTool.execute({ ...args, tabId: opts?.tabId })),
     }),
 
     multi_edit: tool({
@@ -254,7 +358,7 @@ export function buildTools(
           }
         }
         const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
-        const result = await multiEditTool.execute(args);
+        const result = await multiEditTool.execute({ ...args, tabId: opts?.tabId });
         if (warning && typeof result === "string") {
           return prependWarning(result, warning);
         }
@@ -406,9 +510,26 @@ export function buildTools(
           const gate = await gateOutsideCwd("shell", resolve(args.cwd));
           if (gate.blocked) return gate.result;
         }
+        // Block git-mutating commands during active dispatch (same guard as git tool)
+        if (opts?.tabId && isGitMutatingShellCommand(args.command)) {
+          const wc = getWorkspaceCoordinator();
+          const activeTabs = wc.getTabsWithActiveAgents(opts.tabId);
+          if (activeTabs.length > 0) {
+            const tabNames = activeTabs.map((t: string) => `"${t}"`).join(", ");
+            return {
+              success: false,
+              output: `Cannot run git command: Tab ${tabNames} has dispatch agents actively editing files. Wait for dispatch to complete, or use the git tool instead.`,
+              error: "active dispatch",
+            };
+          }
+        }
         if (opts?.onApproveDestructive && isDestructiveCommand(args.command)) {
           const desc = describeDestructiveCommand(args.command);
-          const approved = await opts.onApproveDestructive(`Shell: ${desc}\n\n\`${args.command}\``);
+          const crossTabWarning = buildCrossTabDestructiveWarning(opts.tabId);
+          const prompt = crossTabWarning
+            ? `Shell: ${desc}\n\n\`${args.command}\`\n\n${crossTabWarning}`
+            : `Shell: ${desc}\n\n\`${args.command}\``;
+          const approved = await opts.onApproveDestructive(prompt);
           if (!approved) {
             const msg = `Denied: ${desc}`;
             return { success: false, output: msg, error: msg };
@@ -417,6 +538,13 @@ export function buildTools(
         const result = await shellTool.execute(args, abortSignal);
         if (result.success && opts?.repoMap?.isReady) {
           opts.repoMap.recheckModifiedFiles();
+        }
+        // Post-hoc claim files written by shell commands (sed -i, cp, mv, tee, >)
+        if (result.success && opts?.tabId && opts?.tabLabel) {
+          const written = extractWrittenFiles(args.command);
+          if (written.length > 0) {
+            claimAfterCompoundEdit(opts.tabId, opts.tabLabel, written);
+          }
         }
         return result;
       },
@@ -613,7 +741,11 @@ export function buildTools(
           const gate = await gateOutsideCwd("rename_symbol", resolve(args.file));
           if (gate.blocked) return gate.result;
         }
-        return renameSymbolTool.execute(args);
+        const result = await renameSymbolTool.execute(args);
+        if (result.success && args.file) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.file]);
+        }
+        return result;
       }),
     }),
 
@@ -627,7 +759,11 @@ export function buildTools(
       execute: deferExecute(async (args) => {
         const gate = await gateOutsideCwd("move_symbol", resolve(args.to));
         if (gate.blocked) return gate.result;
-        return moveSymbolTool.execute(args);
+        const result = await moveSymbolTool.execute(args);
+        if (result.success) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
+        }
+        return result;
       }),
     }),
 
@@ -640,7 +776,11 @@ export function buildTools(
       execute: deferExecute(async (args) => {
         const gate = await gateOutsideCwd("rename_file", resolve(args.to));
         if (gate.blocked) return gate.result;
-        return renameFileTool.execute(args);
+        const result = await renameFileTool.execute(args);
+        if (result.success) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
+        }
+        return result;
       }),
     }),
 
@@ -673,7 +813,11 @@ export function buildTools(
           const gate = await gateOutsideCwd("refactor", resolve(args.file));
           if (gate.blocked) return gate.result;
         }
-        return refactorTool.execute(args);
+        const result = await refactorTool.execute(args);
+        if (result.success && args.file) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.file]);
+        }
+        return result;
       }),
     }),
 
@@ -797,7 +941,7 @@ export function buildTools(
       execute: deferExecute(async (args) => {
         const mutating = ["pull", "stash", "restore", "branch"].includes(args.action);
         if (mutating) resetReadCache();
-        return gitTool.execute(args);
+        return gitTool.execute(args, opts?.tabId);
       }),
     }),
 
@@ -1151,7 +1295,7 @@ export function buildSubagentCodeTools(opts?: {
       }),
       execute: deferExecute(async (args) => {
         const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
-        const result = await editFileTool.execute(args);
+        const result = await editFileTool.execute({ ...args, tabId: opts?.tabId });
         return prependWarning(result, warning);
       }),
     }),
@@ -1172,7 +1316,7 @@ export function buildSubagentCodeTools(opts?: {
       }),
       execute: deferExecute(async (args) => {
         const warning = checkAndClaim(opts?.tabId, opts?.tabLabel, resolve(args.path));
-        const result = await multiEditTool.execute(args);
+        const result = await multiEditTool.execute({ ...args, tabId: opts?.tabId });
         return prependWarning(result, warning);
       }),
     }),
@@ -1184,7 +1328,13 @@ export function buildSubagentCodeTools(opts?: {
         newName: z.string().describe("New name for the symbol"),
         file: z.string().optional().describe("File where the symbol is defined (optional)"),
       }),
-      execute: deferExecute((args) => renameSymbolTool.execute(args)),
+      execute: deferExecute(async (args) => {
+        const result = await renameSymbolTool.execute(args);
+        if (result.success && args.file) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.file]);
+        }
+        return result;
+      }),
     }),
 
     move_symbol: tool({
@@ -1194,7 +1344,13 @@ export function buildSubagentCodeTools(opts?: {
         from: z.string().describe("Source file path"),
         to: z.string().describe("Target file path"),
       }),
-      execute: deferExecute((args) => moveSymbolTool.execute(args)),
+      execute: deferExecute(async (args) => {
+        const result = await moveSymbolTool.execute(args);
+        if (result.success) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
+        }
+        return result;
+      }),
     }),
 
     rename_file: tool({
@@ -1203,7 +1359,13 @@ export function buildSubagentCodeTools(opts?: {
         from: z.string().describe("Current file path"),
         to: z.string().describe("New file path"),
       }),
-      execute: deferExecute((args) => renameFileTool.execute(args)),
+      execute: deferExecute(async (args) => {
+        const result = await renameFileTool.execute(args);
+        if (result.success) {
+          claimAfterCompoundEdit(opts?.tabId, opts?.tabLabel, [args.from, args.to]);
+        }
+        return result;
+      }),
     }),
 
     shell: tool({

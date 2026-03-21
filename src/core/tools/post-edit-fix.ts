@@ -14,7 +14,7 @@ import { emitFileEdited } from "./file-events.js";
  *
  * Returns list of actions applied (empty if nothing changed).
  */
-export async function autoFixFile(filePath: string): Promise<string[]> {
+export async function autoFixFile(filePath: string, tabId?: string): Promise<string[]> {
   const absPath = resolve(filePath);
   const router = getIntelligenceRouter(process.cwd());
   const language = router.detectLanguage(absPath);
@@ -25,7 +25,7 @@ export async function autoFixFile(filePath: string): Promise<string[]> {
     b.organizeImports ? b.organizeImports(absPath) : Promise.resolve(null),
   );
   if (organizeResult) {
-    await applyRefactorEdits(organizeResult);
+    await applyRefactorEdits(organizeResult, tabId);
     applied.push("organizeImports");
   }
 
@@ -34,7 +34,7 @@ export async function autoFixFile(filePath: string): Promise<string[]> {
     b.fixAll ? b.fixAll(absPath) : Promise.resolve(null),
   );
   if (fixResult) {
-    await applyRefactorEdits(fixResult);
+    await applyRefactorEdits(fixResult, tabId);
     applied.push("fixAll");
   }
 
@@ -48,7 +48,7 @@ export async function autoFixFile(filePath: string): Promise<string[]> {
       // Re-read the file that the formatter wrote and push to edit stack
       const afterFormat = await readFile(absPath, "utf-8");
       if (afterFormat !== preFormat) {
-        pushEdit(absPath, preFormat);
+        pushEdit(absPath, preFormat, tabId);
         emitFileEdited(absPath, afterFormat);
         applied.push("format");
       }
@@ -57,7 +57,7 @@ export async function autoFixFile(filePath: string): Promise<string[]> {
         b.formatDocument ? b.formatDocument(absPath) : Promise.resolve(null),
       );
       if (formatResult) {
-        await applyFormatEdits(formatResult);
+        await applyFormatEdits(formatResult, tabId);
         applied.push("format");
       }
     }
@@ -72,14 +72,17 @@ export async function autoFixFile(filePath: string): Promise<string[]> {
  * Auto-fix multiple files in parallel. Best-effort — failures are silently skipped.
  * Returns map of file → actions applied.
  */
-export async function autoFixFiles(filePaths: string[]): Promise<Map<string, string[]>> {
+export async function autoFixFiles(
+  filePaths: string[],
+  tabId?: string,
+): Promise<Map<string, string[]>> {
   const results = new Map<string, string[]>();
   const unique = [...new Set(filePaths.map((f) => resolve(f)))];
 
   await Promise.all(
     unique.map(async (file) => {
       try {
-        const actions = await autoFixFile(file);
+        const actions = await autoFixFile(file, tabId);
         if (actions.length > 0) results.set(file, actions);
       } catch {
         // Best-effort
@@ -90,7 +93,7 @@ export async function autoFixFiles(filePaths: string[]): Promise<Map<string, str
   return results;
 }
 
-async function applyFormatEdits(formatEdit: FormatEdit): Promise<void> {
+async function applyFormatEdits(formatEdit: FormatEdit, tabId?: string): Promise<void> {
   const content = await readFile(formatEdit.file, "utf-8");
 
   const lineStarts: number[] = [0];
@@ -113,17 +116,17 @@ async function applyFormatEdits(formatEdit: FormatEdit): Promise<void> {
   }
 
   if (result === content) return;
-  pushEdit(formatEdit.file, content);
+  pushEdit(formatEdit.file, content, tabId);
   await writeFile(formatEdit.file, result, "utf-8");
   emitFileEdited(formatEdit.file, result);
 }
 
-async function applyRefactorEdits(result: RefactorResult): Promise<void> {
+async function applyRefactorEdits(result: RefactorResult, tabId?: string): Promise<void> {
   for (const edit of result.edits) {
     try {
       const current = await readFile(edit.file, "utf-8");
       if (current === edit.newContent) continue;
-      pushEdit(edit.file, current);
+      pushEdit(edit.file, current, tabId);
       await writeFile(edit.file, edit.newContent, "utf-8");
       emitFileEdited(edit.file, edit.newContent);
     } catch {

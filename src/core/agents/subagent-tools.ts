@@ -587,6 +587,39 @@ export function buildSubagentTools(models: SubagentModels) {
               );
             }
 
+            // Gate: cross-tab file overlap — warn when dispatch targets files claimed by other tabs
+            const currentTabId = getActiveTaskTab();
+            if (currentTabId) {
+              const wc = getWorkspaceCoordinator();
+              const crossTabConflicts: Array<{ file: string; tabLabel: string }> = [];
+              for (const t of args.tasks) {
+                if (t.role !== "code") continue;
+                for (const f of t.targetFiles) {
+                  const norm = normalizePath(f);
+                  if (!norm.includes(".")) continue;
+                  const conflicts = wc.getConflicts(currentTabId, [norm]);
+                  for (const c of conflicts) {
+                    crossTabConflicts.push({ file: f, tabLabel: c.ownerTabLabel });
+                  }
+                }
+              }
+              if (crossTabConflicts.length > 0) {
+                const lines = crossTabConflicts
+                  .slice(0, 5)
+                  .map((c) => `  \`${c.file}\` — owned by Tab "${c.tabLabel}"`)
+                  .join("\n");
+                const extra =
+                  crossTabConflicts.length > 5
+                    ? `\n  (+${String(crossTabConflicts.length - 5)} more)`
+                    : "";
+                return (
+                  `⚠️ dispatch [warning → cross-tab file conflict]\n${String(crossTabConflicts.length)} file(s) are being edited by other tabs:\n${lines}${extra}\n` +
+                  `Tell the user about the conflict. Edits will proceed with warnings but may cause merge issues.\n` +
+                  `Set force: true to suppress this warning.`
+                );
+              }
+            }
+
             // Gate: investigation task quality
             const INVESTIGATION_SIGNALS =
               /\?|count|frequency|how many|at least|threshold|metric|pattern|idiom|convention|inconsisten|duplicat|repeated|unused|dead|missing|violat|soul_grep|soul_analyze|soul_impact|grep\b|where\b|which\b|filter|compare|difference|between/i;
@@ -741,10 +774,38 @@ export function buildSubagentTools(models: SubagentModels) {
               }
             }
 
+            // Inject cross-tab claims so subagents know about other tabs' edits
+            let crossTabHint = "";
+            if (!isWebTask && t.role === "code") {
+              const tabId = getActiveTaskTab();
+              if (tabId) {
+                const wc = getWorkspaceCoordinator();
+                const editors = wc.getActiveEditors();
+                const otherEdits: string[] = [];
+                for (const [tid] of editors) {
+                  if (tid === tabId) continue;
+                  const tc = wc.getClaimsForTab(tid);
+                  if (tc.size === 0) continue;
+                  let label = "Unknown";
+                  const paths: string[] = [];
+                  for (const [p, c] of tc) {
+                    label = c.tabLabel;
+                    paths.push(p);
+                  }
+                  otherEdits.push(
+                    `Tab "${label}": ${paths.slice(0, 5).join(", ")}${paths.length > 5 ? ` (+${String(paths.length - 5)} more)` : ""}`,
+                  );
+                }
+                if (otherEdits.length > 0) {
+                  crossTabHint = `\n\nOther tabs editing files:\n${otherEdits.join("\n")}\nAvoid these files. If you must edit one, your edit will still apply but may conflict.`;
+                }
+              }
+            }
+
             return {
               agentId: t.id ?? `agent-${String(i + 1)}`,
               role: t.role,
-              task: `${t.task}${fileHint}${skillHint}`,
+              task: `${t.task}${fileHint}${skillHint}${crossTabHint}`,
               returnFormat: t.returnFormat,
               dependsOn: t.dependsOn,
               taskId: t.taskId,

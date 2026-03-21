@@ -13,6 +13,7 @@ interface EditFileArgs {
   oldString: string;
   newString: string;
   lineStart?: number;
+  tabId?: string;
 }
 
 export function formatMetricDelta(label: string, before: number, after: number): string {
@@ -178,7 +179,7 @@ export const editFileTool = {
         // Intelligence not available
       }
 
-      pushEdit(filePath, content);
+      pushEdit(filePath, content, args.tabId);
       await writeFile(filePath, updated, "utf-8");
       emitFileEdited(filePath, updated);
 

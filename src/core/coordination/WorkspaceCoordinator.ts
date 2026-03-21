@@ -36,6 +36,8 @@ export class WorkspaceCoordinator {
   private listeners = new Set<CoordinatorListener>();
   /** Track active agent count per tab — don't idle-release while agents are running */
   private activeAgents = new Map<string, number>();
+  /** Tabs that have been closed — reject new claims/agents from dead tabs */
+  private closedTabs = new Set<string>();
   /** Debounce event emission — batch rapid claim/release into one event per tick */
   private pendingEvents = new Map<string, { type: CoordinatorEvent; paths: Set<string> }>();
   private flushScheduled = false;
@@ -45,6 +47,7 @@ export class WorkspaceCoordinator {
   }
 
   claimFiles(tabId: string, tabLabel: string, paths: string[]): ClaimResult {
+    if (this.closedTabs.has(tabId)) return { granted: [], contested: [] };
     const granted: string[] = [];
     const contested: ClaimResult["contested"] = [];
     const now = Date.now();
@@ -107,16 +110,33 @@ export class WorkspaceCoordinator {
     }
     for (const p of released) this.claims.delete(p);
     this.clearIdleTimer(tabId);
+    this.activeAgents.delete(tabId);
     if (released.length > 0) this.scheduleEvent(tabId, "release", released);
   }
 
+  /** Close a tab permanently — releases all claims, clears agents, blocks future claims */
+  closeTab(tabId: string): void {
+    this.releaseAll(tabId);
+    this.activeAgents.delete(tabId);
+    this.closedTabs.add(tabId);
+    // Trim closedTabs to prevent unbounded growth in long sessions
+    if (this.closedTabs.size > 50) {
+      const it = this.closedTabs.values();
+      this.closedTabs.delete(it.next().value as string);
+    }
+  }
+
   forceClaim(tabId: string, tabLabel: string, path: string): FileClaim | null {
+    if (this.closedTabs.has(tabId)) return null;
     const p = normalizePath(path);
     const existing = this.claims.get(p);
     const previousOwner = existing ? { ...existing } : null;
 
     const now = Date.now();
     this.claims.set(p, { tabId, tabLabel, claimedAt: now, lastEditAt: now, editCount: 1 });
+    if (previousOwner && previousOwner.tabId !== tabId) {
+      this.scheduleEvent(previousOwner.tabId, "release", [p]);
+    }
     this.scheduleEvent(tabId, "claim", [p]);
     return previousOwner;
   }
@@ -170,11 +190,17 @@ export class WorkspaceCoordinator {
     return new Map(this.claims);
   }
 
+  /** Iterate claims without defensive copy — for read-only hot paths (prepareStep) */
+  forEachClaim(fn: (path: string, claim: Readonly<FileClaim>) => void): void {
+    for (const [path, claim] of this.claims) fn(path, claim);
+  }
+
   /**
    * Signal that a tab has become idle (prompt finished).
    * Only starts idle timer if no agents are running for this tab.
    */
   markIdle(tabId: string): void {
+    if (this.closedTabs.has(tabId)) return;
     const active = this.activeAgents.get(tabId) ?? 0;
     if (active > 0) return;
     this.startIdleTimer(tabId);
@@ -182,23 +208,43 @@ export class WorkspaceCoordinator {
 
   /** Signal that a tab is active (new prompt, dispatch started) */
   markActive(tabId: string): void {
+    if (this.closedTabs.has(tabId)) return;
     this.clearIdleTimer(tabId);
   }
 
   /** Increment active agent count — prevents idle release while agents run */
   agentStarted(tabId: string): void {
+    if (this.closedTabs.has(tabId)) return;
     this.activeAgents.set(tabId, (this.activeAgents.get(tabId) ?? 0) + 1);
     this.clearIdleTimer(tabId);
   }
 
   /** Decrement active agent count — triggers idle when all agents done */
   agentFinished(tabId: string): void {
+    if (this.closedTabs.has(tabId)) return;
     const count = (this.activeAgents.get(tabId) ?? 1) - 1;
     if (count <= 0) {
       this.activeAgents.delete(tabId);
     } else {
       this.activeAgents.set(tabId, count);
     }
+  }
+
+  /** Get tab labels that have active dispatch agents, excluding the given tab */
+  getTabsWithActiveAgents(excludeTabId?: string): string[] {
+    const result: string[] = [];
+    for (const [tabId, count] of this.activeAgents) {
+      if (count <= 0 || tabId === excludeTabId) continue;
+      let label: string | undefined;
+      for (const claim of this.claims.values()) {
+        if (claim.tabId === tabId) {
+          label = claim.tabLabel;
+          break;
+        }
+      }
+      result.push(label ?? tabId.slice(0, 8));
+    }
+    return result;
   }
 
   private startIdleTimer(tabId: string): void {
@@ -266,9 +312,10 @@ export class WorkspaceCoordinator {
 
   private flushEvents(): void {
     this.flushScheduled = false;
+    const snapshot = [...this.listeners];
     for (const [key, { type, paths }] of this.pendingEvents) {
       const tabId = key.slice(0, key.lastIndexOf(":"));
-      for (const listener of this.listeners) {
+      for (const listener of snapshot) {
         try {
           listener(type, tabId, [...paths]);
         } catch {}
@@ -290,6 +337,7 @@ export class WorkspaceCoordinator {
     this.claims.clear();
     for (const tabId of tabIds) this.clearIdleTimer(tabId);
     this.activeAgents.clear();
+    this.closedTabs.clear();
   }
 
   dispose(): void {
@@ -303,6 +351,7 @@ export class WorkspaceCoordinator {
     this.claims.clear();
     this.listeners.clear();
     this.activeAgents.clear();
+    this.closedTabs.clear();
     this.pendingEvents.clear();
   }
 }

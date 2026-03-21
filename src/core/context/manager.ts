@@ -885,31 +885,8 @@ export class ContextManager {
     }
 
     // Cross-tab file claims awareness
-    if (this.shared?.workspaceCoordinator && this.tabId) {
-      const coordinator = this.shared.workspaceCoordinator;
-      const editors = coordinator.getActiveEditors();
-      const otherClaims: string[] = [];
-      for (const [tabId] of editors) {
-        if (tabId === this.tabId) continue;
-        const tabClaims = coordinator.getClaimsForTab(tabId);
-        const claimPaths: string[] = [];
-        let tabLabel = "Unknown";
-        for (const [path, claim] of tabClaims) {
-          tabLabel = claim.tabLabel;
-          const rel = path.startsWith(`${this.cwd}/`) ? path.slice(this.cwd.length + 1) : path;
-          claimPaths.push(rel);
-        }
-        if (claimPaths.length > 0) {
-          otherClaims.push(`Tab "${tabLabel}": ${claimPaths.join(", ")}`);
-        }
-      }
-      if (otherClaims.length > 0) {
-        parts.push("");
-        parts.push("## Files Being Edited by Other Tabs");
-        parts.push(...otherClaims);
-        parts.push("Avoid editing these files if possible. If you must, expect conflicts.");
-      }
-    }
+    const crossTabSection = this.buildCrossTabSection();
+    if (crossTabSection) parts.push(crossTabSection);
 
     return parts.filter(Boolean).join("\n");
   }
@@ -945,6 +922,50 @@ export class ContextManager {
     );
 
     return lines;
+  }
+
+  /**
+   * Build the cross-tab coordination section for system prompt or prepareStep injection.
+   * Returns null when no other tabs have claims.
+   */
+  buildCrossTabSection(): string | null {
+    if (!this.shared?.workspaceCoordinator || !this.tabId) return null;
+    const coordinator = this.shared.workspaceCoordinator;
+    // Single pass, zero allocations for the common case (no other tabs)
+    const byTab = new Map<string, { label: string; paths: string[]; total: number }>();
+    coordinator.forEachClaim((path, claim) => {
+      if (claim.tabId === this.tabId) return;
+      let entry = byTab.get(claim.tabId);
+      if (!entry) {
+        entry = { label: claim.tabLabel, paths: [], total: 0 };
+        byTab.set(claim.tabId, entry);
+      }
+      entry.total++;
+      if (entry.paths.length < 10) {
+        const rel = path.startsWith(`${this.cwd}/`) ? path.slice(this.cwd.length + 1) : path;
+        entry.paths.push(rel);
+      }
+    });
+    if (byTab.size === 0) return null;
+
+    const otherClaims: string[] = [];
+    for (const [, { label, paths, total }] of byTab) {
+      const extra = total > 10 ? ` (+${String(total - 10)} more)` : "";
+      otherClaims.push(`  Tab "${label}": ${paths.join(", ")}${extra}`);
+    }
+    if (otherClaims.length === 0) return null;
+
+    return [
+      "",
+      "## Cross-Tab File Coordination",
+      "Files being edited by other tabs:",
+      ...otherClaims,
+      "When your edit_file/multi_edit returns a ⚠️ conflict warning:",
+      "1. Tell the user which file conflicts and which tab owns it",
+      "2. Proceed with the edit (edits are never blocked)",
+      "3. If multiple files conflict, ask the user whether to continue or wait",
+      "Do NOT silently wait, retry, or skip edits without informing the user.",
+    ].join("\n");
   }
 
   /** Try to detect project type and read key config files (cached with 5min TTL) */

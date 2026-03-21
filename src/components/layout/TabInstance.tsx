@@ -10,6 +10,7 @@ import type { ProviderStatus } from "../../core/llm/provider.js";
 import { clearTabSessionPatterns } from "../../core/security/forbidden.js";
 import type { SessionManager } from "../../core/sessions/manager.js";
 import type { PrerequisiteStatus } from "../../core/setup/prerequisites.js";
+import { clearEditStacks } from "../../core/tools/edit-stack.js";
 import { planFileName } from "../../core/tools/index.js";
 import { disposeTaskScope, setActiveTaskTab } from "../../core/tools/task-list.js";
 import {
@@ -227,9 +228,14 @@ export const TabInstance = memo(function TabInstance({
   // Sync claim count to tab activity for tab bar indicator
   useEffect(() => {
     const coordinator = getWorkspaceCoordinator();
+    let lastCount = coordinator.getClaimCount(tabId);
     const unsub = coordinator.on((event, eventTabId) => {
       if (eventTabId === tabId || event === "release") {
-        setTabActivity(tabId, { editedFileCount: coordinator.getClaimCount(tabId) });
+        const newCount = coordinator.getClaimCount(tabId);
+        if (newCount !== lastCount) {
+          lastCount = newCount;
+          setTabActivity(tabId, { editedFileCount: newCount });
+        }
       }
     });
     return unsub;
@@ -247,8 +253,9 @@ export const TabInstance = memo(function TabInstance({
     return () => {
       contextManager.dispose();
       clearTabSessionPatterns(tabId);
-      // Release all coordinator claims for this tab
-      getWorkspaceCoordinator().releaseAll(tabId);
+      clearEditStacks(tabId);
+      // Close tab in coordinator — releases claims, clears agents, blocks ghost claims
+      getWorkspaceCoordinator().closeTab(tabId);
       // Clean up any pending plan file on disk
       try {
         const p = join(cwd, ".soulforge", "plans", planFileName(chat.sessionId));

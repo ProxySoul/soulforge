@@ -30,7 +30,7 @@ import type { ChatInstance, WorkspaceSnapshot } from "../hooks/useChat.js";
 import { useConfigSync } from "../hooks/useConfigSync.js";
 import { useEditorFocus } from "../hooks/useEditorFocus.js";
 import { useEditorInput } from "../hooks/useEditorInput.js";
-import { cycleForgeMode, getModeColor, getModeLabel } from "../hooks/useForgeMode.js";
+import { getModeColor, getModeLabel } from "../hooks/useForgeMode.js";
 import { useGitStatus } from "../hooks/useGitStatus.js";
 import { useGlobalKeyboard } from "../hooks/useGlobalKeyboard.js";
 import { useNeovim } from "../hooks/useNeovim.js";
@@ -825,10 +825,9 @@ export function App({
     copyToClipboard,
     activeChatRef,
     cycleMode: useCallback(() => {
-      const chat = activeChatRef.current;
+      const chat = tabMgrRef.current?.getActiveChat();
       if (chat) {
-        const next = cycleForgeMode(chat.forgeMode);
-        chat.setForgeMode(next);
+        const next = chat.cycleMode();
         setForgeModeHeader(next);
       }
     }, []),
@@ -890,7 +889,7 @@ export function App({
               </text>
             </>
           )}
-          {tabMgr.tabCount <= 1 && (
+          {tabMgr.tabCount <= 1 && forgeMode !== "default" && (
             <>
               <text fg="#333">·</text>
               <text fg={modeColor} attributes={TextAttributes.BOLD}>

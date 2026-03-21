@@ -91,11 +91,15 @@ export function TabBar({
               {num}
             </text>
             <text fg={bracketColor}>]</text>
-            <text fg={isActive ? tabModeColor : "#555"}>[</text>
-            <text fg={tabModeColor} attributes={isActive ? TextAttributes.BOLD : undefined}>
-              {tabModeLabel}
-            </text>
-            <text fg={isActive ? tabModeColor : "#555"}>]</text>
+            {tabMode !== "default" && (
+              <>
+                <text fg={isActive ? tabModeColor : "#555"}>[</text>
+                <text fg={tabModeColor} attributes={isActive ? TextAttributes.BOLD : undefined}>
+                  {tabModeLabel}
+                </text>
+                <text fg={isActive ? tabModeColor : "#555"}>]</text>
+              </>
+            )}
             {(activity?.editedFileCount ?? 0) > 0 && (
               <>
                 <text fg={isActive ? "#4a7" : "#333"}>[</text>

@@ -1,4 +1,6 @@
+import { relative } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
 import {
   getGitDiff,
   getGitLog,
@@ -21,6 +23,29 @@ import {
 } from "../git/status.js";
 
 const cwd = process.cwd();
+
+function getOtherTabClaimWarning(tabId?: string): string | null {
+  if (!tabId) return null;
+  const coordinator = getWorkspaceCoordinator();
+  const editors = coordinator.getActiveEditors();
+  const lines: string[] = [];
+  for (const [tid] of editors) {
+    if (tid === tabId) continue;
+    const tabClaims = coordinator.getClaimsForTab(tid);
+    if (tabClaims.size === 0) continue;
+    let tabLabel = "Unknown";
+    const paths: string[] = [];
+    for (const [absPath, claim] of tabClaims) {
+      tabLabel = claim.tabLabel;
+      paths.push(relative(cwd, absPath) || absPath);
+    }
+    const shown = paths.slice(0, 5);
+    const extra = paths.length > 5 ? ` (+${String(paths.length - 5)} more)` : "";
+    lines.push(`  Tab "${tabLabel}": ${shown.join(", ")}${extra}`);
+  }
+  if (lines.length === 0) return null;
+  return `⚠️ Other tabs have active file claims:\n${lines.join("\n")}`;
+}
 
 type GitAction =
   | "status"
@@ -52,37 +77,75 @@ export const gitTool = {
   name: "git" as const,
   description:
     "Git operations: status, diff, log, commit (with amend), push, pull, stash, branch, show (view commit), unstage, restore.",
-  execute: async (args: GitArgs): Promise<ToolResult> => {
+  execute: async (args: GitArgs, tabId?: string): Promise<ToolResult> => {
+    const destructive =
+      args.action === "commit" ||
+      args.action === "stash" ||
+      args.action === "restore" ||
+      (args.action === "branch" && args.sub_action === "switch");
+
+    if (destructive && tabId) {
+      const coordinator = getWorkspaceCoordinator();
+      const activeTabs = coordinator.getTabsWithActiveAgents(tabId);
+      if (activeTabs.length > 0) {
+        const tabNames = activeTabs.map((t) => `"${t}"`).join(", ");
+        return {
+          success: false,
+          output: `Cannot ${args.action}: Tab ${tabNames} has dispatch agents actively editing files. Wait for dispatch to complete.`,
+          error: "active dispatch",
+        };
+      }
+    }
+
+    const claimWarning = destructive ? getOtherTabClaimWarning(tabId) : null;
+
+    let result: ToolResult;
     switch (args.action) {
       case "status":
-        return execStatus();
+        result = await execStatus();
+        break;
       case "diff":
-        return execDiff(args.staged);
+        result = await execDiff(args.staged);
+        break;
       case "log":
-        return execLog(args.count);
+        result = await execLog(args.count);
+        break;
       case "commit":
-        return execCommit(args.message ?? "", args.files, args.amend);
+        result = await execCommit(args.message ?? "", args.files, args.amend);
+        break;
       case "push":
-        return execPush();
+        result = await execPush();
+        break;
       case "pull":
-        return execPull();
+        result = await execPull();
+        break;
       case "stash":
-        return execStash(args.sub_action, args.message, args.index);
+        result = await execStash(args.sub_action, args.message, args.index);
+        break;
       case "branch":
-        return execBranch(args.sub_action, args.name);
+        result = await execBranch(args.sub_action, args.name);
+        break;
       case "show":
-        return execShow(args.ref);
+        result = await execShow(args.ref);
+        break;
       case "unstage":
-        return execUnstage(args.files);
+        result = await execUnstage(args.files);
+        break;
       case "restore":
-        return execRestore(args.files);
+        result = await execRestore(args.files);
+        break;
       default:
-        return {
+        result = {
           success: false,
           output: `Unknown action: ${String(args.action)}`,
           error: "bad action",
         };
     }
+
+    if (claimWarning && result.success) {
+      result = { ...result, output: `${claimWarning}\n\n${result.output}` };
+    }
+    return result;
   },
 };
 

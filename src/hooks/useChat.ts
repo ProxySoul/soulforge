@@ -18,6 +18,7 @@ import {
   WorkingStateManager,
 } from "../core/compaction/index.js";
 import type { ContextManager } from "../core/context/manager.js";
+import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
 import { getModelContextWindow, getShortModelLabel } from "../core/llm/models.js";
 import { resolveModel } from "../core/llm/provider.js";
@@ -150,7 +151,7 @@ export interface ChatInstance {
   contextManager: ContextManager;
   forgeMode: import("../types/index.js").ForgeMode;
   setForgeMode: (mode: import("../types/index.js").ForgeMode) => void;
-  cycleMode: () => void;
+  cycleMode: () => import("../types/index.js").ForgeMode;
 }
 
 export function useChat({
@@ -357,9 +358,10 @@ export function useChat({
     [contextManager],
   );
 
-  const cycleModeFn = useCallback(() => {
+  const cycleModeFn = useCallback((): import("../types/index.js").ForgeMode => {
     const next = cycleForgeMode(forgeModeRef.current);
     setForgeMode(next);
+    return next;
   }, [setForgeMode]);
 
   // Sync forgeMode to contextManager when tab becomes visible (tab switch)
@@ -2207,6 +2209,7 @@ export function useChat({
       abortRef.current = null;
       setIsLoading(false);
       resetInProgressTasks(tabId);
+      getWorkspaceCoordinator().releaseAll(tabId);
       setLiveToolCalls([]);
       setStreamSegments([]);
       messageQueueRef.current = [];

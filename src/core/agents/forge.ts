@@ -105,6 +105,7 @@ function buildForgePrepareStep(
   isPlanMode: boolean,
   drainSteering?: () => string | null,
   _repoMap?: import("../intelligence/repo-map.js").RepoMap,
+  contextManager?: { buildCrossTabSection(): string | null },
 ) {
   // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
   return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): any => {
@@ -225,6 +226,14 @@ function buildForgePrepareStep(
     const taskBlock = renderTaskList();
     if (taskBlock) {
       result.system = `${result.system ?? ""}\n\n${taskBlock}`.trim();
+    }
+
+    // Inject fresh cross-tab claims (live from coordinator, not stale from system prompt)
+    if (contextManager && stepNumber > 0) {
+      const crossTab = contextManager.buildCrossTabSection();
+      if (crossTab) {
+        result.system = `${result.system ?? ""}\n\n${crossTab}`.trim();
+      }
     }
 
     // Inject steering messages from queue (user typed while agent was running)
@@ -425,7 +434,12 @@ export function createForgeAgent({
         ...(activeToolOverride ? { activeTools: activeToolOverride } : {}),
       };
     },
-    prepareStep: buildForgePrepareStep(forgeMode === "plan", drainSteering, repoMap),
+    prepareStep: buildForgePrepareStep(
+      forgeMode === "plan",
+      drainSteering,
+      repoMap,
+      contextManager,
+    ),
     experimental_repairToolCall: repairToolCall,
     ...(providerOptions && Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),
     ...(headers ? { headers } : {}),
