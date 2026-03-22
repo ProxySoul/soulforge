@@ -2196,6 +2196,35 @@ export class RepoMap {
     // Diff-aware: [NEW] marks files the agent has never seen in any render
     const prevPathSet = this.seenPaths;
 
+    // Re-export detection: find line-1 symbols that are re-exports from other files
+    const reexportSources = new Map<number, Map<string, number>>(); // file_id → source_path → count
+    {
+      const reexportSymIds = allSymbols
+        .filter((s) => s.line === 1 && s.is_exported)
+        .map((s) => s.file_id);
+      if (reexportSymIds.length > 0) {
+        const fileIdSet = [...new Set(reexportSymIds)];
+        const ph = fileIdSet.map(() => "?").join(",");
+        const rows = this.db
+          .query<{ file_id: number; source_path: string; cnt: number }, number[]>(
+            `SELECT r.file_id, f2.path AS source_path, COUNT(*) AS cnt
+             FROM refs r
+             JOIN files f2 ON f2.id = r.source_file_id
+             WHERE r.file_id IN (${ph}) AND r.source_file_id IS NOT NULL
+             GROUP BY r.file_id, r.source_file_id`,
+          )
+          .all(...fileIdSet);
+        for (const row of rows) {
+          let m = reexportSources.get(row.file_id);
+          if (!m) {
+            m = new Map();
+            reexportSources.set(row.file_id, m);
+          }
+          m.set(row.source_path, row.cnt);
+        }
+      }
+    }
+
     // Pre-compute all file blocks for binary search
     const blocks: Array<{ path: string; fileLine: string; symbolLines: string; tokens: number }> =
       [];
@@ -2205,8 +2234,21 @@ export class RepoMap {
       const newTag = prevPathSet.size > 0 && !prevPathSet.has(file.path) ? " [NEW]" : "";
       const fileLine = `${file.path}:${radiusTag}${newTag}`;
       const symbols = symbolsByFile.get(file.id) ?? [];
+      const sources = reexportSources.get(file.id);
       let symbolLines = "";
+
+      // Collapse re-exports into grouped import lines
+      if (sources && sources.size > 0) {
+        const parts: string[] = [];
+        for (const [srcPath, cnt] of [...sources.entries()].sort((a, b) => b[1] - a[1])) {
+          parts.push(`${srcPath} (${String(cnt)})`);
+        }
+        symbolLines += `  ← ${parts.join(", ")}\n`;
+      }
+
+      // Show real definitions (line > 1, or line 1 without a re-export source)
       for (const sym of symbols) {
+        if (sym.line === 1 && sym.is_exported && sources && sources.size > 0) continue;
         const exported = sym.is_exported ? "+" : " ";
         const semantic = semanticMap.get(sym.id);
         const display = semantic
