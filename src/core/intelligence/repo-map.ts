@@ -19,6 +19,7 @@ import {
   extractDocComment,
   extractSignature,
   GIT_LOG_COMMITS,
+  generateSyntheticSummary,
   getDirGroup,
   IMPORT_TRACKABLE_LANGUAGES,
   INDEXABLE_EXTENSIONS,
@@ -93,10 +94,12 @@ export class RepoMap {
   private ready = false;
   private dirty = false;
   private dirtyTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingReindex = new Map<string, { relPath: string; language: Language }>();
+  private reindexTimer: ReturnType<typeof setTimeout> | null = null;
   private hasGit: boolean | null = null;
   private seenPaths = new Set<string>();
   private entryPointsCache: string[] | null = null;
-  private semanticMode: "off" | "ast" | "llm" | "on" = "off";
+  private semanticMode: "off" | "ast" | "synthetic" | "llm" | "full" | "on" = "off";
   private summaryGenerator: SummaryGenerator | null = null;
   private regenTimer: ReturnType<typeof setTimeout> | null = null;
   onProgress: ((indexed: number, total: number) => void) | null = null;
@@ -278,6 +281,8 @@ export class RepoMap {
     `);
 
     this.migrateSemanticSource();
+    this.migrateSemanticNoCascade();
+    this.backfillSummaryPaths();
 
     this.rebuildFts();
   }
@@ -302,6 +307,91 @@ export class RepoMap {
     } catch {
       // fresh db or already migrated
     }
+  }
+
+  private migrateSemanticNoCascade(): void {
+    // Migration: remove ON DELETE CASCADE from semantic_summaries so LLM summaries
+    // survive symbol re-indexing. Add file_path + symbol_name for standalone lookup.
+    try {
+      const sql = this.db
+        .query<{ sql: string }, [string]>("SELECT sql FROM sqlite_master WHERE name = ?")
+        .get("semantic_summaries");
+      if (!sql?.sql || !sql.sql.includes("ON DELETE CASCADE")) return;
+
+      // Stash all existing data
+      const rows = this.db
+        .query<{ symbol_id: number; source: string; summary: string; file_mtime: number }, []>(
+          "SELECT symbol_id, source, summary, file_mtime FROM semantic_summaries",
+        )
+        .all();
+
+      // Build name+path lookup from current symbols
+      const symbolInfo = new Map<number, { name: string; path: string }>();
+      for (const s of this.db
+        .query<{ id: number; name: string; path: string }, []>(
+          "SELECT s.id, s.name, f.path FROM symbols s JOIN files f ON f.id = s.file_id",
+        )
+        .all()) {
+        symbolInfo.set(s.id, { name: s.name, path: s.path });
+      }
+
+      this.db.run("DROP TABLE semantic_summaries");
+      this.db.run(`
+        CREATE TABLE semantic_summaries (
+          symbol_id INTEGER NOT NULL,
+          source TEXT NOT NULL DEFAULT 'llm',
+          summary TEXT NOT NULL,
+          file_mtime REAL NOT NULL,
+          file_path TEXT NOT NULL DEFAULT '',
+          symbol_name TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY (symbol_id, source)
+        );
+      `);
+      this.db.run(
+        "CREATE INDEX IF NOT EXISTS idx_semantic_file_name ON semantic_summaries(file_path, symbol_name)",
+      );
+
+      // Restore data with file_path + symbol_name populated
+      if (rows.length > 0) {
+        const ins = this.db.prepare(
+          "INSERT OR IGNORE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name) VALUES (?, ?, ?, ?, ?, ?)",
+        );
+        const tx = this.db.transaction(() => {
+          for (const r of rows) {
+            const info = symbolInfo.get(r.symbol_id);
+            ins.run(
+              r.symbol_id,
+              r.source,
+              r.summary,
+              r.file_mtime,
+              info?.path ?? "",
+              info?.name ?? "",
+            );
+          }
+        });
+        tx();
+      }
+    } catch {
+      // fresh db or already migrated
+    }
+  }
+
+  private backfillSummaryPaths(): void {
+    try {
+      const stale =
+        this.db
+          .query<{ c: number }, []>(
+            "SELECT count(*) as c FROM semantic_summaries WHERE file_path = '' AND symbol_id IN (SELECT id FROM symbols)",
+          )
+          .get()?.c ?? 0;
+      if (stale === 0) return;
+      this.db.run(
+        `UPDATE semantic_summaries SET
+           file_path = COALESCE((SELECT f.path FROM symbols s JOIN files f ON f.id = s.file_id WHERE s.id = semantic_summaries.symbol_id), ''),
+           symbol_name = COALESCE((SELECT s.name FROM symbols s WHERE s.id = semantic_summaries.symbol_id), '')
+         WHERE file_path = '' AND symbol_id IN (SELECT id FROM symbols)`,
+      );
+    } catch {}
   }
 
   get isReady(): boolean {
@@ -429,18 +519,23 @@ export class RepoMap {
       .get(relPath);
 
     if (existing) {
-      // Delete calls before symbols — CASCADE handles caller side but we also
-      // need to clean callee refs pointing to this file
-      this.db.query("DELETE FROM calls WHERE callee_file_id = ?").run(existing.id);
-      this.db.query("DELETE FROM symbols WHERE file_id = ?").run(existing.id);
-      this.db.query("DELETE FROM refs WHERE file_id = ?").run(existing.id);
-      this.db.query("DELETE FROM external_imports WHERE file_id = ?").run(existing.id);
-      this.db.query("DELETE FROM shape_hashes WHERE file_id = ?").run(existing.id);
-      this.db.query("DELETE FROM token_signatures WHERE file_id = ?").run(existing.id);
-      this.db.query("DELETE FROM token_fragments WHERE file_id = ?").run(existing.id);
-      this.db
-        .query("DELETE FROM edges WHERE source_file_id = ? OR target_file_id = ?")
-        .run(existing.id, existing.id);
+      this.db.transaction(() => {
+        this.db.query("DELETE FROM calls WHERE callee_file_id = ?").run(existing.id);
+        this.db
+          .query(
+            "DELETE FROM semantic_summaries WHERE symbol_id IN (SELECT id FROM symbols WHERE file_id = ?) AND source != 'llm'",
+          )
+          .run(existing.id);
+        this.db.query("DELETE FROM symbols WHERE file_id = ?").run(existing.id);
+        this.db.query("DELETE FROM refs WHERE file_id = ?").run(existing.id);
+        this.db.query("DELETE FROM external_imports WHERE file_id = ?").run(existing.id);
+        this.db.query("DELETE FROM shape_hashes WHERE file_id = ?").run(existing.id);
+        this.db.query("DELETE FROM token_signatures WHERE file_id = ?").run(existing.id);
+        this.db.query("DELETE FROM token_fragments WHERE file_id = ?").run(existing.id);
+        this.db
+          .query("DELETE FROM edges WHERE source_file_id = ? OR target_file_id = ?")
+          .run(existing.id, existing.id);
+      })();
     }
 
     let lineCount = 0;
@@ -524,8 +619,33 @@ export class RepoMap {
       });
       tx();
 
+      // Re-link orphaned LLM summaries to new symbol IDs (by file_path + symbol_name)
+      // Re-link orphaned LLM summaries to new symbol IDs (by file_path + symbol_name)
+      this.db
+        .query(
+          `UPDATE semantic_summaries SET symbol_id = (
+             SELECT s.id FROM symbols s JOIN files f ON f.id = s.file_id
+             WHERE f.path = semantic_summaries.file_path AND s.name = semantic_summaries.symbol_name
+             LIMIT 1
+           )
+           WHERE source = 'llm' AND file_path = ?
+             AND EXISTS (
+               SELECT 1 FROM symbols s JOIN files f ON f.id = s.file_id
+               WHERE f.path = semantic_summaries.file_path AND s.name = semantic_summaries.symbol_name
+             )`,
+        )
+        .run(relPath);
+      // Clean up LLM summaries for symbols that were renamed/deleted from this file
+      // Only delete rows with populated file_path (backfilled rows) — never delete rows with empty file_path
+      this.db
+        .query(
+          `DELETE FROM semantic_summaries WHERE source = 'llm' AND file_path = ? AND file_path <> ''
+           AND NOT EXISTS (SELECT 1 FROM symbols WHERE id = semantic_summaries.symbol_id)`,
+        )
+        .run(relPath);
+
       if (this.semanticMode === "ast" || this.semanticMode === "on") {
-        this.extractAstSummaries(fileId, outline.symbols, exportedNames, lines, mtime);
+        this.extractAstSummaries(fileId, relPath, outline.symbols, exportedNames, lines, mtime);
       }
 
       if (this.treeSitter) {
@@ -1487,11 +1607,11 @@ export class RepoMap {
     return depLines.join("\n");
   }
 
-  setSemanticMode(mode: "off" | "ast" | "llm" | "on"): void {
+  setSemanticMode(mode: "off" | "ast" | "synthetic" | "llm" | "full" | "on"): void {
     this.semanticMode = mode;
   }
 
-  getSemanticMode(): "off" | "ast" | "llm" | "on" {
+  getSemanticMode(): "off" | "ast" | "synthetic" | "llm" | "full" | "on" {
     return this.semanticMode;
   }
 
@@ -1499,7 +1619,7 @@ export class RepoMap {
     return this.semanticMode !== "off";
   }
 
-  detectPersistedSemanticMode(): "off" | "ast" | "llm" | "on" {
+  detectPersistedSemanticMode(): "off" | "ast" | "synthetic" | "llm" | "full" | "on" {
     const llm =
       this.db
         .query<{ c: number }, []>(
@@ -1512,8 +1632,16 @@ export class RepoMap {
           "SELECT COUNT(*) as c FROM semantic_summaries WHERE source = 'ast'",
         )
         .get()?.c ?? 0;
-    if (llm > 0 && ast > 0) return "on";
+    const synthetic =
+      this.db
+        .query<{ c: number }, []>(
+          "SELECT COUNT(*) as c FROM semantic_summaries WHERE source = 'synthetic'",
+        )
+        .get()?.c ?? 0;
+    if (llm > 0 && synthetic > 0) return "full";
+    if (llm > 0 && ast > 0) return "llm";
     if (llm > 0) return "llm";
+    if (synthetic > 0) return "synthetic";
     if (ast > 0) return "ast";
     return "off";
   }
@@ -1546,7 +1674,7 @@ export class RepoMap {
       .all();
 
     const upsert = this.db.prepare(
-      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime) VALUES (?, 'ast', ?, ?)`,
+      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name) VALUES (?, 'ast', ?, ?, ?, ?)`,
     );
     let count = 0;
     const fileCache = new Map<string, string[]>();
@@ -1564,13 +1692,47 @@ export class RepoMap {
         }
         const doc = extractDocComment(lines, row.line - 1);
         if (doc) {
-          upsert.run(row.id, doc, row.mtime_ms);
+          upsert.run(row.id, doc, row.mtime_ms, row.path, row.name);
           count++;
         }
       }
     });
     tx();
     return count;
+  }
+
+  generateSyntheticSummaries(limit = 1000): number {
+    if (!this.ready) return 0;
+    const rows = this.db
+      .query<{ id: number; name: string; kind: string; path: string; mtime_ms: number }, [number]>(
+        `SELECT s.id, s.name, s.kind, f.path, f.mtime_ms
+         FROM symbols s JOIN files f ON f.id = s.file_id
+         WHERE s.is_exported = 1
+           AND s.kind IN ('function','method','class','interface','type')
+           AND NOT EXISTS (
+             SELECT 1 FROM semantic_summaries ss WHERE ss.symbol_id = s.id
+           )
+         ORDER BY f.pagerank DESC LIMIT ?`,
+      )
+      .all(limit);
+
+    const upsert = this.db.prepare(
+      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name) VALUES (?, 'synthetic', ?, ?, ?, ?)`,
+    );
+    let count = 0;
+    const tx = this.db.transaction(() => {
+      for (const row of rows) {
+        const summary = generateSyntheticSummary(row.name, row.kind, row.path);
+        upsert.run(row.id, summary, row.mtime_ms, row.path, row.name);
+        count++;
+      }
+    });
+    tx();
+    return count;
+  }
+
+  clearFreeSummaries(): void {
+    this.db.run("DELETE FROM semantic_summaries WHERE source != 'llm'");
   }
 
   clearSemanticSummaries(): void {
@@ -1723,8 +1885,8 @@ export class RepoMap {
     for (const r of results) summaryMap.set(r.name, r.summary);
 
     const upsert = this.db.prepare(
-      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime)
-       VALUES (?, 'llm', ?, ?)`,
+      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name)
+       VALUES (?, 'llm', ?, ?, ?, ?)`,
     );
     const symExists = this.db.prepare("SELECT 1 FROM symbols WHERE id = ?");
     let count = 0;
@@ -1732,24 +1894,26 @@ export class RepoMap {
       for (const sym of needed) {
         const summary = summaryMap.get(sym.name);
         if (summary && symExists.get(sym.symId)) {
-          upsert.run(sym.symId, summary, sym.fileMtime);
+          upsert.run(sym.symId, summary, sym.fileMtime, sym.filePath, sym.name);
           count++;
         }
       }
     });
     tx();
+
     return count;
   }
 
   private extractAstSummaries(
     fileId: number,
+    filePath: string,
     symbols: import("./types.js").SymbolInfo[],
     exportedNames: Set<string>,
     lines: string[],
     mtime: number,
   ): void {
     const upsert = this.db.prepare(
-      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime) VALUES (?, 'ast', ?, ?)`,
+      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name) VALUES (?, 'ast', ?, ?, ?, ?)`,
     );
     const symLookup = this.db.prepare<{ id: number }, [number, string, number]>(
       "SELECT id FROM symbols WHERE file_id = ? AND name = ? AND line = ?",
@@ -1765,7 +1929,7 @@ export class RepoMap {
         if (!doc) continue;
 
         const row = symLookup.get(fileId, sym.name, sym.location.line);
-        if (row) upsert.run(row.id, doc, mtime);
+        if (row) upsert.run(row.id, doc, mtime, filePath, sym.name);
       }
     });
     tx();
@@ -1809,12 +1973,28 @@ export class RepoMap {
     const language = INDEXABLE_EXTENSIONS[ext];
     if (!language) return;
 
-    statAsync(absPath)
-      .then((st) =>
-        this.ensureTreeSitter().then(() => this.indexFile(absPath, relPath, st.mtimeMs, language)),
-      )
-      .then(() => this.markDirty())
-      .catch(() => {});
+    this.pendingReindex.set(absPath, { relPath, language });
+    if (this.reindexTimer) clearTimeout(this.reindexTimer);
+    this.reindexTimer = setTimeout(() => this.flushReindex(), 150);
+  }
+
+  private flushReindex(): void {
+    this.reindexTimer = null;
+    const batch = new Map(this.pendingReindex);
+    this.pendingReindex.clear();
+
+    const process = async () => {
+      await this.ensureTreeSitter();
+      for (const [absPath, { relPath, language }] of batch) {
+        try {
+          const st = await statAsync(absPath);
+          this.indexFile(absPath, relPath, st.mtimeMs, language);
+        } catch {}
+      }
+      this.markDirty();
+    };
+
+    process().catch(() => {});
   }
 
   private markDirty(): void {
@@ -2097,8 +2277,15 @@ export class RepoMap {
     const depsSummary = this.getExternalDepsSummary();
     if (depsSummary) lines.push(depsSummary, "");
     if (semanticMap.size > 0) {
-      const tagMap = { ast: "[AST]", llm: "[LLM]", on: "[AST+LLM]", off: "" } as const;
-      const tag = tagMap[this.semanticMode] || "[LLM]";
+      const tagMap: Record<string, string> = {
+        ast: "[AST]",
+        synthetic: "[AST+SYN]",
+        llm: "[LLM]",
+        full: "[AST+LLM+SYN]",
+        on: "[AST+LLM]",
+        off: "",
+      };
+      const tag = tagMap[this.semanticMode] ?? "";
       lines.push(`Summaries: ${tag} ${String(semanticMap.size)} symbols`, "");
     }
 
@@ -2437,36 +2624,35 @@ export class RepoMap {
     return results;
   }
 
-  getFileDependents(relPath: string): Array<{ path: string; weight: number }> {
+  private queryEdges(
+    relPath: string,
+    direction: "dependents" | "dependencies",
+  ): Array<{ path: string; weight: number }> {
     if (!this.ready) return [];
     const fileRow = this.db
       .query<{ id: number }, [string]>("SELECT id FROM files WHERE path = ?")
       .get(relPath);
     if (!fileRow) return [];
+    const [joinCol, whereCol] =
+      direction === "dependents"
+        ? ["source_file_id", "target_file_id"]
+        : ["target_file_id", "source_file_id"];
     return this.db
       .query<{ path: string; weight: number }, [number]>(
         `SELECT f.path, e.weight FROM edges e
-         JOIN files f ON f.id = e.source_file_id
-         WHERE e.target_file_id = ?
+         JOIN files f ON f.id = e.${joinCol}
+         WHERE e.${whereCol} = ?
          ORDER BY e.weight DESC LIMIT 30`,
       )
       .all(fileRow.id);
   }
 
+  getFileDependents(relPath: string): Array<{ path: string; weight: number }> {
+    return this.queryEdges(relPath, "dependents");
+  }
+
   getFileDependencies(relPath: string): Array<{ path: string; weight: number }> {
-    if (!this.ready) return [];
-    const fileRow = this.db
-      .query<{ id: number }, [string]>("SELECT id FROM files WHERE path = ?")
-      .get(relPath);
-    if (!fileRow) return [];
-    return this.db
-      .query<{ path: string; weight: number }, [number]>(
-        `SELECT f.path, e.weight FROM edges e
-         JOIN files f ON f.id = e.target_file_id
-         WHERE e.source_file_id = ?
-         ORDER BY e.weight DESC LIMIT 30`,
-      )
-      .all(fileRow.id);
+    return this.queryEdges(relPath, "dependencies");
   }
 
   getFileCoChanges(relPath: string): Array<{ path: string; count: number }> {
@@ -3165,19 +3351,61 @@ export class RepoMap {
       this.db.query<{ c: number }, []>("SELECT COUNT(*) as c FROM symbols").get()?.c ?? 0;
     const edges = this.db.query<{ c: number }, []>("SELECT COUNT(*) as c FROM edges").get()?.c ?? 0;
     const calls = this.db.query<{ c: number }, []>("SELECT COUNT(*) as c FROM calls").get()?.c ?? 0;
-    const summaries =
-      this.semanticMode === "on"
-        ? (this.db
-            .query<{ c: number }, []>(
-              "SELECT COUNT(DISTINCT symbol_id) as c FROM semantic_summaries",
-            )
-            .get()?.c ?? 0)
-        : (this.db
-            .query<{ c: number }, [string]>(
-              "SELECT COUNT(*) as c FROM semantic_summaries WHERE source = ?",
-            )
-            .get(this.semanticMode === "off" ? "llm" : this.semanticMode)?.c ?? 0);
+    let summaries = 0;
+    if (this.semanticMode === "off") {
+      summaries =
+        this.db
+          .query<{ c: number }, []>("SELECT COUNT(DISTINCT symbol_id) as c FROM semantic_summaries")
+          .get()?.c ?? 0;
+    } else if (this.semanticMode === "ast") {
+      summaries =
+        this.db
+          .query<{ c: number }, []>(
+            "SELECT COUNT(*) as c FROM semantic_summaries WHERE source = 'ast'",
+          )
+          .get()?.c ?? 0;
+    } else {
+      // synthetic, llm, full, on — count across all sources (deduplicated)
+      summaries =
+        this.db
+          .query<{ c: number }, []>("SELECT COUNT(DISTINCT symbol_id) as c FROM semantic_summaries")
+          .get()?.c ?? 0;
+    }
     return { files, symbols, edges, summaries, calls };
+  }
+
+  getSummaryBreakdown(): {
+    ast: number;
+    llm: number;
+    synthetic: number;
+    total: number;
+    eligible: number;
+  } {
+    const ast =
+      this.db
+        .query<{ c: number }, []>("SELECT COUNT(*) as c FROM semantic_summaries WHERE source='ast'")
+        .get()?.c ?? 0;
+    const llm =
+      this.db
+        .query<{ c: number }, []>("SELECT COUNT(*) as c FROM semantic_summaries WHERE source='llm'")
+        .get()?.c ?? 0;
+    const synthetic =
+      this.db
+        .query<{ c: number }, []>(
+          "SELECT COUNT(*) as c FROM semantic_summaries WHERE source='synthetic'",
+        )
+        .get()?.c ?? 0;
+    const total =
+      this.db
+        .query<{ c: number }, []>("SELECT COUNT(DISTINCT symbol_id) as c FROM semantic_summaries")
+        .get()?.c ?? 0;
+    const eligible =
+      this.db
+        .query<{ c: number }, []>(
+          "SELECT COUNT(*) as c FROM symbols WHERE is_exported=1 AND kind IN ('function','method','class','interface','type')",
+        )
+        .get()?.c ?? 0;
+    return { ast, llm, synthetic, total, eligible };
   }
 
   /**
@@ -3269,7 +3497,8 @@ export class RepoMap {
   clear(): void {
     this.db.run("DROP TRIGGER IF EXISTS symbols_ai");
     this.db.run("DROP TRIGGER IF EXISTS symbols_ad");
-    this.db.run("DELETE FROM semantic_summaries");
+    // Preserve LLM summaries (paid) — they'll be re-linked on next scan via file_path+symbol_name
+    this.db.run("DELETE FROM semantic_summaries WHERE source != 'llm'");
     this.db.run("DELETE FROM external_imports");
     this.db.run("DELETE FROM cochanges");
     this.db.run("DELETE FROM edges");

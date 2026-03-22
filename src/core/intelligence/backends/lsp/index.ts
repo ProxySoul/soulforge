@@ -956,6 +956,16 @@ export class LspBackend implements IntelligenceBackend {
     }
   }
 
+  /** Get neovim's active LSP clients (null if neovim not running) */
+  async getNvimClients(): Promise<Array<{
+    name: string;
+    language: string;
+    pid: number | null;
+  }> | null> {
+    if (!nvimBridge.isNvimAvailable()) return null;
+    return nvimBridge.getActiveClients();
+  }
+
   /** Get info about active standalone LSP servers */
   getActiveServers(): Array<{ language: string; command: string }> {
     const servers: Array<{ language: string; command: string }> = [];
@@ -1013,6 +1023,46 @@ export class LspBackend implements IntelligenceBackend {
       if (pid != null) pids.push(pid);
     }
     return pids;
+  }
+
+  /** Restart standalone LSP servers. Pass a command name to restart specific, or omit for all. */
+  async restartServers(filter?: string): Promise<string[]> {
+    const restarted: string[] = [];
+    const toRestart: Array<{ key: string; client: StandaloneLspClient }> = [];
+
+    for (const [key, client] of this.standaloneClients) {
+      if (filter && !client.serverCommand.includes(filter) && !client.language.includes(filter)) {
+        continue;
+      }
+      toRestart.push({ key, client });
+    }
+
+    for (const { key, client } of toRestart) {
+      const lang = client.language;
+      const cmd = client.serverCommand;
+      await client.stop().catch(() => {});
+      this.standaloneClients.delete(key);
+      // Clear from language index
+      for (const [lk, clients] of this.languageClients) {
+        const idx = clients.indexOf(client);
+        if (idx >= 0) {
+          clients.splice(idx, 1);
+          if (clients.length === 0) this.languageClients.delete(lk);
+        }
+      }
+      restarted.push(`${lang}:${cmd}`);
+    }
+
+    // Clear failed servers so they can be retried
+    if (filter) {
+      for (const key of this.failedServers) {
+        if (key.includes(filter)) this.failedServers.delete(key);
+      }
+    } else {
+      this.failedServers.clear();
+    }
+
+    return restarted;
   }
 
   dispose(): void {

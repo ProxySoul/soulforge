@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useState } from "react";
-import { getDetailedLspServers } from "../../core/intelligence/instance.js";
+import { getDetailedLspServers, getNvimLspClients } from "../../core/intelligence/instance.js";
 import { useErrorStore } from "../../stores/errors.js";
 import { Overlay, POPUP_BG, POPUP_HL, PopupRow } from "../layout/shared.js";
 
@@ -18,6 +18,13 @@ interface LspServerDetail {
   diagnosticCount: number;
   diagnostics: Array<{ file: string; message: string; severity: number }>;
   ready: boolean;
+  backend: "standalone" | "neovim";
+}
+
+interface NvimClient {
+  name: string;
+  language: string;
+  pid: number | null;
 }
 
 const SEVERITY_LABEL: Record<number, { text: string; color: string }> = {
@@ -61,12 +68,23 @@ export function LspStatusPopup({ visible, onClose }: Props) {
   const bgErrors = useErrorStore((s) => s.errors);
   const lspErrors = useMemo(() => bgErrors.filter((e) => e.source.startsWith("LSP:")), [bgErrors]);
 
+  const [nvimClients, setNvimClients] = useState<NvimClient[]>([]);
+
   useEffect(() => {
     if (!visible) return;
     setCursor(0);
     setDetailIdx(null);
     setDetailScroll(0);
-    const poll = () => setServers(getDetailedLspServers());
+    const poll = () => {
+      const standalone: LspServerDetail[] = getDetailedLspServers().map((s) => ({
+        ...s,
+        backend: "standalone",
+      }));
+      setServers(standalone);
+      getNvimLspClients()
+        .then((clients) => setNvimClients(clients ?? []))
+        .catch(() => {});
+    };
     poll();
     const id = setInterval(poll, POLL_MS);
     return () => clearInterval(id);
@@ -260,7 +278,8 @@ export function LspStatusPopup({ visible, onClose }: Props) {
           </text>
           <text fg="#555" bg={POPUP_BG}>
             {" "}
-            ({String(servers.length)} active)
+            ({String(servers.length)} standalone
+            {nvimClients.length > 0 ? ` + ${String(nvimClients.length)} neovim` : ""})
           </text>
         </PopupRow>
 
@@ -272,56 +291,74 @@ export function LspStatusPopup({ visible, onClose }: Props) {
 
         <box
           flexDirection="column"
-          height={Math.min(servers.length || 1, maxListVisible)}
+          height={Math.min(servers.length + nvimClients.length || 1, maxListVisible)}
           overflow="hidden"
         >
-          {servers.length === 0 ? (
+          {servers.length === 0 && nvimClients.length === 0 ? (
             <PopupRow w={innerW}>
               <text fg="#555" bg={POPUP_BG}>
                 No language servers running
               </text>
             </PopupRow>
           ) : (
-            servers.slice(0, maxListVisible).map((srv, i) => {
-              const isActive = i === cursor;
-              const bg = isActive ? POPUP_HL : POPUP_BG;
-              const statusColor = srv.ready ? "#2d5" : "#FF8C00";
-              const statusIcon = srv.ready ? "\u25CF" : "\u25CB";
-              const cmd = shortCommand(srv.command);
-              const diagLabel =
-                srv.diagnosticCount > 0 ? ` ${String(srv.diagnosticCount)} diag` : "";
-              const diagColor = srv.diagnosticCount > 0 ? "#FF8C00" : "#555";
-              const cwdStr = shortPath(srv.cwd, Math.max(20, innerW - cmd.length - 25));
+            <>
+              {servers.slice(0, maxListVisible).map((srv, i) => {
+                const isActive = i === cursor;
+                const bg = isActive ? POPUP_HL : POPUP_BG;
+                const statusColor = srv.ready ? "#2d5" : "#FF8C00";
+                const statusIcon = srv.ready ? "\u25CF" : "\u25CB";
+                const cmd = shortCommand(srv.command);
+                const diagLabel =
+                  srv.diagnosticCount > 0 ? ` ${String(srv.diagnosticCount)} diag` : "";
+                const diagColor = srv.diagnosticCount > 0 ? "#FF8C00" : "#555";
 
-              return (
-                <PopupRow key={`${srv.language}-${String(srv.pid)}`} bg={bg} w={innerW}>
-                  <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
-                    {isActive ? "\u203A " : "  "}
-                  </text>
-                  <text bg={bg} fg={statusColor}>
-                    {statusIcon}{" "}
-                  </text>
-                  <text
-                    bg={bg}
-                    fg={isActive ? "white" : "#aaa"}
-                    attributes={isActive ? TextAttributes.BOLD : undefined}
-                  >
-                    {cmd}
-                  </text>
-                  <text bg={bg} fg="#666">
+                return (
+                  <PopupRow key={`s-${srv.language}-${String(srv.pid)}`} bg={bg} w={innerW}>
+                    <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
+                      {isActive ? "\u203A " : "  "}
+                    </text>
+                    <text bg={bg} fg={statusColor}>
+                      {statusIcon}{" "}
+                    </text>
+                    <text
+                      bg={bg}
+                      fg={isActive ? "white" : "#aaa"}
+                      attributes={isActive ? TextAttributes.BOLD : undefined}
+                    >
+                      {cmd}
+                    </text>
+                    <text bg={bg} fg="#666">
+                      {"  "}
+                      {srv.language}
+                    </text>
+                    <text bg={bg} fg="#2dd4bf">
+                      {" [standalone]"}
+                    </text>
+                    <text bg={bg} fg={diagColor}>
+                      {diagLabel}
+                    </text>
+                  </PopupRow>
+                );
+              })}
+              {nvimClients.map((nc) => (
+                <PopupRow key={`n-${nc.name}-${String(nc.pid)}`} w={innerW}>
+                  <text fg="#555">{"  "}</text>
+                  <text fg="#57A143">{"\u25CF "}</text>
+                  <text fg="#aaa">{nc.name}</text>
+                  <text fg="#666">
                     {"  "}
-                    {srv.language}
+                    {nc.language}
                   </text>
-                  <text bg={bg} fg="#444">
-                    {"  "}
-                    {cwdStr}
-                  </text>
-                  <text bg={bg} fg={diagColor}>
-                    {diagLabel}
-                  </text>
+                  <text fg="#57A143">{" [neovim]"}</text>
+                  {nc.pid ? (
+                    <text fg="#444">
+                      {"  pid:"}
+                      {String(nc.pid)}
+                    </text>
+                  ) : null}
                 </PopupRow>
-              );
-            })
+              ))}
+            </>
           )}
         </box>
 

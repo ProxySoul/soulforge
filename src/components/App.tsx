@@ -61,6 +61,7 @@ import { SessionPicker } from "./modals/SessionPicker.js";
 import { EditorSettings } from "./settings/EditorSettings.js";
 import { LspInstallSearch } from "./settings/LspInstallSearch.js";
 import { ProviderSettings } from "./settings/ProviderSettings.js";
+import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { RouterSettings } from "./settings/RouterSettings.js";
 import { SkillSearch } from "./settings/SkillSearch.js";
 
@@ -374,6 +375,7 @@ export function App({
   const modalCommandPicker = useUIStore((s) => s.modals.commandPicker);
   const modalInfoPopup = useUIStore((s) => s.modals.infoPopup);
   const modalDiagnose = useUIStore((s) => s.modals.diagnosePopup);
+  const modalRepoMapStatus = useUIStore((s) => s.modals.repoMapStatus);
   const isModalOpen = useUIStore(selectIsAnyModalOpen);
 
   const closerCache = useRef<Partial<Record<ModalName, () => void>>>({});
@@ -1116,6 +1118,71 @@ export function App({
         visible={modalDiagnose}
         onClose={getCloser("diagnosePopup")}
         runHealthCheck={runIntelligenceHealthCheck}
+      />
+
+      <RepoMapStatusPopup
+        visible={modalRepoMapStatus}
+        onClose={getCloser("repoMapStatus")}
+        enabled={effectiveConfig.repoMap !== false}
+        currentMode={
+          effectiveConfig.semanticSummaries === true
+            ? "synthetic"
+            : effectiveConfig.semanticSummaries === false
+              ? "off"
+              : effectiveConfig.semanticSummaries === "on"
+                ? "full"
+                : (effectiveConfig.semanticSummaries ?? "off")
+        }
+        currentLimit={effectiveConfig.semanticSummaryLimit ?? 300}
+        currentAutoRegen={effectiveConfig.semanticAutoRegen ?? false}
+        currentScope={detectScope("semanticSummaries")}
+        onToggle={(nowEnabled, scope) => {
+          contextManager.setRepoMapEnabled(nowEnabled);
+          saveToScope({ repoMap: nowEnabled }, scope);
+          if (nowEnabled) {
+            if (!contextManager.isRepoMapReady()) contextManager.refreshRepoMap().catch(() => {});
+          } else {
+            if (contextManager.isSemanticEnabled()) {
+              contextManager.setSemanticSummaries("off");
+              saveToScope({ semanticSummaries: "off" }, scope);
+            }
+            contextManager.clearRepoMap();
+          }
+        }}
+        onRefresh={() => contextManager.refreshRepoMap().catch(() => {})}
+        onClear={(scope) => {
+          if (contextManager.isSemanticEnabled()) {
+            contextManager.setSemanticSummaries("off");
+            saveToScope({ semanticSummaries: "off" }, scope);
+          }
+          contextManager.setRepoMapEnabled(false);
+          contextManager.clearRepoMap();
+          saveToScope({ repoMap: false }, scope);
+        }}
+        onRegenerate={() => {
+          contextManager.setActiveModel(activeModelForHeader);
+          contextManager.clearFreeSummaries();
+          const mode = contextManager.getSemanticMode();
+          contextManager.setSemanticSummaries(mode === "off" ? "synthetic" : mode);
+        }}
+        onClearSummaries={() => {
+          contextManager.clearSemanticSummaries();
+        }}
+        onApply={(mode, limit, autoRegen, scope) => {
+          const typedMode = mode as "off" | "ast" | "synthetic" | "llm" | "full";
+          contextManager.setActiveModel(activeModelForHeader);
+          saveToScope(
+            {
+              semanticSummaries: typedMode,
+              semanticSummaryLimit: limit,
+              semanticAutoRegen: autoRegen,
+            },
+            scope,
+          );
+          contextManager.setSemanticSummaryLimit(limit);
+          contextManager.setSemanticAutoRegen(autoRegen);
+          contextManager.setSemanticSummaries(typedMode);
+        }}
       />
 
       <SimpleModalLayer

@@ -77,6 +77,22 @@ export function getDetailedLspServers(): Array<{
   return router.getDetailedLspServers();
 }
 
+/** Restart LSP servers. Pass filter to restart specific server/language, or omit for all. */
+export async function restartLspServers(filter?: string): Promise<string[]> {
+  if (!router) return [];
+  return router.restartLspServers(filter);
+}
+
+/** Get neovim's active LSP clients */
+export async function getNvimLspClients(): Promise<Array<{
+  name: string;
+  language: string;
+  pid: number | null;
+}> | null> {
+  if (!router) return null;
+  return router.getNvimLspClients();
+}
+
 /** Get PIDs of all child processes managed by the intelligence system */
 export function getIntelligenceChildPids(): number[] {
   if (!router) return [];

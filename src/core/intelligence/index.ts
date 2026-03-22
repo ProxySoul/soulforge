@@ -4,6 +4,8 @@ export {
   getIntelligenceChildPids,
   getIntelligenceRouter,
   getIntelligenceStatus,
+  getNvimLspClients,
+  restartLspServers,
   runIntelligenceHealthCheck,
   warmupIntelligence,
 } from "./instance.js";

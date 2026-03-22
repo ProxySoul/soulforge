@@ -102,7 +102,10 @@ export class ContextManager {
   private contextWindowTokens = DEFAULT_CONTEXT_WINDOW;
   private repoMapCache: { content: string; at: number } | null = null;
   private taskRouter: TaskRouter | undefined;
+  private semanticSummaryLimit = 300;
+  private semanticAutoRegen = false;
   private lastActiveModel = "";
+  private semanticGenId = 0;
   private isChild = false;
   private projectInstructions = "";
   private static readonly REPO_MAP_TTL = 5_000; // 5s — covers getContextBreakdown + buildSystemPrompt in same prompt
@@ -188,14 +191,16 @@ export class ContextManager {
     });
   }
 
+  private handleScanError(err: unknown): void {
+    const msg = toErrorMessage(err);
+    this.repoMapReady = false;
+    this.syncRepoMapStore("error");
+    useRepoMapStore.getState().setScanError(`Soul map scan failed: ${msg}`);
+  }
+
   private startRepoMapScan(): void {
     this.syncRepoMapStore("scanning");
-    this.repoMap.scan().catch((err: unknown) => {
-      const msg = toErrorMessage(err);
-      this.repoMapReady = false;
-      this.syncRepoMapStore("error");
-      useRepoMapStore.getState().setScanError(`Soul map scan failed: ${msg}`);
-    });
+    this.repoMap.scan().catch((err: unknown) => this.handleScanError(err));
   }
 
   private wireRepoMapCallbacks(): void {
@@ -216,9 +221,13 @@ export class ContextManager {
         this.repoMapReady = true;
         this.syncRepoMapStore("ready");
         useRepoMapStore.getState().setScanError("");
-        if (!this.repoMap.isSemanticEnabled()) {
+        // Re-apply semantic mode now that repo map is ready (may have been set before scan finished)
+        const current = this.repoMap.getSemanticMode();
+        if (current === "off") {
           const persisted = this.repoMap.detectPersistedSemanticMode();
-          this.setSemanticSummaries(persisted === "off" ? "ast" : persisted);
+          this.setSemanticSummaries(persisted === "off" ? "synthetic" : persisted);
+        } else {
+          this.setSemanticSummaries(current);
         }
       } else {
         this.repoMapReady = false;
@@ -227,18 +236,30 @@ export class ContextManager {
       }
     };
 
-    // Lazy background regen: when render detects stale LLM summaries after file edits,
-    // regenerate just the changed symbols automatically.
+    // On stale symbols: always regen free summaries (ast/synthetic), optionally regen LLM
     this.repoMap.onStaleSymbols = (count) => {
       const mode = this.repoMap.getSemanticMode();
-      if (mode !== "llm" && mode !== "on") return;
-      if (!this.repoMapReady) return;
-      const modelId = this.getSemanticModelId(this.lastActiveModel ?? "");
-      if (!modelId || modelId === "none") return;
-      const store = useRepoMapStore.getState();
-      store.setSemanticStatus("generating");
-      store.setSemanticProgress(`${String(count)} stale — regenerating...`);
-      this.generateSemanticSummaries(modelId).catch(() => {});
+      if (mode === "off" || !this.repoMapReady) return;
+
+      // AST + synthetic regen is always free and instant
+      this.repoMap.generateAstSummaries();
+      if (mode === "synthetic" || mode === "full") {
+        this.repoMap.generateSyntheticSummaries();
+      }
+
+      // LLM regen only when auto-regen is enabled (costs tokens)
+      if ((mode === "llm" || mode === "full" || mode === "on") && this.semanticAutoRegen) {
+        const modelId = this.getSemanticModelId(this.lastActiveModel ?? "");
+        if (!modelId || modelId === "none") return;
+        const store = useRepoMapStore.getState();
+        store.setSemanticStatus("generating");
+        store.setSemanticProgress(`${String(count)} stale — regenerating...`);
+        this.generateSemanticSummaries(modelId).catch(() => {});
+      } else {
+        // Just update counts from free regen
+        const stats = this.repoMap.getStats();
+        useRepoMapStore.getState().setSemanticCount(stats.summaries);
+      }
     };
   }
 
@@ -309,10 +330,12 @@ export class ContextManager {
     if (!this.isChild) {
       this.repoMap.onFileChanged(absPath);
       if (this.repoMapReady) {
-        const stats = this.repoMap.getStats();
-        useRepoMapStore
-          .getState()
-          .setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytes());
+        setTimeout(() => {
+          const stats = this.repoMap.getStats();
+          useRepoMapStore
+            .getState()
+            .setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytes());
+        }, 200);
       }
     }
     this.editedFiles.add(absPath);
@@ -388,8 +411,17 @@ export class ContextManager {
     }
   }
 
-  setSemanticSummaries(modeOrBool: "off" | "ast" | "llm" | "on" | boolean): void {
-    const mode = modeOrBool === true ? "llm" : modeOrBool === false ? "off" : modeOrBool;
+  setSemanticSummaries(
+    modeOrBool: "off" | "ast" | "synthetic" | "llm" | "full" | "on" | boolean,
+  ): void {
+    const mode =
+      modeOrBool === true
+        ? "synthetic"
+        : modeOrBool === false
+          ? "off"
+          : modeOrBool === "on"
+            ? "full"
+            : modeOrBool;
     this.repoMap.setSemanticMode(mode);
     const store = useRepoMapStore.getState();
     if (mode === "off") {
@@ -397,69 +429,131 @@ export class ContextManager {
       store.setSemanticCount(0);
       store.setSemanticProgress("");
       store.setSemanticModel("");
-    } else if (mode === "ast" || mode === "on") {
-      store.setSemanticModel("");
-      // Ensure AST summaries exist (free extraction)
-      if (this.repoMapReady) {
-        const existingAst = this.repoMap.getStats();
-        if (existingAst.summaries === 0 || mode === "on") {
-          store.setSemanticStatus("generating");
-          store.setSemanticProgress("extracting docstrings...");
-          this.repoMap.generateAstSummaries();
-        }
-      }
-      if (mode === "on") {
-        const stats = this.repoMap.getStats();
-        store.setSemanticCount(stats.summaries);
-        // If any summaries already exist, show ready. AST may produce 0 (no docstrings) — that's fine.
-        if (stats.summaries > 0) {
-          const persisted = this.repoMap.detectPersistedSemanticMode();
-          const tag = persisted === "on" ? "ast+llm" : persisted === "ast" ? "ast" : "llm";
-          store.setSemanticStatus("ready");
-          store.setSemanticProgress(`${tag} — ${String(stats.summaries)} symbols`);
-        } else {
-          store.setSemanticStatus("generating");
-          store.setSemanticProgress("waiting for LLM generation...");
-        }
-      } else {
-        const stats = this.repoMap.getStats();
-        store.setSemanticCount(stats.summaries);
-        store.setSemanticStatus(stats.summaries > 0 ? "ready" : "off");
+      return;
+    }
+    store.setSemanticModel("");
+
+    if (!this.repoMapReady) {
+      store.setSemanticStatus("generating");
+      store.setSemanticProgress(`${mode} — waiting for soul map...`);
+      return;
+    }
+
+    // AST extraction (free) — runs for all non-off modes
+    store.setSemanticStatus("generating");
+    store.setSemanticProgress("extracting docstrings...");
+    this.repoMap.generateAstSummaries();
+
+    // Synthetic generation (free, instant) — runs for synthetic/full modes
+    if (mode === "synthetic" || mode === "full") {
+      store.setSemanticProgress("generating synthetic summaries...");
+      this.repoMap.generateSyntheticSummaries();
+    }
+
+    // Update stats from actual DB state
+    const bd = this.repoMap.getSummaryBreakdown();
+    store.setSemanticCount(bd.total);
+
+    if (mode === "llm" || mode === "full") {
+      // Auto-trigger LLM generation in background if model available
+      const modelId = this.getSemanticModelId(this.lastActiveModel);
+      if (modelId && modelId !== "none") {
+        const genId = ++this.semanticGenId;
+        store.setSemanticModel(modelId);
+        store.setSemanticStatus("generating"); // never "ready" before LLM finishes
         store.setSemanticProgress(
-          stats.summaries > 0
-            ? `ast — ${String(stats.summaries)} extracted`
-            : "waiting for soul map...",
+          bd.total > 0
+            ? `${this.formatBreakdown(bd)} (generating LLM...)`
+            : "generating LLM summaries...",
         );
+        this.generateSemanticSummaries(modelId).catch(() => {
+          if (this.semanticGenId !== genId) return;
+          const current = this.repoMap.getSummaryBreakdown();
+          store.setSemanticCount(current.total);
+          store.setSemanticStatus(current.total > 0 ? "ready" : "off");
+          store.setSemanticProgress(
+            current.total > 0 ? this.formatBreakdown(current) : "LLM generation failed",
+          );
+        });
+      } else {
+        store.setSemanticStatus(bd.total > 0 ? "ready" : "off");
+        store.setSemanticProgress(bd.total > 0 ? this.formatBreakdown(bd) : "waiting for model...");
       }
     } else {
-      store.setSemanticModel("");
-      store.setSemanticStatus("generating");
-      store.setSemanticProgress("waiting for generation...");
-      const stats = this.repoMap.getStats();
-      store.setSemanticCount(stats.summaries);
+      store.setSemanticStatus(bd.total > 0 ? "ready" : "off");
+      store.setSemanticProgress(bd.total > 0 ? this.formatBreakdown(bd) : "no summaries");
     }
   }
 
+  /** Clear only free summaries (ast/synthetic). LLM summaries are preserved. */
+  clearFreeSummaries(): void {
+    this.repoMap.clearFreeSummaries();
+    const bd = this.repoMap.getSummaryBreakdown();
+    const store = useRepoMapStore.getState();
+    store.setSemanticCount(bd.total);
+    store.setSemanticProgress(bd.total > 0 ? this.formatBreakdown(bd) : "");
+  }
+
+  /** Clear ALL summaries including paid LLM ones. Use only for explicit user "clear" action. */
   clearSemanticSummaries(): void {
+    ++this.semanticGenId;
     this.repoMap.clearSemanticSummaries();
     const store = useRepoMapStore.getState();
     store.setSemanticCount(0);
     store.setSemanticProgress("");
-    if (this.repoMap.isSemanticEnabled()) {
-      store.setSemanticStatus("off");
-    }
+    store.setSemanticModel("");
+    store.resetSemanticTokens();
+    store.setSemanticStatus("off");
   }
 
   isSemanticEnabled(): boolean {
     return this.repoMap.isSemanticEnabled();
   }
 
-  getSemanticMode(): "off" | "ast" | "llm" | "on" {
+  getSemanticMode(): "off" | "ast" | "synthetic" | "llm" | "full" | "on" {
     return this.repoMap.getSemanticMode();
+  }
+
+  setSemanticSummaryLimit(limit: number | undefined): void {
+    this.semanticSummaryLimit = limit ?? 300;
+  }
+
+  setSemanticAutoRegen(enabled: boolean | undefined): void {
+    this.semanticAutoRegen = enabled ?? false;
   }
 
   setTaskRouter(router: TaskRouter | undefined): void {
     this.taskRouter = router;
+  }
+
+  setActiveModel(modelId: string): void {
+    if (!modelId || modelId === "none") return;
+    const hadModel = !!this.lastActiveModel;
+    this.lastActiveModel = modelId;
+    // If mode needs LLM and we just got a model for the first time, trigger generation
+    if (!hadModel && this.repoMapReady) {
+      const mode = this.repoMap.getSemanticMode();
+      if (mode === "llm" || mode === "full" || mode === "on") {
+        this.setSemanticSummaries(mode);
+      }
+    }
+  }
+
+  private formatBreakdown(bd: {
+    ast: number;
+    llm: number;
+    synthetic: number;
+    total: number;
+    eligible: number;
+  }): string {
+    const parts: string[] = [];
+    if (bd.ast > 0) parts.push(`${String(bd.ast)} ast`);
+    if (bd.llm > 0) {
+      const pct = bd.eligible > 0 ? Math.round((bd.llm / bd.eligible) * 100) : 0;
+      parts.push(`${String(bd.llm)} llm (${String(pct)}%)`);
+    }
+    if (bd.synthetic > 0) parts.push(`${String(bd.synthetic)} syn`);
+    return `${parts.join(" + ")} — ${String(bd.total)} symbols`;
   }
 
   getSemanticModelId(fallback: string): string {
@@ -469,6 +563,7 @@ export class ContextManager {
   async generateSemanticSummaries(modelId: string): Promise<number> {
     if (!this.repoMapReady) return 0;
     this.lastActiveModel = modelId;
+    const myGenId = this.semanticGenId;
 
     const store = useRepoMapStore.getState();
     store.setSemanticStatus("generating");
@@ -495,9 +590,11 @@ export class ContextManager {
           })
           .join("\n\n");
 
-        store.setSemanticProgress(
-          `${String(processed + 1)}-${String(Math.min(processed + CHUNK, batch.length))}/${String(batch.length)}`,
-        );
+        if (this.semanticGenId === myGenId) {
+          store.setSemanticProgress(
+            `${String(processed + 1)}-${String(Math.min(processed + CHUNK, batch.length))}/${String(batch.length)}`,
+          );
+        }
 
         const { text, usage } = await generateText({
           model,
@@ -539,21 +636,26 @@ export class ContextManager {
     this.repoMap.setSummaryGenerator(generator);
 
     try {
-      const count = await this.repoMap.generateSemanticSummaries();
-      const stats = this.repoMap.getStats();
-      store.setSemanticCount(stats.summaries);
-      store.setSemanticStatus(stats.summaries > 0 ? "ready" : "off");
-      const mode = this.repoMap.getSemanticMode();
-      const tag = mode === "on" ? "ast+llm" : "llm";
-      store.setSemanticProgress(
-        stats.summaries > 0 ? `${tag} — ${String(stats.summaries)} symbols` : "",
-      );
+      const count = await this.repoMap.generateSemanticSummaries(this.semanticSummaryLimit);
+      // Only update store if this is still the active generation (not superseded)
+      if (this.semanticGenId === myGenId) {
+        const bd = this.repoMap.getSummaryBreakdown();
+        store.setSemanticCount(bd.total);
+        store.setSemanticStatus(bd.total > 0 ? "ready" : "off");
+        store.setSemanticProgress(bd.total > 0 ? this.formatBreakdown(bd) : "");
+      }
       return count;
     } catch (err) {
-      const msg = toErrorMessage(err);
-      store.setSemanticStatus("error");
-      store.setSemanticProgress(msg.slice(0, 80));
-      throw new Error(`Semantic summary generation failed: ${msg}`);
+      if (this.semanticGenId === myGenId) {
+        const msg = toErrorMessage(err);
+        store.setSemanticStatus("error");
+        store.setSemanticProgress(msg.slice(0, 80));
+        store.setSemanticModel("");
+        store.resetSemanticTokens();
+        const fallbackStats = this.repoMap.getStats();
+        store.setSemanticCount(fallbackStats.summaries);
+      }
+      throw err;
     }
   }
 
@@ -571,12 +673,7 @@ export class ContextManager {
   async refreshRepoMap(): Promise<void> {
     this.syncRepoMapStore("scanning");
     useRepoMapStore.getState().setScanError("");
-    await this.repoMap.scan().catch((err: unknown) => {
-      const msg = toErrorMessage(err);
-      this.repoMapReady = false;
-      this.syncRepoMapStore("error");
-      useRepoMapStore.getState().setScanError(`Soul map scan failed: ${msg}`);
-    });
+    await this.repoMap.scan().catch((err: unknown) => this.handleScanError(err));
   }
 
   clearRepoMap(): void {

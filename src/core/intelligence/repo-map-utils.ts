@@ -286,6 +286,28 @@ function trimDocLine(text: string): string | null {
   return s;
 }
 
+function splitIdentifier(name: string): string[] {
+  if (name.includes("_"))
+    return name
+      .split("_")
+      .filter(Boolean)
+      .map((w) => w.toLowerCase());
+  return name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(" ")
+    .map((w) => w.toLowerCase());
+}
+
+export function generateSyntheticSummary(name: string, kind: string, filePath: string): string {
+  const words = splitIdentifier(name);
+  const parts = filePath.split("/");
+  const dir = parts.length >= 2 ? parts[parts.length - 2] : "";
+  const kindLabel = kind === "function" || kind === "method" ? kind : kind;
+  const summary = `${dir ? `[${dir}] ` : ""}${kindLabel}: ${words.join(" ")}`;
+  return summary.length > 80 ? `${summary.slice(0, 77)}...` : summary;
+}
+
 export function getDirGroup(filePath: string): string | null {
   const parts = filePath.split("/");
   if (parts.length < 2) return null;

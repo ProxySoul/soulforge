@@ -21,8 +21,16 @@ import {
   gitUnstage,
   run,
 } from "../git/status.js";
+import { truncateWithTee } from "./tee.js";
 
 const cwd = process.cwd();
+const MAX_GIT_OUTPUT = 32_000;
+
+function capGitOutput(output: string, label: string): string {
+  if (output.length <= MAX_GIT_OUTPUT) return output;
+  const { text } = truncateWithTee(output, MAX_GIT_OUTPUT, 10_000, 10_000, `git-${label}`);
+  return text;
+}
 
 function getOtherTabClaimWarning(tabId?: string): string | null {
   if (!tabId) return null;
@@ -202,7 +210,7 @@ async function execDiff(staged?: boolean): Promise<ToolResult> {
   }
   lastDiffOutput = output;
   lastDiffStaged = staged;
-  return { success: true, output };
+  return { success: true, output: capGitOutput(output, "diff") };
 }
 
 export function resetDiffCache(): void {
@@ -273,7 +281,7 @@ async function execStash(
     }
     case "show": {
       const { ok, output } = await gitStashShow(cwd, index ?? 0);
-      return { success: ok, output: output || "Empty stash." };
+      return { success: ok, output: capGitOutput(output || "Empty stash.", "stash-show") };
     }
     case "drop": {
       const { ok, output } = await gitStashDrop(cwd, index ?? 0);
@@ -319,7 +327,7 @@ async function execBranch(subAction?: string, name?: string): Promise<ToolResult
 
 async function execShow(ref?: string): Promise<ToolResult> {
   const result = await gitShow(cwd, ref ?? "HEAD");
-  return { success: result.ok, output: result.output };
+  return { success: result.ok, output: capGitOutput(result.output, "show") };
 }
 
 async function execUnstage(files?: string[]): Promise<ToolResult> {

@@ -73,6 +73,14 @@ interface TabInstanceProps {
 
 const MAX_RENDERED = 60;
 const SCROLLBOX_STYLE = { contentOptions: { justifyContent: "flex-end" as const } };
+const SCROLLBAR_HIDDEN = { visible: false } as const;
+const SCROLLBAR_VISIBLE = {
+  visible: true,
+  trackOptions: {
+    foregroundColor: "#555",
+    backgroundColor: "#222",
+  },
+} as const;
 
 export const TabInstance = memo(function TabInstance({
   tabId,
@@ -165,7 +173,14 @@ export const TabInstance = memo(function TabInstance({
   useEffect(() => {
     if (effectiveConfig.semanticSummaries !== undefined)
       contextManager.setSemanticSummaries(effectiveConfig.semanticSummaries);
-  }, [effectiveConfig.semanticSummaries, contextManager]);
+    contextManager.setSemanticSummaryLimit(effectiveConfig.semanticSummaryLimit);
+    contextManager.setSemanticAutoRegen(effectiveConfig.semanticAutoRegen);
+  }, [
+    effectiveConfig.semanticSummaries,
+    effectiveConfig.semanticSummaryLimit,
+    effectiveConfig.semanticAutoRegen,
+    contextManager,
+  ]);
 
   // Per-tab useChat instance
   const chat = useChat({
@@ -187,6 +202,11 @@ export const TabInstance = memo(function TabInstance({
     if (effectiveConfig.coAuthorCommits !== undefined)
       chat.setCoAuthorCommits(effectiveConfig.coAuthorCommits);
   }, [effectiveConfig.coAuthorCommits, chat.setCoAuthorCommits]);
+
+  // Seed active model for semantic summary generation
+  useEffect(() => {
+    contextManager.setActiveModel(chat.activeModel);
+  }, [chat.activeModel, contextManager]);
 
   // Register/unregister chat instance with tab manager
   useEffect(() => {
@@ -276,6 +296,10 @@ export const TabInstance = memo(function TabInstance({
   }, [chat.messages]);
 
   const hasContent = nonSystemCount > 0 || isStreaming;
+
+  // Show scrollbar as soon as we have content. The stickyScroll + stickyStart="bottom"
+  // combo handles initial positioning correctly.
+  const scrollbarReady = hasContent;
 
   const {
     codeExpandedMap,
@@ -423,6 +447,8 @@ export const TabInstance = memo(function TabInstance({
               flexShrink={1}
               minHeight={0}
               style={SCROLLBOX_STYLE}
+              verticalScrollbarOptions={scrollbarReady ? SCROLLBAR_VISIBLE : SCROLLBAR_HIDDEN}
+              horizontalScrollbarOptions={SCROLLBAR_HIDDEN}
             >
               <CodeExpandedProvider value={codeExpanded}>
                 <ReasoningExpandedProvider value={reasoningExpanded}>

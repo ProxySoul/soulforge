@@ -166,34 +166,34 @@ function handleLazygit(_input: string, ctx: CommandContext): void {
   ctx.handleSuspend({ command: "lazygit" });
 }
 
-function handlePush(_input: string, ctx: CommandContext): void {
-  sysMsg(ctx, "Pushing...");
-  gitPush(ctx.cwd).then((result) => {
-    sysMsg(ctx, result.ok ? "Push complete." : `Push failed: ${result.output}`);
+function runGitOp(
+  ctx: CommandContext,
+  fn: (cwd: string) => Promise<{ ok: boolean; output: string }>,
+  loading: string,
+  success: string,
+  failPrefix: string,
+): void {
+  sysMsg(ctx, loading);
+  fn(ctx.cwd).then((result) => {
+    sysMsg(ctx, result.ok ? success : `${failPrefix}: ${result.output}`);
     ctx.refreshGit();
   });
+}
+
+function handlePush(_input: string, ctx: CommandContext): void {
+  runGitOp(ctx, gitPush, "Pushing...", "Push complete.", "Push failed");
 }
 
 function handlePull(_input: string, ctx: CommandContext): void {
-  sysMsg(ctx, "Pulling...");
-  gitPull(ctx.cwd).then((result) => {
-    sysMsg(ctx, result.ok ? "Pull complete." : `Pull failed: ${result.output}`);
-    ctx.refreshGit();
-  });
+  runGitOp(ctx, gitPull, "Pulling...", "Pull complete.", "Pull failed");
 }
 
 function handleStash(_input: string, ctx: CommandContext): void {
-  gitStash(ctx.cwd).then((result) => {
-    sysMsg(ctx, result.ok ? "Changes stashed." : `Stash failed: ${result.output}`);
-    ctx.refreshGit();
-  });
+  runGitOp(ctx, gitStash, "", "Changes stashed.", "Stash failed");
 }
 
 function handleStashPop(_input: string, ctx: CommandContext): void {
-  gitStashPop(ctx.cwd).then((result) => {
-    sysMsg(ctx, result.ok ? "Stash popped." : `Stash pop failed: ${result.output}`);
-    ctx.refreshGit();
-  });
+  runGitOp(ctx, gitStashPop, "", "Stash popped.", "Stash pop failed");
 }
 
 function handleLog(_input: string, ctx: CommandContext): void {

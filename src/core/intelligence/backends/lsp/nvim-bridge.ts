@@ -622,6 +622,34 @@ export async function organizeImports(filePath: string): Promise<LspCodeAction[]
   return safeParseJson<LspCodeAction[]>(result, []);
 }
 
+/** Get active LSP clients from neovim */
+export async function getActiveClients(): Promise<Array<{
+  name: string;
+  language: string;
+  pid: number | null;
+}> | null> {
+  const result = await executeLua(`
+    local clients = vim.lsp.get_clients()
+    local out = {}
+    for _, c in ipairs(clients) do
+      local ft = "unknown"
+      if c.config and c.config.filetypes and #c.config.filetypes > 0 then
+        ft = c.config.filetypes[1]
+      end
+      table.insert(out, {
+        name = c.name,
+        language = ft,
+        pid = c.rpc and c.rpc.pid or nil,
+      })
+    end
+    return vim.json.encode(out)
+  `);
+  return safeParseJson<Array<{ name: string; language: string; pid: number | null }> | null>(
+    result,
+    null,
+  );
+}
+
 function safeParseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string") return fallback;
   try {

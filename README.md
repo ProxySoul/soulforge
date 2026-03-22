@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-BSL%201.1-blue.svg" alt="License" /></a>
   <a href="#"><img src="https://img.shields.io/badge/version-1.0.0-brightgreen.svg" alt="Version" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-blue.svg" alt="TypeScript" /></a>
-  <a href="#testing"><img src="https://img.shields.io/badge/tests-1922%20passing-brightgreen.svg" alt="Tests" /></a>
+  <a href="#testing"><img src="https://img.shields.io/badge/tests-1942%20passing-brightgreen.svg" alt="Tests" /></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6.svg" alt="Bun" /></a>
 </p>
 
@@ -21,7 +21,7 @@
 
 ## What is SoulForge?
 
-Your real Neovim — config, plugins, LSP — embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 9 providers. Works over SSH.
+Your real Neovim — config, plugins, LSP — embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 10 providers. Works over SSH.
 
 <p align="center">
   <img src="assets/soulforge-hero.png" alt="SoulForge in action" width="900" />
@@ -31,13 +31,13 @@ Your real Neovim — config, plugins, LSP — embedded in an AI agent that under
 
 | | SoulForge | Claude Code | Copilot CLI | Aider |
 |---|---|---|---|---|
-| **Editor** | Embedded Neovim (your config) | No editor | No editor | No editor |
-| **Code intelligence** | Graph + PageRank + blast radius + cochange + clone detection | File reads + grep | LSP (optional) | Tree-sitter repo map |
-| **Multi-agent** | Parallel dispatch (8 agents, shared cache) | Subagents + Agent Teams | Explore agent | Single agent |
-| **Providers** | 9 (Anthropic, OpenAI, Google, xAI, Ollama, +4) | Anthropic only | Multi-model | 100+ LLMs |
+| **Editor** | Embedded Neovim (LazyVim, your config) | No editor | No editor | No editor |
+| **Code intelligence** | Graph + PageRank + blast radius + cochange + clone detection | File reads + grep + LSP (experimental) | LSP (optional) | Tree-sitter repo map + PageRank |
+| **Multi-agent** | Parallel dispatch (8 agents, shared cache) | Subagents + Agent Teams | Subagents + Fleet | Single agent |
+| **Providers** | 10 (Anthropic, OpenAI, Google, xAI, Ollama, +5) | Anthropic models (API, Bedrock, Vertex) | Multi-model | 100+ LLMs |
 | **Cost visibility** | Per task, per agent, per model | `/cost` per session | Request counts | Per message |
 | **MCP** | Roadmap | Yes | Yes | No |
-| **License** | BSL 1.1 (source-available) | Open source | Open source | Apache 2.0 |
+| **License** | BSL 1.1 (source-available) | Proprietary | Proprietary | Apache 2.0 |
 
 ---
 
@@ -47,14 +47,14 @@ Your real Neovim — config, plugins, LSP — embedded in an AI agent that under
 <tr>
 <td width="50%">
 
-### Real Neovim, Not Emulation
-Your actual Neovim config, plugins, keybindings, and LSP — embedded via msgpack-RPC. The AI reads, navigates, and edits through the same editor you use. Treesitter highlighting, your colorscheme, your muscle memory.
+### Embedded Neovim + LazyVim
+Your actual Neovim — LazyVim distribution with 30+ plugins, LSP servers auto-installed via Mason, Catppuccin theme, bufferline, noice, treesitter highlighting. The AI reads, navigates, and edits through the same editor you use. Your config, your muscle memory.
 
 </td>
 <td width="50%">
 
 ### Multi-Agent Dispatch
-Parallelize work across explore, code, and web search agents. Shared file cache prevents redundant reads. Edit coordination prevents conflicts. [Deep dive →](docs/agent-bus.md)
+Parallelize work across explore, code, and web search agents. Shared file cache prevents redundant reads. Edit coordination prevents conflicts. Up to 8 agents, 3 concurrent slots. [Deep dive →](docs/agent-bus.md)
 
 </td>
 </tr>
@@ -68,7 +68,7 @@ SQLite-backed codebase graph with PageRank ranking, cochange analysis, blast rad
 <td>
 
 ### 4-Tier Code Intelligence
-LSP → ts-morph → tree-sitter → regex fallback chain. 30+ languages with convention-based visibility detection. The agent always has structural understanding, from compiler-precise to best-effort. [Deep dive →](docs/architecture.md)
+LSP → ts-morph → tree-sitter → regex fallback chain. 30+ languages with convention-based visibility detection. Dual LSP backend: bridges to Neovim's LSP when the editor is open, spawns standalone servers when it's not. [Deep dive →](docs/architecture.md)
 
 </td>
 </tr>
@@ -76,7 +76,7 @@ LSP → ts-morph → tree-sitter → regex fallback chain. 30+ languages with co
 <td>
 
 ### Compound Tools
-`rename_symbol`, `move_symbol`, `refactor`, `project` do the complete job in one call. Compiler-guaranteed renames. Atomic moves with import updates. [Deep dive →](docs/compound-tools.md)
+`rename_symbol`, `move_symbol`, `refactor`, `project` do the complete job in one call. Compiler-guaranteed renames. Atomic moves with import updates across all importers. [Deep dive →](docs/compound-tools.md)
 
 </td>
 <td>
@@ -103,10 +103,18 @@ Type messages while the agent is working — they queue up and inject into the n
 <tr>
 <td>
 
-### Cross-Tab Coordination
-Up to 5 concurrent tabs with advisory file claims. Agents see what other tabs are editing, get warnings on contested files, and git operations are blocked during active dispatch. `/claims` to inspect, `/force-claim` to override.
+### 10 Providers, Any Model
+Anthropic, OpenAI, Google, xAI, Ollama (local), OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy, and custom OpenAI-compatible APIs. You own the API keys. No vendor lock-in. [Deep dive →](docs/provider-options.md)
 
 </td>
+<td>
+
+### Cross-Tab Coordination
+Up to 5 concurrent tabs with advisory file claims. Agents see what other tabs are editing, get warnings on contested files, and git operations are blocked during active dispatch. [Deep dive →](docs/cross-tab-coordination.md)
+
+</td>
+</tr>
+<tr>
 <td>
 
 ### Project Toolchain
@@ -115,8 +123,8 @@ Auto-detects lint, typecheck, test, and build commands across 22 ecosystems from
 </td>
 <td>
 
-### Any Model, Any Provider
-9 providers — Anthropic, OpenAI, Google, xAI, Ollama (local), OpenRouter, and more. You own the API keys. No vendor lock-in. Automatic provider option degradation when features aren't supported. [Deep dive →](docs/provider-options.md)
+### Skills & Approval Gates
+Installable skill system for domain-specific capabilities. Destructive action approval — `rm -rf`, `git push --force`, sensitive file edits individually prompted. Auto mode for full autonomy when you want it.
 
 </td>
 </tr>
@@ -222,7 +230,7 @@ sequenceDiagram
 
 ## Installation
 
-**Requirements:** [Bun](https://bun.sh) >= 1.0, [Neovim](https://neovim.io) >= 0.9
+**Requirements:** [Bun](https://bun.sh) >= 1.0, [Neovim](https://neovim.io) >= 0.11
 
 ```bash
 bun install -g @proxysoul/soulforge
@@ -283,7 +291,7 @@ soulforge --version                          # Version info
 
 ### Slash Commands
 
-73 commands available — press `/` or `Ctrl+K` to browse. Key ones by category:
+74 commands available — press `/` or `Ctrl+K` to browse. Key ones by category:
 
 **Models & Providers**
 `/model` `/router` `/provider` `/model-scope`
@@ -590,7 +598,7 @@ See [GETTING_STARTED.md](GETTING_STARTED.md) for the full reference.
 ## Testing
 
 ```bash
-bun test              # 1922 tests across 39 files
+bun test              # 1942 tests across 40 files
 bun run typecheck     # tsc --noEmit
 bun run lint          # biome check (lint + format)
 bun run lint:fix      # auto-fix
@@ -602,7 +610,7 @@ bun run lint:fix      # auto-fix
 
 | Document | Description |
 |----------|-------------|
-| **[Command Reference](docs/commands-reference.md)** | All 73 slash commands by category |
+| **[Command Reference](docs/commands-reference.md)** | All 74 slash commands by category |
 | **[Headless Mode](docs/headless.md)** | Non-interactive CLI for CI/CD, scripting, automation |
 | **[Architecture](docs/architecture.md)** | System overview, data flow, component lifecycle |
 | **[Repo Map](docs/repo-map.md)** | PageRank, cochange, blast radius, clone detection |

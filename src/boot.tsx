@@ -56,13 +56,30 @@ const cols = process.stdout.columns ?? 80;
 const rows = process.stdout.rows ?? 24;
 
 const GHOST = (() => {
+  // Check explicit config first
   try {
     const raw = readFileSync(join(homedir(), ".soulforge", "config.json"), "utf-8");
     const cfg = JSON.parse(raw);
-    return cfg.nerdFont === true ? "󰊠" : "◆";
-  } catch {
-    return "◆";
+    if (cfg.nerdFont === true) return "󰊠";
+    if (cfg.nerdFont === false) return "◆";
+  } catch {}
+  // Auto-detect from terminal environment (mirrors detectNerdFont in icons.ts)
+  const term = process.env.TERM_PROGRAM?.toLowerCase() ?? "";
+  const termEmulator = process.env.TERMINAL_EMULATOR?.toLowerCase() ?? "";
+  if (
+    term.includes("kitty") ||
+    term.includes("wezterm") ||
+    term.includes("alacritty") ||
+    term.includes("hyper") ||
+    term.includes("iterm") ||
+    term.includes("ghostty") ||
+    termEmulator.includes("jetbrains") ||
+    process.env.KITTY_WINDOW_ID ||
+    process.env.WEZTERM_PANE
+  ) {
+    return "󰊠";
   }
+  return "◆";
 })();
 
 const LAYOUT_H = 14;

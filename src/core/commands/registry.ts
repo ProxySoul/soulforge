@@ -120,6 +120,7 @@ const COMMAND_DEFS: CommandDef[] = [
   { cmd: "/log", ic: "git", desc: "Show recent commits" },
   { cmd: "/lsp", ic: "brain", desc: "Language server status & diagnostics" },
   { cmd: "/lsp-install", ic: "brain", desc: "Install & manage LSP servers (Mason registry)" },
+  { cmd: "/lsp-restart", ic: "brain", desc: "Restart LSP servers (all or specific)" },
   { cmd: "/memory", ic: "memory", desc: "Manage memory scopes, view & clear" },
   { cmd: "/mode", ic: "cog", desc: "Switch forge mode" },
   { cmd: "/model-scope", ic: "cog", desc: "Set model scope (project/global)" },

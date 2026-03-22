@@ -263,8 +263,12 @@ export interface AppConfig {
   defaultForgeMode?: ForgeMode;
   /** Enable AST-based repo map in system prompt instead of file tree. Default: true */
   repoMap?: boolean;
-  /** Semantic summary mode: "off" (default), "ast" (docstrings), "llm" (AI-generated), "on" (AST+LLM merged). Boolean compat: true → "llm", false → "off". */
-  semanticSummaries?: "off" | "ast" | "llm" | "on" | boolean;
+  /** Semantic summary mode: "off", "ast" (docstrings only), "synthetic" (ast + name-derived, free), "llm" (ast + AI-generated), "full" (ast + llm + synthetic). Boolean compat: true → "synthetic", false → "off". "on" is legacy alias for "full". */
+  semanticSummaries?: "off" | "ast" | "synthetic" | "llm" | "full" | "on" | boolean;
+  /** Max symbols to summarize with LLM (default 300). Controls API cost for llm/full modes. PageRank-ranked — top N most connected symbols get LLM summaries. */
+  semanticSummaryLimit?: number;
+  /** Auto-regenerate LLM summaries when files change. Default: false (only ast/synthetic auto-regen). */
+  semanticAutoRegen?: boolean;
   /** LSP servers to disable (by Mason package name). Scoped: project overrides global. */
   disabledLspServers?: string[];
   agentFeatures?: AgentFeatures;

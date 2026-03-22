@@ -79,29 +79,28 @@ export class WorkingStateManager {
 
   private static readonly MAX_LIST_SIZE = 25;
 
-  addDecision(d: string): void {
-    if (!this.state.decisions.includes(d)) {
-      this.state.decisions.push(d);
-      if (this.state.decisions.length > WorkingStateManager.MAX_LIST_SIZE) {
-        this.state.decisions.shift();
-      }
+  private addUnique(list: string[], item: string): void {
+    if (!list.includes(item)) {
+      list.push(item);
+      if (list.length > WorkingStateManager.MAX_LIST_SIZE) list.shift();
     }
+  }
+
+  private addCapped(list: string[], item: string): void {
+    list.push(item);
+    if (list.length > WorkingStateManager.MAX_LIST_SIZE) list.shift();
+  }
+
+  addDecision(d: string): void {
+    this.addUnique(this.state.decisions, d);
   }
 
   addFailure(f: string): void {
-    this.state.failures.push(f);
-    if (this.state.failures.length > WorkingStateManager.MAX_LIST_SIZE) {
-      this.state.failures.shift();
-    }
+    this.addCapped(this.state.failures, f);
   }
 
   addDiscovery(d: string): void {
-    if (!this.state.discoveries.includes(d)) {
-      this.state.discoveries.push(d);
-      if (this.state.discoveries.length > WorkingStateManager.MAX_LIST_SIZE) {
-        this.state.discoveries.shift();
-      }
-    }
+    this.addUnique(this.state.discoveries, d);
   }
 
   addEnvironment(e: string): void {

@@ -104,7 +104,7 @@ export function LandingPage({ bootProviders, bootPrereqs }: LandingPageProps) {
     <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} justifyContent="center">
       <box flexDirection="column" alignItems="center" gap={0}>
         <text fg={PURPLE} attributes={TextAttributes.BOLD}>
-          {`${icon("ghost")} ${icon("ghost")} ${icon("ghost")}`}
+          {icon("ghost")}
         </text>
 
         <box height={compact ? 0 : 1} />

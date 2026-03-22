@@ -221,6 +221,41 @@ export class CodeIntelligenceRouter {
     return [];
   }
 
+  /** Restart LSP servers. Pass filter to restart specific server/language, or omit for all. */
+  async restartLspServers(filter?: string): Promise<string[]> {
+    const lspBackend = this.backends.find((b) => b.name === "lsp");
+    if (lspBackend && "restartServers" in lspBackend) {
+      const restarted = await (
+        lspBackend as { restartServers: (f?: string) => Promise<string[]> }
+      ).restartServers(filter);
+      // Re-warmup after restart
+      this.warmup().catch(() => {});
+      return restarted;
+    }
+    return [];
+  }
+
+  /** Get neovim's active LSP clients */
+  async getNvimLspClients(): Promise<Array<{
+    name: string;
+    language: string;
+    pid: number | null;
+  }> | null> {
+    const lspBackend = this.backends.find((b) => b.name === "lsp");
+    if (lspBackend && "getNvimClients" in lspBackend) {
+      return (
+        lspBackend as {
+          getNvimClients: () => Promise<Array<{
+            name: string;
+            language: string;
+            pid: number | null;
+          }> | null>;
+        }
+      ).getNvimClients();
+    }
+    return null;
+  }
+
   /** Get PIDs of all child processes (LSP servers) managed by backends */
   getChildPids(): number[] {
     const lspBackend = this.backends.find((b) => b.name === "lsp");
@@ -242,37 +277,70 @@ export class CodeIntelligenceRouter {
    * Call at startup so LSP servers are warm before the first tool call.
    */
   async warmup(): Promise<void> {
-    const language = this.detectLanguage();
-    if (language === "unknown") return;
+    const languages = this.detectAllLanguages();
+    if (languages.length === 0) return;
 
+    // Initialize backends for the primary language
+    const primary = languages[0];
+    if (!primary) return;
     for (const backend of this.backends) {
-      if (backend.supportsLanguage(language)) {
+      if (backend.supportsLanguage(primary)) {
         try {
           await this.ensureInitialized(backend);
-        } catch {
-          // Skip backends that fail to initialize
-        }
+        } catch {}
       }
     }
 
-    // Ensure a standalone LSP server is running — always, even if Neovim is open.
-    // This keeps the server warm so there's no cold start if Neovim closes mid-session.
+    // Spawn standalone LSP servers for ALL detected project languages.
+    // Always runs — even if Neovim is open — so there's no cold start if Neovim closes.
     const lsp = this.backends.find((b) => b.name === "lsp");
-    if (lsp?.supportsLanguage(language) && "ensureStandaloneReady" in lsp) {
-      const probeFile = this.findProbeFile(language);
-      if (probeFile) {
-        try {
-          await Promise.race([
-            (lsp as { ensureStandaloneReady: (f: string) => Promise<void> }).ensureStandaloneReady(
-              probeFile,
-            ),
+    if (lsp && "ensureStandaloneReady" in lsp) {
+      const warmupLsp = lsp as { ensureStandaloneReady: (f: string) => Promise<void> };
+      const warmupPromises: Promise<void>[] = [];
+      for (const lang of languages) {
+        if (!lsp.supportsLanguage(lang)) continue;
+        const probeFile = this.findProbeFile(lang);
+        if (!probeFile) continue;
+        warmupPromises.push(
+          Promise.race([
+            warmupLsp.ensureStandaloneReady(probeFile),
             new Promise<void>((r) => setTimeout(r, 10_000)),
-          ]);
-        } catch {
-          // Warmup failure is non-fatal
-        }
+          ]).catch(() => {}),
+        );
+      }
+      await Promise.all(warmupPromises);
+    }
+  }
+
+  /** Detect all languages present in the project (from config files). */
+  private detectAllLanguages(): Language[] {
+    const found: Language[] = [];
+    const seen = new Set<Language>();
+
+    // Config override takes priority
+    if (this.config.language) {
+      const lang = this.config.language as Language;
+      if (lang !== "unknown") {
+        found.push(lang);
+        seen.add(lang);
       }
     }
+
+    // Scan for all project config files
+    for (const [configFile, lang] of Object.entries(PROJECT_FILE_TO_LANGUAGE)) {
+      if (seen.has(lang)) continue;
+      if (existsSync(join(this.cwd, configFile))) {
+        found.push(lang);
+        seen.add(lang);
+      }
+    }
+
+    // Cache the primary for detectLanguage()
+    if (found.length > 0 && !this.detectedLanguage) {
+      this.detectedLanguage = found[0] ?? null;
+    }
+
+    return found;
   }
 
   /** Find a file to use for LSP warmup probing */

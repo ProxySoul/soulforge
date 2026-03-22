@@ -2,10 +2,12 @@ import type { InfoPopupLine } from "../../components/modals/InfoPopup.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
 import { useStatusBarStore } from "../../stores/statusbar.js";
 import { useUIStore } from "../../stores/ui.js";
+import { getNvimInstance } from "../editor/instance.js";
 import { icon } from "../icons.js";
 import { getIntelligenceStatus } from "../intelligence/index.js";
 import { getModelContextInfo, getShortModelLabel } from "../llm/models.js";
 import type { CommandContext, CommandHandler } from "./types.js";
+import { fmtTokenCount, sysMsg } from "./utils.js";
 
 function handleStatus(_input: string, ctx: CommandContext): void {
   const sb = useStatusBarStore.getState();
@@ -16,11 +18,7 @@ function handleStatus(_input: string, ctx: CommandContext): void {
   const rssMB = sb.rssMB;
   const memColor = rssMB < 2048 ? "#4a7" : rssMB < 4096 ? "#b87333" : "#f44";
   const fmtMem = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${String(mb)} MB`);
-  const fmtTokens = (n: number) => {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-    return String(n);
-  };
+  const fmtTokens = fmtTokenCount;
   const fmtBytes = (b: number) => {
     if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
     if (b >= 1024) return `${(b / 1024).toFixed(0)} KB`;
@@ -112,9 +110,15 @@ function handleStatus(_input: string, ctx: CommandContext): void {
     { type: "entry", label: "Memory", desc: fmtMem(rssMB), descColor: memColor },
     {
       type: "entry",
-      label: "LSP servers",
+      label: "LSP standalone",
       desc: lspCount > 0 ? `${String(lspCount)} active` : "none",
-      descColor: lspCount > 0 ? "#4a7" : "#666",
+      descColor: lspCount > 0 ? "#2dd4bf" : "#666",
+    },
+    {
+      type: "entry",
+      label: "LSP neovim",
+      desc: getNvimInstance() ? "active" : "not running",
+      descColor: getNvimInstance() ? "#57A143" : "#666",
     },
     {
       type: "entry",
@@ -154,10 +158,24 @@ function handleLspInstall(_input: string, ctx: CommandContext): void {
   ctx.openLspInstall();
 }
 
+async function handleLspRestart(input: string, ctx: CommandContext): Promise<void> {
+  const filter = input.replace(/^\/lsp-restart\s*/, "").trim() || undefined;
+  const { restartLspServers } = await import("../intelligence/index.js");
+  const label = filter ?? "all";
+  sysMsg(ctx, `Restarting LSP servers (${label})…`);
+  const restarted = await restartLspServers(filter);
+  if (restarted.length === 0) {
+    sysMsg(ctx, "No matching LSP servers to restart.");
+  } else {
+    sysMsg(ctx, `Restarted ${restarted.length} server(s): ${restarted.join(", ")}. Re-warming…`);
+  }
+}
+
 export function register(map: Map<string, CommandHandler>): void {
   map.set("/status", handleStatus);
   map.set("/diagnose", handleDiagnose);
   map.set("/setup", handleSetup);
   map.set("/lsp", handleLsp);
   map.set("/lsp-install", handleLspInstall);
+  map.set("/lsp-restart", handleLspRestart);
 }

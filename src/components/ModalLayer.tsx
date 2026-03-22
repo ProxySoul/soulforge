@@ -5,7 +5,6 @@ import { ErrorLog } from "./modals/ErrorLog.js";
 import { HelpPopup } from "./modals/HelpPopup.js";
 import { ApiKeySettings } from "./settings/ApiKeySettings.js";
 import { LspStatusPopup } from "./settings/LspStatusPopup.js";
-import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { SetupGuide } from "./settings/SetupGuide.js";
 import { WebSearchSettings } from "./settings/WebSearchSettings.js";
 
@@ -27,7 +26,6 @@ export function SimpleModalLayer({ messages, onSystemMessage }: SimpleModalLayer
   const modalApiKeySettings = useUIStore((s) => s.modals.apiKeySettings);
   const modalSetup = useUIStore((s) => s.modals.setup);
   const modalErrorLog = useUIStore((s) => s.modals.errorLog);
-  const modalRepoMapStatus = useUIStore((s) => s.modals.repoMapStatus);
   const modalLspStatus = useUIStore((s) => s.modals.lspStatus);
   const modalCompactionLog = useUIStore((s) => s.modals.compactionLog);
 
@@ -45,7 +43,6 @@ export function SimpleModalLayer({ messages, onSystemMessage }: SimpleModalLayer
         onSystemMessage={onSystemMessage}
       />
       <ErrorLog visible={modalErrorLog} messages={messages} onClose={getCloser("errorLog")} />
-      <RepoMapStatusPopup visible={modalRepoMapStatus} onClose={getCloser("repoMapStatus")} />
       <LspStatusPopup visible={modalLspStatus} onClose={getCloser("lspStatus")} />
       <CompactionLog visible={modalCompactionLog} onClose={getCloser("compactionLog")} />
     </>

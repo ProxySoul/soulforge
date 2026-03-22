@@ -25,7 +25,7 @@ const MASON_REGISTRY_LOCAL = join(
 const MASON_REGISTRY_RELEASE_URL =
   "https://api.github.com/repos/mason-org/mason-registry/releases/latest";
 const REGISTRY_CACHE = join(homedir(), ".soulforge", "mason-registry.json");
-const MASON_BIN_DIR = join(homedir(), ".local", "share", "nvim", "mason", "bin");
+const MASON_BIN_DIR = join(homedir(), ".local", "share", "soulforge", "mason", "bin");
 
 type InstallMethod = "npm" | "pypi" | "cargo" | "golang" | "github" | "unknown";
 export type PackageCategory = "LSP" | "Formatter" | "Linter" | "DAP" | "Runtime" | "Compiler";
