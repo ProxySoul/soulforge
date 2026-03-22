@@ -7,7 +7,7 @@ import type { StreamSegment } from "../components/chat/StreamSegmentList.js";
 import type { LiveToolCall } from "../components/chat/ToolCallDisplay.js";
 import { normalizePath } from "../core/agents/agent-bus.js";
 import { createForgeAgent } from "../core/agents/index.js";
-import { getSmoothStreamOptions } from "../core/agents/stream-options.js";
+
 import { onAgentStats, onMultiAgentEvent } from "../core/agents/subagent-events.js";
 import type { SharedCacheRef } from "../core/agents/subagent-tools.js";
 import {
@@ -1440,7 +1440,6 @@ export function useChat({
                   messages: newCoreMessages,
                   abortSignal: abortController.signal,
                   options: { userMessage: input },
-                  ...getSmoothStreamOptions(),
                 })) as unknown as StreamTextResult<ToolSet, never>;
                 break;
               } catch (err: unknown) {

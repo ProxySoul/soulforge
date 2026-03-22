@@ -503,13 +503,13 @@ export const TabInstance = memo(function TabInstance({
                 chat.setMessages((prev) => [
                   ...prev,
                   {
-                      id: crypto.randomUUID(),
-                      role: "user" as const,
-                      content: answer,
-                      timestamp: Date.now(),
-                    },
-                  ]);
-                }}
+                    id: crypto.randomUUID(),
+                    role: "user" as const,
+                    content: answer,
+                    timestamp: Date.now(),
+                  },
+                ]);
+              }}
             />
           </box>
           {showPlanProgress && chat.activePlan && (

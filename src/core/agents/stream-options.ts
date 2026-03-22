@@ -1,53 +1,5 @@
 import type { LanguageModelV3ToolCall } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
-import { smoothStream } from "ai";
-
-/**
- * Custom chunking callback for smoothStream.
- * - Inside code fences (```): chunk by line for smooth code rendering
- * - Outside code fences: chunk by word for natural prose flow
- *
- * Returns the chunk to emit, or null to keep buffering.
- */
-function adaptiveChunking(): (buffer: string) => string | null {
-  let inCodeFence = false;
-  return (buffer: string): string | null => {
-    // Check for code fence toggle at the start of buffered content
-    const fenceMatch = buffer.match(/^(```[^\n]*\n)/);
-    if (fenceMatch?.[1]) {
-      inCodeFence = !inCodeFence;
-      return fenceMatch[1];
-    }
-
-    if (inCodeFence) {
-      // Inside code: emit complete lines
-      const nlIdx = buffer.indexOf("\n");
-      if (nlIdx !== -1) return buffer.slice(0, nlIdx + 1);
-      // Check for closing fence mid-buffer
-      const closingFence = buffer.indexOf("```");
-      if (closingFence > 0) return buffer.slice(0, closingFence);
-      return null;
-    }
-
-    // Prose: emit on word boundaries (space, newline, tab)
-    // Also emit on code fence start so we switch modes quickly
-    const fenceStart = buffer.indexOf("```");
-    if (fenceStart > 0) return buffer.slice(0, fenceStart);
-    const wsMatch = buffer.match(/\s/);
-    if (wsMatch?.index != null && wsMatch.index > 0) {
-      return buffer.slice(0, wsMatch.index + 1);
-    }
-    return null;
-  };
-}
-
-/** Fresh smoothStream transform per stream call — smoothStream is stateful (buffers words). */
-// biome-ignore lint/suspicious/noExplicitAny: generic tool types vary per agent
-export function getSmoothStreamOptions(): { experimental_transform: any } {
-  return {
-    experimental_transform: smoothStream({ delayInMs: 20, chunking: adaptiveChunking() }),
-  };
-}
 
 /**
  * Sanitize tool-call inputs in messages to prevent Anthropic API rejections.

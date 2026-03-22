@@ -646,6 +646,38 @@ export function buildSubagentTools(models: SubagentModels) {
               );
             }
 
+            // Gate: search-first — reject read-all-files dispatches when grep can answer
+            {
+              const readOnlyTasks = args.tasks.filter(
+                (t) =>
+                  (t.role === "explore" || t.role === "investigate") &&
+                  !(t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER),
+              );
+              if (
+                !rawArgs.force &&
+                readOnlyTasks.length === args.tasks.length &&
+                readOnlyTasks.length >= 2
+              ) {
+                const totalFiles = new Set(
+                  readOnlyTasks.flatMap((t) => t.targetFiles.map((f) => normalizePath(f))),
+                ).size;
+                const tasksSharePrompt =
+                  readOnlyTasks.length >= 2 &&
+                  readOnlyTasks.every((t) => {
+                    const a = readOnlyTasks[0]?.task.slice(0, 80);
+                    return t.task.slice(0, 80) === a;
+                  });
+                if (totalFiles >= 10 && tasksSharePrompt) {
+                  return (
+                    `⛔ dispatch [rejected → search first]\n` +
+                    `${String(readOnlyTasks.length)} agents reading ${String(totalFiles)} files with the same task — use soul_grep first.\n` +
+                    `soul_grep with count mode finds patterns across all files in one call (~100 tokens vs ~${String(Math.round(totalFiles * 0.5))}K tokens reading everything).\n` +
+                    `Then read only the files with hits. Set force: true if you already searched and need full-file analysis.`
+                  );
+                }
+              }
+            }
+
             const webTasks = args.tasks.filter(
               (t) => t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER,
             );

@@ -22,8 +22,8 @@ export function buildInteractiveTools(
         "Use when changing 7+ files, doing major architectural redesigns, or when the user explicitly requests a plan. " +
         "For 1-6 file changes, edit directly instead. " +
         'depth "light": fast checklist — just steps, files, and guidance. No code_snippets or diffs needed. ' +
-          'depth "full": self-contained plan with code_snippets and old→new diffs for Clear & Implement. ' +
-          "Follow the depth guidance in the Forge Mode instructions.",
+        'depth "full": self-contained plan with code_snippets and old→new diffs for Clear & Implement. ' +
+        "Follow the depth guidance in the Forge Mode instructions.",
       inputSchema: z.object({
         depth: z
           .enum(["light", "full"])

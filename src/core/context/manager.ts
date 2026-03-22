@@ -62,12 +62,9 @@ const TOOL_GUIDANCE_LOW_LEVEL_NO_MAP = [
 ];
 
 const DISPATCH_GUIDANCE_BASE = [
-  "Dispatch decision: 1) Soul Map answers it = act, no tools. 2) 6 or fewer files = read directly. 3) 3 or fewer edits = edit directly. 4) Broad analysis = dispatch investigate. 5) 4+ file edits = dispatch code agents. Under 5 tool calls = dispatch is forbidden.",
-  "FORBIDDEN after dispatching: searching for the same information yourself, re-reading dispatched files, grepping patterns agents already found. Agents own the research — trust results, act immediately.",
-  "Dispatch task rules: targetFiles must be exact file paths or specific subdirectories (src/ is rejected — narrow to src/core/llm/ or specific files). Each task must include exact file paths, symbol names, what to return. Vague tasks produce no synthesis. Split by file ownership, not concept. One dispatch per task.",
-  'Task example — BAD: "Find how API keys are configured" with targetFiles ["src/"]. GOOD: "Read SecretKey type, ENV_MAP, getSecret from src/core/secrets.ts. Read WebSearchSettings from src/components/WebSearchSettings.tsx. Return full implementations." with targetFiles ["src/core/secrets.ts", "src/components/WebSearchSettings.tsx"].',
-  "After dispatch: ACT. Results contain full code. Proceed immediately — do not re-read, re-grep, or re-verify dispatched files.",
-  "Never delegate understanding. If you can't write a task with specific file paths and symbol names, use soul_grep/soul_analyze first, then decide if dispatch is even needed.",
+  "Dispatch decision tree: 1) Can soul_grep/soul_analyze answer it? → do that, no dispatch. 2) Soul Map answers it? → act, no tools. 3) ≤6 files to read? → read directly. 4) ≤3 files to edit? → edit directly. 5) Pattern search across many files? → soul_grep count mode first, then read hits. 6) 4+ file edits or complex parallel work → dispatch. Search-first: always try one soul_grep before dispatching read-only tasks across 7+ files.",
+  "After dispatch: ACT on results immediately. FORBIDDEN: re-reading dispatched files, grepping patterns agents already found, searching for the same information.",
+  "Dispatch task rules: targetFiles must be exact file paths (src/ rejected — narrow to specific files). Each task: exact paths, symbol names, what to return. Split by file ownership. One dispatch per task.",
   "Web search: ONE focused query per task with targetFiles ['web']. If the user shared a URL, fetch_page it before searching.",
 ];
 
