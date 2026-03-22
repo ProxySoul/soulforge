@@ -558,7 +558,11 @@ export function buildTools(
             "packages",
             "symbols_by_kind",
           ])
-          .describe("Analysis action"),
+          .describe(
+            "identifier_frequency=most referenced symbols, unused_exports=dead code report, " +
+              "file_profile=deps/dependents/blast/cochanges/symbols, duplication=clone detection, " +
+              "top_files=PageRank ranking, packages=external deps, symbols_by_kind=by type (function/class/etc)",
+          ),
         file: z.string().optional().describe("File path (required for file_profile)"),
         name: z
           .string()
@@ -585,7 +589,10 @@ export function buildTools(
       inputSchema: z.object({
         action: z
           .enum(["dependents", "dependencies", "cochanges", "blast_radius"])
-          .describe("Impact action"),
+          .describe(
+            "dependents=files importing this, dependencies=what this imports, " +
+              "cochanges=files edited together in git, blast_radius=total affected scope",
+          ),
         file: z.string().describe("File path to analyze"),
       }),
       execute: deferExecute((args) => {
@@ -728,28 +735,34 @@ export function buildTools(
     editor: tool({
       description: editorTool.description,
       inputSchema: z.object({
-        action: z.enum([
-          "read",
-          "edit",
-          "navigate",
-          "diagnostics",
-          "symbols",
-          "hover",
-          "references",
-          "definition",
-          "actions",
-          "rename",
-          "lsp_status",
-          "format",
-          "select",
-          "goto_cursor",
-          "yank",
-          "highlight",
-          "cursor_context",
-          "buffers",
-          "quickfix",
-          "terminal_output",
-        ]),
+        action: z
+          .enum([
+            "read",
+            "edit",
+            "navigate",
+            "diagnostics",
+            "symbols",
+            "hover",
+            "references",
+            "definition",
+            "actions",
+            "rename",
+            "lsp_status",
+            "format",
+            "select",
+            "goto_cursor",
+            "yank",
+            "highlight",
+            "cursor_context",
+            "buffers",
+            "quickfix",
+            "terminal_output",
+          ])
+          .describe(
+            "read=buffer content, edit=replace lines, navigate=open file/jump, " +
+              "diagnostics/symbols/hover/references/definition=LSP, actions=code actions, " +
+              "rename=LSP rename, format=LSP format, buffers=list open, terminal_output=read terminal",
+          ),
         startLine: z
           .number()
           .optional()
@@ -801,9 +814,13 @@ export function buildTools(
             "type_hierarchy",
             "search_symbols",
           ])
-          .describe("Navigation action"),
+          .describe(
+            "definition=where defined, references=all usages, call_hierarchy=callers/callees, " +
+              "implementation=interface implementors, type_hierarchy=super/subtypes, " +
+              "symbols/imports/exports=file contents, workspace_symbols/search_symbols=search by query",
+          ),
         symbol: z.string().optional().describe("Symbol name to look up"),
-        file: z.string().optional().describe("File path to analyze"),
+        file: z.string().optional().describe("File path (auto-resolved from symbol if omitted)"),
         scope: z.string().optional().describe("Filter symbols by name pattern"),
         query: z.string().optional().describe("Search query for workspace_symbols/search_symbols"),
         force: z
@@ -900,7 +917,10 @@ export function buildTools(
             "format_range",
             "organize_imports",
           ])
-          .describe("Action to perform"),
+          .describe(
+            "extract_function=lines→new function, extract_variable=expression→variable, " +
+              "organize_imports=sort/dedupe, format=whole file, format_range=line range",
+          ),
         file: z.string().optional().describe("Target file"),
         newName: z.string().optional().describe("New name for extracted symbol"),
         startLine: z.number().optional().describe("Start line for extraction or range formatting"),
@@ -934,7 +954,10 @@ export function buildTools(
       inputSchema: z.object({
         action: z
           .enum(["diagnostics", "type_info", "outline", "code_actions", "unused", "symbol_diff"])
-          .describe("Analysis action"),
+          .describe(
+            "diagnostics=type errors/warnings, type_info=type signature+docs, " +
+              "outline=compact symbol list, code_actions=quick fixes, symbol_diff=before/after exports",
+          ),
         file: z.string().optional().describe("File path to analyze"),
         symbol: z.string().optional().describe("Symbol for type_info"),
         line: z.number().optional().describe("Line number for type_info"),
@@ -1191,9 +1214,13 @@ export function buildSubagentExploreTools(opts?: {
             "type_hierarchy",
             "search_symbols",
           ])
-          .describe("Navigation action"),
+          .describe(
+            "definition=where defined, references=all usages, call_hierarchy=callers/callees, " +
+              "implementation=interface implementors, type_hierarchy=super/subtypes, " +
+              "symbols/imports/exports=file contents, workspace_symbols/search_symbols=search by query",
+          ),
         symbol: z.string().optional().describe("Symbol name to look up"),
-        file: z.string().optional().describe("File path to analyze"),
+        file: z.string().optional().describe("File path (auto-resolved from symbol if omitted)"),
         scope: z.string().optional().describe("Filter symbols by name pattern"),
         query: z.string().optional().describe("Search query for workspace_symbols/search_symbols"),
         force: z
@@ -1217,7 +1244,10 @@ export function buildSubagentExploreTools(opts?: {
       inputSchema: z.object({
         action: z
           .enum(["diagnostics", "type_info", "outline", "code_actions", "unused", "symbol_diff"])
-          .describe("Analysis action"),
+          .describe(
+            "diagnostics=type errors/warnings, type_info=type signature+docs, " +
+              "outline=compact symbol list, code_actions=quick fixes, symbol_diff=before/after exports",
+          ),
         file: z.string().optional().describe("File path to analyze"),
         symbol: z.string().optional().describe("Symbol for type_info"),
         line: z.number().optional().describe("Line number for type_info"),
@@ -1329,7 +1359,11 @@ export function buildSubagentExploreTools(opts?: {
                   "packages",
                   "symbols_by_kind",
                 ])
-                .describe("Analysis action"),
+                .describe(
+                  "identifier_frequency=most referenced symbols, unused_exports=dead code report, " +
+                    "file_profile=deps/dependents/blast/cochanges/symbols, duplication=clone detection, " +
+                    "top_files=PageRank ranking, packages=external deps, symbols_by_kind=by type (function/class/etc)",
+                ),
               file: z.string().optional().describe("File path (for file_profile)"),
               name: z.string().optional().describe("Identifier/package name"),
               kind: z.string().optional().describe("Symbol kind (for symbols_by_kind)"),
@@ -1345,7 +1379,10 @@ export function buildSubagentExploreTools(opts?: {
             inputSchema: z.object({
               action: z
                 .enum(["dependents", "dependencies", "cochanges", "blast_radius"])
-                .describe("Impact action"),
+                .describe(
+                  "dependents=files importing this, dependencies=what this imports, " +
+                    "cochanges=files edited together in git, blast_radius=total affected scope",
+                ),
               file: z.string().describe("File path to analyze"),
               limit: z.number().optional().describe("Max results"),
             }),
@@ -1519,7 +1556,10 @@ export function buildSubagentCodeTools(opts?: {
             "format_range",
             "organize_imports",
           ])
-          .describe("Action to perform"),
+          .describe(
+            "extract_function=lines→new function, extract_variable=expression→variable, " +
+              "organize_imports=sort/dedupe, format=whole file, format_range=line range",
+          ),
         file: z.string().optional().describe("Target file"),
         newName: z.string().optional().describe("New name for extracted symbol"),
         startLine: z.number().optional().describe("Start line"),
