@@ -169,7 +169,7 @@ export function useNeovim(
       .finally(() => {
         launchingRef.current = false;
       });
-    // biome-ignore lint/correctness/useExhaustiveDependencies: launchGeneration triggers re-launch after close
+    // biome-ignore lint/correctness/useExhaustiveDependencies: launchGeneration is intentional — triggers re-launch after close
   }, [active, nvimPath, nvimConfig, showHints, hasTabBar, splitPct, launchGeneration]);
 
   // Resize neovim when terminal dimensions change

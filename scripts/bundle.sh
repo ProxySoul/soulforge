@@ -3,12 +3,14 @@ set -euo pipefail
 
 # SoulForge Bundle Script
 # Creates a self-contained distributable with all native dependencies.
-# Usage: ./scripts/bundle.sh [arch]
-#   arch: arm64 (default) or x64
+# Usage: ./scripts/bundle.sh [arch] [platform]
+#   arch:     arm64 (default) or x64
+#   platform: darwin (default) or linux
 
 ARCH="${1:-arm64}"
+PLATFORM="${2:-darwin}"
 VERSION="$(bun -e "console.log(require('./package.json').version)")"
-BUNDLE_NAME="soulforge-${VERSION}-darwin-${ARCH}"
+BUNDLE_NAME="soulforge-${VERSION}-${PLATFORM}-${ARCH}"
 STAGE_DIR="dist/bundle/${BUNDLE_NAME}"
 DEPS_DIR="${STAGE_DIR}/deps"
 
@@ -18,26 +20,51 @@ FD_VERSION="10.2.0"
 LAZYGIT_VERSION="0.44.1"
 PROXY_VERSION="6.8.40"
 
-if [[ "$ARCH" == "arm64" ]]; then
-  NVIM_ASSET="nvim-macos-arm64.tar.gz"
-  RG_TRIPLET="aarch64-apple-darwin"
-  FD_TRIPLET="aarch64-apple-darwin"
-  LAZYGIT_SUFFIX="Darwin_arm64"
-  PROXY_SUFFIX="darwin_arm64"
-  BUN_TARGET="bun-darwin-aarch64"
-elif [[ "$ARCH" == "x64" ]]; then
-  NVIM_ASSET="nvim-macos-x86_64.tar.gz"
-  RG_TRIPLET="x86_64-apple-darwin"
-  FD_TRIPLET="x86_64-apple-darwin"
-  LAZYGIT_SUFFIX="Darwin_x86_64"
-  PROXY_SUFFIX="darwin_amd64"
-  BUN_TARGET="bun-darwin-x64"
+# ── Platform / arch matrix ──
+if [[ "$PLATFORM" == "darwin" ]]; then
+  if [[ "$ARCH" == "arm64" ]]; then
+    NVIM_ASSET="nvim-macos-arm64.tar.gz"
+    RG_TRIPLET="aarch64-apple-darwin"
+    FD_TRIPLET="aarch64-apple-darwin"
+    LAZYGIT_SUFFIX="Darwin_arm64"
+    PROXY_SUFFIX="darwin_arm64"
+    BUN_TARGET="bun-darwin-aarch64"
+  elif [[ "$ARCH" == "x64" ]]; then
+    NVIM_ASSET="nvim-macos-x86_64.tar.gz"
+    RG_TRIPLET="x86_64-apple-darwin"
+    FD_TRIPLET="x86_64-apple-darwin"
+    LAZYGIT_SUFFIX="Darwin_x86_64"
+    PROXY_SUFFIX="darwin_amd64"
+    BUN_TARGET="bun-darwin-x64"
+  else
+    echo "Unknown arch: ${ARCH} (use arm64 or x64)"
+    exit 1
+  fi
+elif [[ "$PLATFORM" == "linux" ]]; then
+  if [[ "$ARCH" == "arm64" ]]; then
+    NVIM_ASSET="nvim-linux-aarch64.tar.gz"
+    RG_TRIPLET="aarch64-unknown-linux-gnu"
+    FD_TRIPLET="aarch64-unknown-linux-gnu"
+    LAZYGIT_SUFFIX="Linux_arm64"
+    PROXY_SUFFIX="linux_arm64"
+    BUN_TARGET="bun-linux-aarch64"
+  elif [[ "$ARCH" == "x64" ]]; then
+    NVIM_ASSET="nvim-linux-x86_64.tar.gz"
+    RG_TRIPLET="x86_64-unknown-linux-musl"
+    FD_TRIPLET="x86_64-unknown-linux-musl"
+    LAZYGIT_SUFFIX="Linux_x86_64"
+    PROXY_SUFFIX="linux_amd64"
+    BUN_TARGET="bun-linux-x64"
+  else
+    echo "Unknown arch: ${ARCH} (use arm64 or x64)"
+    exit 1
+  fi
 else
-  echo "Unknown arch: ${ARCH} (use arm64 or x64)"
+  echo "Unknown platform: ${PLATFORM} (use darwin or linux)"
   exit 1
 fi
 
-echo "==> Bundling SoulForge ${VERSION} for darwin/${ARCH}"
+echo "==> Bundling SoulForge ${VERSION} for ${PLATFORM}/${ARCH}"
 
 rm -rf "${STAGE_DIR}"
 mkdir -p "${DEPS_DIR}"
@@ -63,43 +90,43 @@ mkdir -p "$CACHE_DIR"
 
 # Neovim
 NVIM_URL="https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${NVIM_ASSET}"
-download "$NVIM_URL" "${CACHE_DIR}/nvim.tar.gz" "neovim ${NVIM_VERSION}"
+download "$NVIM_URL" "${CACHE_DIR}/nvim-${PLATFORM}-${ARCH}.tar.gz" "neovim ${NVIM_VERSION}"
 mkdir -p "${DEPS_DIR}/nvim"
-tar xzf "${CACHE_DIR}/nvim.tar.gz" -C "${DEPS_DIR}/nvim" --strip-components=1
+tar xzf "${CACHE_DIR}/nvim-${PLATFORM}-${ARCH}.tar.gz" -C "${DEPS_DIR}/nvim" --strip-components=1
 
 # ripgrep
 RG_ASSET="ripgrep-${RG_VERSION}-${RG_TRIPLET}.tar.gz"
 RG_URL="https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG_ASSET}"
-download "$RG_URL" "${CACHE_DIR}/rg.tar.gz" "ripgrep ${RG_VERSION}"
+download "$RG_URL" "${CACHE_DIR}/rg-${PLATFORM}-${ARCH}.tar.gz" "ripgrep ${RG_VERSION}"
 mkdir -p "${DEPS_DIR}/rg-tmp"
-tar xzf "${CACHE_DIR}/rg.tar.gz" -C "${DEPS_DIR}/rg-tmp" --strip-components=1
+tar xzf "${CACHE_DIR}/rg-${PLATFORM}-${ARCH}.tar.gz" -C "${DEPS_DIR}/rg-tmp" --strip-components=1
 cp "${DEPS_DIR}/rg-tmp/rg" "${DEPS_DIR}/rg"
 rm -rf "${DEPS_DIR}/rg-tmp"
 
 # fd
 FD_ASSET="fd-v${FD_VERSION}-${FD_TRIPLET}.tar.gz"
 FD_URL="https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${FD_ASSET}"
-download "$FD_URL" "${CACHE_DIR}/fd.tar.gz" "fd ${FD_VERSION}"
+download "$FD_URL" "${CACHE_DIR}/fd-${PLATFORM}-${ARCH}.tar.gz" "fd ${FD_VERSION}"
 mkdir -p "${DEPS_DIR}/fd-tmp"
-tar xzf "${CACHE_DIR}/fd.tar.gz" -C "${DEPS_DIR}/fd-tmp" --strip-components=1
+tar xzf "${CACHE_DIR}/fd-${PLATFORM}-${ARCH}.tar.gz" -C "${DEPS_DIR}/fd-tmp" --strip-components=1
 cp "${DEPS_DIR}/fd-tmp/fd" "${DEPS_DIR}/fd"
 rm -rf "${DEPS_DIR}/fd-tmp"
 
 # lazygit
 LAZYGIT_ASSET="lazygit_${LAZYGIT_VERSION}_${LAZYGIT_SUFFIX}.tar.gz"
 LAZYGIT_URL="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/${LAZYGIT_ASSET}"
-download "$LAZYGIT_URL" "${CACHE_DIR}/lazygit.tar.gz" "lazygit ${LAZYGIT_VERSION}"
+download "$LAZYGIT_URL" "${CACHE_DIR}/lazygit-${PLATFORM}-${ARCH}.tar.gz" "lazygit ${LAZYGIT_VERSION}"
 mkdir -p "${DEPS_DIR}/lazygit-tmp"
-tar xzf "${CACHE_DIR}/lazygit.tar.gz" -C "${DEPS_DIR}/lazygit-tmp"
+tar xzf "${CACHE_DIR}/lazygit-${PLATFORM}-${ARCH}.tar.gz" -C "${DEPS_DIR}/lazygit-tmp"
 cp "${DEPS_DIR}/lazygit-tmp/lazygit" "${DEPS_DIR}/lazygit"
 rm -rf "${DEPS_DIR}/lazygit-tmp"
 
 # cli-proxy-api
 PROXY_ASSET="CLIProxyAPI_${PROXY_VERSION}_${PROXY_SUFFIX}.tar.gz"
 PROXY_URL="https://github.com/router-for-me/CLIProxyAPI/releases/download/v${PROXY_VERSION}/${PROXY_ASSET}"
-download "$PROXY_URL" "${CACHE_DIR}/proxy.tar.gz" "cli-proxy-api ${PROXY_VERSION}"
+download "$PROXY_URL" "${CACHE_DIR}/proxy-${PLATFORM}-${ARCH}.tar.gz" "cli-proxy-api ${PROXY_VERSION}"
 mkdir -p "${DEPS_DIR}/proxy-tmp"
-tar xzf "${CACHE_DIR}/proxy.tar.gz" -C "${DEPS_DIR}/proxy-tmp"
+tar xzf "${CACHE_DIR}/proxy-${PLATFORM}-${ARCH}.tar.gz" -C "${DEPS_DIR}/proxy-tmp"
 cp "${DEPS_DIR}/proxy-tmp/cli-proxy-api" "${DEPS_DIR}/cli-proxy-api"
 rm -rf "${DEPS_DIR}/proxy-tmp"
 
@@ -116,10 +143,12 @@ bun build node_modules/@opentui/core/parser.worker.js --outdir "${DEPS_DIR}/open
 # Patch the worker to resolve tree-sitter.wasm from ~/.soulforge/wasm/ (absolute path)
 # instead of ./tree-sitter.wasm (relative to CWD which is the user's project)
 # Patch bare require() calls to use __require (bun's ESM-compatible CJS shim)
-sed -i '' 's|module2.exports = "./tree-sitter.wasm"|module2.exports = (__require("os").homedir() + "/.soulforge/wasm/tree-sitter.wasm")|' "${DEPS_DIR}/opentui-assets/parser.worker.js"
-sed -i '' 's|var fs = require("fs")|var fs = __require("fs")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
-sed -i '' 's|var nodePath = require("path")|var nodePath = __require("path")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
-sed -i '' 's|require("url")|__require("url")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+# Use sed -i.bak + rm for GNU/BSD portability
+sed -i.bak 's|module2.exports = "./tree-sitter.wasm"|module2.exports = (__require("os").homedir() + "/.soulforge/wasm/tree-sitter.wasm")|' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+sed -i.bak 's|var fs = require("fs")|var fs = __require("fs")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+sed -i.bak 's|var nodePath = require("path")|var nodePath = __require("path")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+sed -i.bak 's|require("url")|__require("url")|g' "${DEPS_DIR}/opentui-assets/parser.worker.js"
+rm -f "${DEPS_DIR}/opentui-assets/parser.worker.js.bak"
 cp src/core/editor/init.lua "${DEPS_DIR}/init.lua"
 
 # Neovim LICENSE (not included in official release tarball — download from repo)
@@ -299,16 +328,19 @@ if [[ "$(uname)" != "Darwin" ]]; then
 fi) &
 spin "Etching the sacred glyphs" $!
 
-(xattr -cr "${SOULFORGE_DIR}" 2>/dev/null || true) &
-spin "Warding off Gatekeeper curses" $!
+if [[ "$(uname)" == "Darwin" ]]; then
+  (xattr -cr "${SOULFORGE_DIR}" 2>/dev/null || true) &
+  spin "Warding off Gatekeeper curses" $!
+fi
 
 # Enable nerd font icons (Symbols Only font is always installed)
 CONFIG_FILE="${SOULFORGE_DIR}/config.json"
 if [[ ! -f "$CONFIG_FILE" ]]; then
   echo '{"nerdFont":true}' > "$CONFIG_FILE"
 elif ! grep -q '"nerdFont"' "$CONFIG_FILE" 2>/dev/null; then
-  # Inject nerdFont into existing config
-  sed -i '' 's/^{/{\"nerdFont\":true,/' "$CONFIG_FILE" 2>/dev/null || true
+  # Inject nerdFont into existing config (portable sed)
+  sed -i.bak 's/^{/{"nerdFont":true,/' "$CONFIG_FILE" 2>/dev/null || true
+  rm -f "${CONFIG_FILE}.bak"
 fi
 
 SHELL_RC=""
@@ -410,8 +442,9 @@ fi
 
 for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
   if [[ -f "$rc" ]] && grep -q '.soulforge/bin' "$rc" 2>/dev/null; then
-    sed -i '' '/# SoulForge/d' "$rc"
-    sed -i '' '/\.soulforge\/bin/d' "$rc"
+    sed -i.bak '/# SoulForge/d' "$rc"
+    sed -i.bak '/\.soulforge\/bin/d' "$rc"
+    rm -f "${rc}.bak"
     printf "  ${G}✓${RST} ${W}Cleansed PATH from $(basename "$rc")${RST}\n"
   fi
 done
@@ -437,5 +470,5 @@ cd ../..
 SIZE=$(du -sh "dist/bundle/${BUNDLE_NAME}.tar.gz" | cut -f1)
 echo ""
 echo "==> Done! dist/bundle/${BUNDLE_NAME}.tar.gz (${SIZE})"
-echo "    Send to your friend:"
+echo "    Install:"
 echo "    tar xzf ${BUNDLE_NAME}.tar.gz && cd ${BUNDLE_NAME} && ./install.sh"

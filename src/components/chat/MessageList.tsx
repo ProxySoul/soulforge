@@ -11,13 +11,7 @@ import {
   useState,
 } from "react";
 import { icon } from "../../core/icons.js";
-import {
-  CATEGORY_COLORS,
-  resolveToolDisplay,
-  TOOL_ICONS,
-  TOOL_LABELS,
-  type ToolCategory,
-} from "../../core/tool-display.js";
+import { resolveToolDisplay, TOOL_ICONS, TOOL_LABELS } from "../../core/tool-display.js";
 import type {
   ChatMessage,
   ChatStyle,
@@ -26,9 +20,9 @@ import type {
   ToolCall,
 } from "../../types/index.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
-import { DiffView } from "./DiffView.js";
 import { Markdown, useCodeExpanded } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
+import { buildFinalToolRowProps, StaticToolRow } from "./StaticToolRow.js";
 
 const ReasoningExpandedContext = createContext(false);
 export const ReasoningExpandedProvider = ReasoningExpandedContext.Provider;
@@ -71,33 +65,6 @@ function formatTime(ts: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function formatToolSummary(tc: ToolCall): string {
-  if (tc.name === "read_file" && typeof tc.args.path === "string") return String(tc.args.path);
-  if (tc.name === "edit_file" && typeof tc.args.path === "string") return String(tc.args.path);
-  if (tc.name === "shell" && typeof tc.args.command === "string") {
-    const cmd = String(tc.args.command);
-    return cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
-  }
-  if (tc.name === "grep" && typeof tc.args.pattern === "string")
-    return `/${String(tc.args.pattern)}/`;
-  if (tc.name === "glob" && typeof tc.args.pattern === "string") return String(tc.args.pattern);
-  if (tc.name === "web_search" && typeof tc.args.query === "string") {
-    const q = String(tc.args.query);
-    return q.length > 50 ? `${q.slice(0, 47)}...` : q;
-  }
-  return "";
-}
-
-/** Extract human-readable output from edit tool results (may be double-wrapped JSON) */
-function extractEditOutput(raw?: string): string {
-  if (!raw) return "ok";
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.output === "string") return parsed.output;
-  } catch {}
-  return raw;
 }
 
 const RETRY_COLOR = "#fa0";
@@ -231,65 +198,35 @@ function extractPathFromArgs(args?: Record<string, unknown>): string | null {
   return args.path;
 }
 
-function parseBackend(result?: { output: string }): string | null {
-  if (!result) return null;
-  try {
-    const parsed = JSON.parse(result.output);
-    if (parsed.backend && typeof parsed.backend === "string") return parsed.backend as string;
-  } catch {}
-  return null;
-}
-
 function isDenied(error?: string): boolean {
   return !!error && /denied|rejected|cancelled/i.test(error);
 }
 
-function cleanErrorForDisplay(error: string): string {
-  let clean = error.replace(/Available tools:\s*[\w,\s]+\.?/i, "").trim();
-  clean = clean.replace(/Value:\s*\{[^}]+\}\.?/i, "").trim();
-  clean = clean.replace(/\s{2,}/g, " ");
-  return clean || error;
-}
-
-function ToolCallRow({ tc }: { tc: ToolCall }) {
+function ToolCallRow({
+  tc,
+  diffStyle,
+}: {
+  tc: ToolCall;
+  diffStyle?: "default" | "sidebyside" | "compact";
+}) {
+  const expanded = useCodeExpanded();
   const errorsExpanded = useReasoningExpanded();
-  const { icon, iconColor, label, category: staticCategory } = resolveToolDisplay(tc.name);
-  const backend = parseBackend(tc.result);
-  const category = backend ?? staticCategory;
-  const categoryColor = category ? (CATEGORY_COLORS[category as ToolCategory] ?? "#444") : "#444";
-  const argStr = formatToolSummary(tc);
-  const denied = !tc.result?.success && isDenied(tc.result?.error);
-  const isError = !!tc.result && !tc.result.success && !denied;
-  const statusIcon = tc.result ? (tc.result.success ? "✓" : denied ? "⊘" : "✗") : "●";
-  const statusColor = tc.result ? (tc.result.success ? "#4a7" : denied ? "#666" : "#f44") : "#666";
-  const isEditTool = tc.name === "edit_file" || tc.name === "multi_edit";
-  const shortResult = tc.result
-    ? tc.result.success
-      ? isEditTool
-        ? extractEditOutput(tc.result.output)
-        : "ok"
-      : denied
-        ? "denied"
-        : "failed"
-    : "pending";
-  const fullError = tc.result?.error ?? "";
+  const props = buildFinalToolRowProps(tc);
 
+  // For edit tools, use compact diff by default, expanded on Ctrl+O
+  if (props.diff) {
+    props.diffStyle = expanded ? diffStyle : "compact";
+  }
+
+  // Expanded error detail (2-line view)
+  const fullError = tc.result?.error ?? "";
+  const isError = !!tc.result && !tc.result.success && !isDenied(tc.result?.error);
   if (isError && errorsExpanded && fullError.length > 0) {
     const errorPreview = fullError.length > 120 ? `${fullError.slice(0, 117)}…` : fullError;
     const hasMore = fullError.length > 120;
     return (
       <box flexDirection="column" flexShrink={0}>
-        <box height={1} flexShrink={0}>
-          <text truncate>
-            <span fg={statusColor}>{statusIcon} </span>
-            <span fg={iconColor}>{icon} </span>
-            {category ? <span fg={categoryColor}>[{category}] </span> : null}
-            <span fg="#999">{label}</span>
-            {argStr ? <span fg="#777"> {argStr}</span> : null}
-            <span fg="#555"> → </span>
-            <span fg={statusColor}>{shortResult}</span>
-          </text>
-        </box>
+        <StaticToolRow {...props} />
         <box paddingLeft={3} height={1} flexShrink={0}>
           <text truncate fg="#a55">
             {errorPreview}
@@ -300,40 +237,7 @@ function ToolCallRow({ tc }: { tc: ToolCall }) {
     );
   }
 
-  const displayResult = isError ? cleanErrorForDisplay(fullError) : shortResult;
-  const previewLen = 60;
-  const preview =
-    isError && displayResult.length > previewLen
-      ? `${displayResult.slice(0, previewLen - 3)}…`
-      : displayResult;
-
-  // Edit tools: when done, show result directly (it already contains the path);
-  // when pending, show "Editing: <path>"
-  const editDone = isEditTool && tc.result?.success;
-  return (
-    <box height={1} flexShrink={0}>
-      <text truncate>
-        <span fg={statusColor}>{statusIcon} </span>
-        <span fg={iconColor}>{icon} </span>
-        {category ? <span fg={categoryColor}>[{category}] </span> : null}
-        {editDone ? (
-          <span fg="#999">{shortResult}</span>
-        ) : (
-          <>
-            <span fg="#999">{label}</span>
-            {argStr ? <span fg="#777"> {argStr}</span> : null}
-            {tc.result ? (
-              <>
-                <span fg="#555"> → </span>
-                <span fg={isError ? "#a55" : statusColor}>{preview}</span>
-              </>
-            ) : null}
-          </>
-        )}
-        {isError ? <span fg="#333"> ^O</span> : null}
-      </text>
-    </box>
-  );
+  return <StaticToolRow {...props} />;
 }
 
 function CollapsedToolGroup({ calls }: { calls: ToolCall[] }) {
@@ -349,36 +253,6 @@ function CollapsedToolGroup({ calls }: { calls: ToolCall[] }) {
         </span>
       </text>
     </box>
-  );
-}
-
-function EditToolCall({
-  tc,
-  diffStyle,
-}: {
-  tc: ToolCall;
-  diffStyle?: "default" | "sidebyside" | "compact";
-}) {
-  const expanded = useCodeExpanded();
-  const hasDiff =
-    typeof tc.args.path === "string" &&
-    typeof tc.args.oldString === "string" &&
-    typeof tc.args.newString === "string";
-
-  if (!hasDiff) return <ToolCallRow tc={tc} />;
-
-  // Collapsed by default — Ctrl+O toggles expanded
-  const mode = expanded ? diffStyle : "compact";
-
-  return (
-    <DiffView
-      filePath={tc.args.path as string}
-      oldString={tc.args.oldString as string}
-      newString={tc.args.newString as string}
-      success={tc.result?.success ?? false}
-      errorMessage={tc.result?.error}
-      mode={mode}
-    />
   );
 }
 
@@ -745,12 +619,10 @@ function renderSegments(
           if (g.type !== "normal") return null;
           return (
             <box key={g.tc.id} flexDirection="column">
-              {g.tc.name === "edit_file" ? (
-                <EditToolCall tc={g.tc} diffStyle={diffStyle} />
-              ) : g.tc.name === "write_plan" || g.tc.name === "plan" ? (
+              {g.tc.name === "write_plan" || g.tc.name === "plan" ? (
                 <WritePlanCall tc={g.tc} />
               ) : (
-                <ToolCallRow tc={g.tc} />
+                <ToolCallRow tc={g.tc} diffStyle={diffStyle} />
               )}
             </box>
           );
@@ -822,11 +694,7 @@ const AssistantMessage = memo(function AssistantMessage({
                 ?.filter((tc) => tc.name !== "task_list" && tc.name !== "update_plan_step")
                 .map((tc) => (
                   <box key={tc.id} flexDirection="column">
-                    {tc.name === "edit_file" ? (
-                      <EditToolCall tc={tc} diffStyle={diffStyle} />
-                    ) : (
-                      <ToolCallRow tc={tc} />
-                    )}
+                    <ToolCallRow tc={tc} diffStyle={diffStyle} />
                   </box>
                 ))}
             </box>

@@ -12,7 +12,6 @@ import {
 import type { PlanOutput } from "../../types/index.js";
 import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
-import { DiffView } from "./DiffView.js";
 import { useDispatchDisplay } from "./dispatch-display.js";
 import {
   type AgentInfo,
@@ -20,7 +19,7 @@ import {
   humanizeTokens,
   shortModelId,
 } from "./multi-agent-display.js";
-import { detectOutsideCwd, formatArgs, formatResult, OUTSIDE_BADGE } from "./tool-formatters.js";
+import { buildLiveToolRowProps, ROW_COLORS, StaticToolRow } from "./StaticToolRow.js";
 
 export interface LiveToolCall {
   id: string;
@@ -35,20 +34,13 @@ export interface LiveToolCall {
 
 export const SUBAGENT_NAMES = new Set(["dispatch", "web_search"]);
 
-const COLORS = {
-  spinnerActive: "#9B30FF",
-  toolNameActive: "#9B30FF",
-  argsActive: "#aaa",
-  checkDone: "#4a7",
-  textDone: "#555",
-  error: "#f44",
-} as const;
+const SPINNER_DEFAULT_COLOR = "#9B30FF";
 
 export const RENDER_DEBOUNCE = 80;
 
 const Spinner = memo(function Spinner({ color }: { color?: string }) {
   const frame = useSpinnerFrame();
-  return <span fg={color ?? COLORS.spinnerActive}>{SPINNER_FRAMES[frame]}</span>;
+  return <span fg={color ?? SPINNER_DEFAULT_COLOR}>{SPINNER_FRAMES[frame]}</span>;
 });
 
 function useElapsedTimers(calls: LiveToolCall[]) {
@@ -107,24 +99,6 @@ function formatDuration(seconds: number): string {
   const remMins = mins % 60;
   return remMins > 0 ? `${String(hrs)}h ${String(remMins)}m` : `${String(hrs)}h`;
 }
-
-const StatusIcon = memo(function StatusIcon({
-  state,
-  result,
-}: {
-  state: LiveToolCall["state"];
-  result?: string;
-}) {
-  if (state === "running") return <Spinner />;
-  if (state === "error") return <span fg={COLORS.error}>✗</span>;
-  if (result) {
-    try {
-      const parsed = JSON.parse(result);
-      if (parsed.success === false) return <span fg="#d9a020">!</span>;
-    } catch {}
-  }
-  return <span fg={COLORS.checkDone}>✓</span>;
-});
 
 const ChildStepRow = memo(
   function ChildStepRow({ step }: { step: SubagentStep }) {
@@ -540,37 +514,9 @@ const ToolRow = memo(
       return match?.[1] ?? null;
     }, [tc.toolName, tc.state, tc.result]);
 
-    const toolDisplay = resolveToolDisplay(tc.toolName);
-    const repoMapIcon = TOOL_ICONS._repomap ?? "◈";
-    const icon = isRepoMapHit ? repoMapIcon : toolDisplay.icon;
-    const label = isRepoMapHit ? "Soul Map" : toolDisplay.label;
-    const argStr = formatArgs(tc.toolName, tc.args);
-    const outsideKind = useMemo(
-      () => detectOutsideCwd(tc.toolName, tc.args),
-      [tc.toolName, tc.args],
-    );
-    const isDone = tc.state !== "running";
-
-    const editDiff = useMemo(() => {
-      if (tc.toolName !== "edit_file" || tc.state !== "done" || !tc.args) return null;
-      try {
-        const parsed = JSON.parse(tc.args);
-        if (
-          typeof parsed.path === "string" &&
-          typeof parsed.oldString === "string" &&
-          typeof parsed.newString === "string"
-        ) {
-          return {
-            path: parsed.path as string,
-            oldString: parsed.oldString as string,
-            newString: parsed.newString as string,
-          };
-        }
-      } catch {}
-      return null;
-    }, [tc.toolName, tc.state, tc.args]);
-
+    // Build suffix (dispatch/elapsed/result — streaming-specific logic)
     let suffix = "";
+    let suffixColor: string | undefined;
     if (isMultiAgent) {
       const total = multiProgress?.totalAgents ?? multiAgentInfo?.totalAgents ?? 0;
       const done = multiProgress
@@ -580,6 +526,7 @@ const ToolRow = memo(
         : 0;
       if (tc.state === "done" && dispatchRejection) {
         suffix = ` → rejected — ${dispatchRejection}`;
+        suffixColor = "#d9a020";
       } else if (tc.state === "running") {
         const parts: string[] = [];
         if (seconds != null && seconds > 0) parts.push(formatDuration(seconds));
@@ -592,136 +539,43 @@ const ToolRow = memo(
       }
     } else if (tc.state === "running" && seconds != null && seconds > 0) {
       suffix = ` ${formatDuration(seconds)}`;
-    } else if (tc.state === "done" && tc.result && !editDiff && !isEditTool(tc.toolName)) {
-      suffix = ` → ${formatResult(tc.toolName, tc.result)}`;
     } else if (tc.state === "error" && tc.error) {
       suffix = ` → ${tc.error.slice(0, 50)}`;
+      suffixColor = ROW_COLORS.error;
     }
+    // For non-dispatch done calls, suffix comes from buildLiveToolRowProps via formatResult
 
-    const editSuccess = useMemo(() => {
-      if (!editDiff || !tc.result) return false;
-      try {
-        const parsed = JSON.parse(tc.result);
-        return parsed.success === true;
-      } catch {
-        return false;
-      }
-    }, [editDiff, tc.result]);
+    const repoMapIcon = TOOL_ICONS._repomap ?? "◈";
+    const staticProps = buildLiveToolRowProps(tc, {
+      isRepoMapHit,
+      repoMapIcon,
+      suffix: suffix || undefined,
+      suffixColor,
+      dispatchRejection,
+      diffStyle,
+    });
 
-    const editError = useMemo(() => {
-      if (!editDiff || !tc.result) return undefined;
-      try {
-        const parsed = JSON.parse(tc.result);
-        if (!parsed.success && parsed.error) return parsed.error as string;
-      } catch {}
-      return undefined;
-    }, [editDiff, tc.result]);
-
-    const editImpact = useMemo(() => {
-      if (!editDiff || !tc.result || !editSuccess) return null;
-      try {
-        const parsed = JSON.parse(tc.result);
-        if (typeof parsed.output === "string") {
-          const match = parsed.output.match(/\[impact: (.+)\]/);
-          if (match?.[1]) return match[1];
-        }
-      } catch {}
-      return null;
-    }, [editDiff, tc.result, editSuccess]);
-
-    const iconColor = isRepoMapHit ? "#2dd4bf" : toolDisplay.iconColor;
-    const staticCategory = isRepoMapHit ? ("soul-map" as ToolCategory) : toolDisplay.category;
-    const backendCategory = useMemo(() => {
-      if (isRepoMapHit) return null;
-      if (tc.result) {
-        try {
-          const parsed = JSON.parse(tc.result);
-          if (parsed.backend && typeof parsed.backend === "string") {
-            return parsed.backend as string;
+    // Status content: Spinner for running, static icon for done/error
+    const statusContent =
+      tc.state === "running" ? (
+        <Spinner />
+      ) : tc.state === "error" ? (
+        <span fg={ROW_COLORS.error}>✗</span>
+      ) : (
+        (() => {
+          if (tc.result) {
+            try {
+              const parsed = JSON.parse(tc.result);
+              if (parsed.success === false) return <span fg="#d9a020">!</span>;
+            } catch {}
           }
-        } catch {}
-      }
-      return tc.backend ?? null;
-    }, [tc.result, tc.backend, isRepoMapHit]);
-    const hasSplit = !!(backendCategory && staticCategory && backendCategory !== staticCategory);
-    const category = hasSplit ? staticCategory : (backendCategory ?? staticCategory);
-    const backendTag = hasSplit ? backendCategory : null;
-    const categoryColor =
-      (staticCategory ? CATEGORY_COLORS[staticCategory as ToolCategory] : null) ??
-      (backendCategory
-        ? (CATEGORY_COLORS[backendCategory as ToolCategory] ?? "#888")
-        : undefined) ??
-      "#888";
-    const backendColor = backendTag
-      ? (CATEGORY_COLORS[backendTag as ToolCategory] ?? "#888")
-      : undefined;
+          return <span fg={ROW_COLORS.checkDone}>✓</span>;
+        })()
+      );
 
     return (
       <box flexDirection="column">
-        <box height={1} flexShrink={0}>
-          <text truncate>
-            <StatusIcon state={tc.state} result={tc.result} />
-            <span fg={isDone ? COLORS.textDone : iconColor}> {icon} </span>
-            {category ? <span fg={isDone ? "#444" : categoryColor}>[{category}]</span> : null}
-            {backendTag ? (
-              <span fg={isDone ? "#444" : backendColor}>[{getBackendLabel(backendTag)}] </span>
-            ) : category ? (
-              <span> </span>
-            ) : null}
-            {outsideKind ? (
-              <span fg={isDone ? "#444" : OUTSIDE_BADGE[outsideKind].color}>
-                [{OUTSIDE_BADGE[outsideKind].label}]{" "}
-              </span>
-            ) : null}
-            {isDone && isEditTool(tc.toolName) && tc.result ? (
-              <span fg={COLORS.textDone}>{formatResult(tc.toolName, tc.result)}</span>
-            ) : (
-              <>
-                <span
-                  fg={isDone ? COLORS.textDone : COLORS.toolNameActive}
-                  attributes={!isDone ? TextAttributes.BOLD : undefined}
-                >
-                  {label}
-                </span>
-                {argStr ? (
-                  <span fg={isDone ? COLORS.textDone : COLORS.argsActive}> {argStr}</span>
-                ) : null}
-              </>
-            )}
-            {suffix ? (
-              <span
-                fg={
-                  tc.state === "error"
-                    ? COLORS.error
-                    : dispatchRejection
-                      ? "#d9a020"
-                      : COLORS.textDone
-                }
-              >
-                {suffix}
-              </span>
-            ) : null}
-          </text>
-        </box>
-        {editDiff ? (
-          <box marginLeft={2} flexDirection="column">
-            <DiffView
-              filePath={editDiff.path}
-              oldString={editDiff.oldString}
-              newString={editDiff.newString}
-              success={editSuccess}
-              errorMessage={editError}
-              mode={diffStyle}
-            />
-            {editImpact ? (
-              <text fg="#666">
-                {"  "}
-                <span fg="#c89030">{"⚡"}</span>
-                <span fg="#888"> {editImpact}</span>
-              </text>
-            ) : null}
-          </box>
-        ) : null}
+        <StaticToolRow {...staticProps} statusContent={statusContent} />
         {isMultiAgent &&
           multiProgress !== null &&
           multiProgress.agents.size > 0 &&
