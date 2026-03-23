@@ -673,7 +673,7 @@ export function useChat({
 
         const compactionCfg = effectiveConfig.compaction;
         const isV2 = compactionCfg?.strategy === "v2";
-        const KEEP_RECENT = compactionCfg?.keepRecent ?? 4;
+        const KEEP_RECENT = compactionCfg?.keepRecent ?? DEFAULT_COMPACTION_CONFIG.keepRecent ?? 4;
         let keepStart = Math.max(0, currentCore.length - KEEP_RECENT);
         // Never split between assistant tool-call and its tool-result pair
         while (keepStart > 0 && currentCore[keepStart]?.role === "tool") {

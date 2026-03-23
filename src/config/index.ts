@@ -220,6 +220,7 @@ const NESTED_KEYS = [
   "performance",
   "contextManagement",
   "agentFeatures",
+  "compaction",
 ] as const;
 
 export function applyConfigPatch<T extends Partial<AppConfig>>(
