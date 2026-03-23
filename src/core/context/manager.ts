@@ -907,8 +907,7 @@ export class ContextManager {
     // 2. Tool routing + dispatch + planning (static behavioral rules)
     if (!isMinimal) {
       parts.push(
-        // Soul Map orientation — always present, map is injected as a message pair
-        "A Soul Map of the codebase is provided at the start of the conversation — it lists every file, exported symbol, signature, and dependency. Consult it before any tool call to identify relevant files and symbols.",
+        "A Soul Map of the codebase is included in the system prompt — it lists every file, exported symbol, signature, and dependency. Consult it before any tool call to identify relevant files and symbols.",
         // Tool routing
         ...buildToolGuidance(this.repoMapReady),
       );
@@ -956,10 +955,8 @@ export class ContextManager {
       parts.push("", forbiddenCtx);
     }
 
-    // 7. Soul Map is now injected as a user→assistant message pair (not in system prompt).
-    // This makes the system prompt stable for caching and the agent "acknowledges" the map.
-    // Fallback: if repo map isn't ready, include a simple file tree here.
-    // Soul Map is always injected as a message pair — no file tree fallback needed here.
+    // 7. Soul Map is injected as a separate system block via prepareStep
+    // (keeps the main system prompt cacheable while the Soul Map updates after edits).
 
     parts.push("", ...this.buildEditorToolsSection());
 
@@ -1018,14 +1015,12 @@ export class ContextManager {
   }
 
   /**
-   * Build the Soul Map as a user→assistant message pair.
-   * Injected at the start of the conversation so the model "acknowledges" the map.
-   * This makes the system prompt stable (better caching) and the model more likely to use the map.
+   * Build the Soul Map as a system prompt block.
+   * Returned as a separate block so it can have its own cache control
+   * (the main system prompt is stable/cached, the Soul Map changes after edits).
    * Returns null if the repo map isn't ready.
    */
-  buildSoulMapMessages():
-    | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
-    | null {
+  buildSoulMapSystemBlock(): string | null {
     if (!this.repoMapEnabled || !this.repoMapReady) return null;
     const rendered = this.renderRepoMap();
     if (!rendered) return null;
@@ -1035,17 +1030,7 @@ export class ContextManager {
       ? ""
       : "+ = exported. (→N) = blast radius. [NEW] = new since last render.\n";
 
-    // Build the top files list for the assistant to reference (grounds the acknowledgment)
-    const topFiles: string[] = [];
-    try {
-      const stats = this.repoMap.getStats();
-      if (stats.files > 0) {
-        const top = this.repoMap.getTopFiles(5);
-        for (const f of top) topFiles.push(f.path);
-      }
-    } catch {}
-
-    const userMessage =
+    return (
       `<soul_map>\n` +
       `<description>\n` +
       `This is the Soul Map — a live structural index of the entire codebase. ` +
@@ -1072,20 +1057,8 @@ export class ContextManager {
       `<data>\n` +
       `${legend}${rendered}\n` +
       `</data>\n` +
-      `</soul_map>`;
-
-    const topRef =
-      topFiles.length > 0 ? ` The highest-impact files are ${topFiles.join(", ")}.` : "";
-    const assistantAck =
-      `I've internalized the Soul Map.${topRef} ` +
-      `I'll reference it before every task to identify relevant files and symbols, ` +
-      `then use navigate/analyze for precise answers. ` +
-      `Ready for your request.`;
-
-    return [
-      { role: "user" as const, content: userMessage },
-      { role: "assistant" as const, content: assistantAck },
-    ];
+      `</soul_map>`
+    );
   }
 
   /**

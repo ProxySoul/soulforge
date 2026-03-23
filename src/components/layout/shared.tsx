@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 export const POPUP_BG = "#111122";
 export const POPUP_HL = "#1a1a3e";
@@ -66,7 +66,7 @@ export function Spinner({
   return <text fg={color}>{frames[frame % frames.length]}</text>;
 }
 
-const OVERLAY_DIM = 0.65;
+const OVERLAY_STYLE = { opacity: 0.65 } as const;
 
 export function Overlay({ children }: { children: React.ReactNode }) {
   return (
@@ -76,7 +76,7 @@ export function Overlay({ children }: { children: React.ReactNode }) {
         width="100%"
         height="100%"
         backgroundColor="#0a0812"
-        style={{ opacity: OVERLAY_DIM }}
+        style={OVERLAY_STYLE}
       />
       <box
         position="absolute"
@@ -92,7 +92,7 @@ export function Overlay({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function PopupRow({
+export const PopupRow = memo(function PopupRow({
   children,
   bg,
   w,
@@ -113,4 +113,4 @@ export function PopupRow({
       </box>
     </box>
   );
-}
+});

@@ -1,9 +1,13 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { icon, providerIcon } from "../../core/icons.js";
-import { invalidateModelCache, PROVIDER_CONFIGS } from "../../core/llm/models.js";
-import { checkProviders, type ProviderStatus } from "../../core/llm/provider.js";
+import { PROVIDER_CONFIGS } from "../../core/llm/models.js";
+import {
+  checkProviders,
+  getCachedProviderStatuses,
+  type ProviderStatus,
+} from "../../core/llm/provider.js";
 import { hasSecret, type SecretKey } from "../../core/secrets.js";
 import { useGroupedModels } from "../../hooks/useGroupedModels.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
@@ -47,6 +51,114 @@ function isGroupedProvider(id: string | null): boolean {
 }
 
 const CHROME_ROWS = 8;
+
+const ProviderRow = memo(function ProviderRow({
+  provider,
+  isActive,
+  available,
+  innerW,
+}: {
+  provider: { id: string; name: string; envVar: string };
+  isActive: boolean;
+  available: boolean;
+  innerW: number;
+}) {
+  const ks = keyStatus(provider.envVar);
+  const bg = isActive ? POPUP_HL : POPUP_BG;
+  return (
+    <PopupRow bg={bg} w={innerW}>
+      <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
+        {isActive ? "› " : "  "}
+      </text>
+      {ks && (
+        <text bg={bg} fg={ks.color}>
+          {icon(ks.label ? "key" : "key_missing")}
+          {ks.label ? `[${ks.label}]` : ""}{" "}
+        </text>
+      )}
+      <text
+        bg={bg}
+        fg={isActive ? "#FF0040" : "#aaa"}
+        attributes={isActive ? TextAttributes.BOLD : undefined}
+      >
+        {providerIcon(provider.id)} {provider.name}
+      </text>
+      <text bg={bg}> </text>
+      <text bg={bg} fg={available ? "#00FF00" : "#FF0040"}>
+        {available ? "●" : "○"}
+      </text>
+    </PopupRow>
+  );
+});
+
+const ModelRow = memo(function ModelRow({
+  modelId,
+  displayId,
+  isActive,
+  isCurrent,
+  innerW,
+}: {
+  modelId: string;
+  displayId: string;
+  isActive: boolean;
+  isCurrent: boolean;
+  innerW: number;
+}) {
+  const bg = isActive ? POPUP_HL : POPUP_BG;
+  return (
+    <PopupRow key={modelId} bg={bg} w={innerW}>
+      <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
+        {isActive ? "› " : "  "}
+      </text>
+      <text
+        bg={bg}
+        fg={isActive ? "#FF0040" : isCurrent ? "#00FF00" : "#aaa"}
+        attributes={isActive ? TextAttributes.BOLD : undefined}
+        truncate
+      >
+        {displayId.length > innerW - 8 ? `${displayId.slice(0, innerW - 11)}…` : displayId}
+      </text>
+      {isCurrent && (
+        <text bg={bg} fg="#00FF00">
+          {" "}
+          ✓
+        </text>
+      )}
+    </PopupRow>
+  );
+});
+
+const SubProviderRow = memo(function SubProviderRow({
+  sub,
+  isActive,
+  modelCount,
+  innerW,
+}: {
+  sub: { id: string; name: string };
+  isActive: boolean;
+  modelCount: number;
+  innerW: number;
+}) {
+  const bg = isActive ? POPUP_HL : POPUP_BG;
+  return (
+    <PopupRow bg={bg} w={innerW}>
+      <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
+        {isActive ? "› " : "  "}
+      </text>
+      <text
+        bg={bg}
+        fg={isActive ? "#FF0040" : "#aaa"}
+        attributes={isActive ? TextAttributes.BOLD : undefined}
+      >
+        {providerIcon(sub.id)} {sub.name}
+      </text>
+      <text bg={bg} fg="#555" attributes={TextAttributes.DIM}>
+        {" "}
+        ({String(modelCount)})
+      </text>
+    </PopupRow>
+  );
+});
 
 export const LlmSelector = memo(function LlmSelector({
   visible,
@@ -97,11 +209,20 @@ export const LlmSelector = memo(function LlmSelector({
 
   const loading = isGrouped ? groupedLoading : directLoading;
 
-  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(
+    () => getCachedProviderStatuses() ?? [],
+  );
+
+  const statusMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const s of providerStatuses) map.set(s.id, s.available);
+    return map;
+  }, [providerStatuses]);
 
   useEffect(() => {
     if (visible) {
-      invalidateModelCache();
+      const cached = getCachedProviderStatuses();
+      if (cached) setProviderStatuses(cached);
       checkProviders().then(setProviderStatuses);
       setLevel("provider");
       setExpandedProvider(null);
@@ -261,37 +382,15 @@ export const LlmSelector = memo(function LlmSelector({
             <text>{""}</text>
           </PopupRow>
 
-          {PROVIDER_CONFIGS.map((provider, i) => {
-            const isActive = i === providerCursor;
-            const status = providerStatuses.find((s) => s.id === provider.id);
-            const available = status?.available ?? false;
-            const ks = keyStatus(provider.envVar);
-            const bg = isActive ? POPUP_HL : POPUP_BG;
-            return (
-              <PopupRow key={provider.id} bg={bg} w={innerW}>
-                <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
-                  {isActive ? "› " : "  "}
-                </text>
-                {ks && (
-                  <text bg={bg} fg={ks.color}>
-                    {icon(ks.label ? "key" : "key_missing")}
-                    {ks.label ? `[${ks.label}]` : ""}{" "}
-                  </text>
-                )}
-                <text
-                  bg={bg}
-                  fg={isActive ? "#FF0040" : "#aaa"}
-                  attributes={isActive ? TextAttributes.BOLD : undefined}
-                >
-                  {providerIcon(provider.id)} {provider.name}
-                </text>
-                <text bg={bg}> </text>
-                <text bg={bg} fg={available ? "#00FF00" : "#FF0040"}>
-                  {available ? "●" : "○"}
-                </text>
-              </PopupRow>
-            );
-          })}
+          {PROVIDER_CONFIGS.map((provider, i) => (
+            <ProviderRow
+              key={provider.id}
+              provider={provider}
+              isActive={i === providerCursor}
+              available={statusMap.get(provider.id) ?? false}
+              innerW={innerW}
+            />
+          ))}
 
           <PopupRow w={innerW}>
             <text>{""}</text>
@@ -394,30 +493,15 @@ export const LlmSelector = memo(function LlmSelector({
               height={Math.min(subProviders.length || 1, maxVisible)}
               overflow="hidden"
             >
-              {subProviders.slice(subScrollOffset, subScrollOffset + maxVisible).map((sub, vi) => {
-                const i = vi + subScrollOffset;
-                const isActive = i === subproviderCursor;
-                const modelCount = groupedModelsByProvider[sub.id]?.length ?? 0;
-                const bg = isActive ? POPUP_HL : POPUP_BG;
-                return (
-                  <PopupRow key={sub.id} bg={bg} w={innerW}>
-                    <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
-                      {isActive ? "› " : "  "}
-                    </text>
-                    <text
-                      bg={bg}
-                      fg={isActive ? "#FF0040" : "#aaa"}
-                      attributes={isActive ? TextAttributes.BOLD : undefined}
-                    >
-                      {providerIcon(sub.id)} {sub.name}
-                    </text>
-                    <text bg={bg} fg="#555" attributes={TextAttributes.DIM}>
-                      {" "}
-                      ({String(modelCount)})
-                    </text>
-                  </PopupRow>
-                );
-              })}
+              {subProviders.slice(subScrollOffset, subScrollOffset + maxVisible).map((sub, vi) => (
+                <SubProviderRow
+                  key={sub.id}
+                  sub={sub}
+                  isActive={vi + subScrollOffset === subproviderCursor}
+                  modelCount={groupedModelsByProvider[sub.id]?.length ?? 0}
+                  innerW={innerW}
+                />
+              ))}
             </box>
           )}
           {!groupedLoading && subProviders.length > maxVisible && (
@@ -514,37 +598,18 @@ export const LlmSelector = memo(function LlmSelector({
             {currentModels
               .slice(modelScrollOffset, modelScrollOffset + maxVisible)
               .map((model, vi) => {
-                const i = vi + modelScrollOffset;
-                const isActive = i === modelCursor;
-                const isCurrent = isGrouped
-                  ? activeProvider === expandedProvider && model.id === activeModelId
-                  : expandedProvider === activeProvider && model.id === activeModelId;
-                const bg = isActive ? POPUP_HL : POPUP_BG;
                 const displayId = model.id.includes("/")
                   ? model.id.slice(model.id.indexOf("/") + 1)
                   : model.id;
                 return (
-                  <PopupRow key={model.id} bg={bg} w={innerW}>
-                    <text bg={bg} fg={isActive ? "#FF0040" : "#555"}>
-                      {isActive ? "› " : "  "}
-                    </text>
-                    <text
-                      bg={bg}
-                      fg={isActive ? "#FF0040" : isCurrent ? "#00FF00" : "#aaa"}
-                      attributes={isActive ? TextAttributes.BOLD : undefined}
-                      truncate
-                    >
-                      {displayId.length > innerW - 8
-                        ? `${displayId.slice(0, innerW - 11)}…`
-                        : displayId}
-                    </text>
-                    {isCurrent && (
-                      <text bg={bg} fg="#00FF00">
-                        {" "}
-                        ✓
-                      </text>
-                    )}
-                  </PopupRow>
+                  <ModelRow
+                    key={model.id}
+                    modelId={model.id}
+                    displayId={displayId}
+                    isActive={vi + modelScrollOffset === modelCursor}
+                    isCurrent={expandedProvider === activeProvider && model.id === activeModelId}
+                    innerW={innerW}
+                  />
                 );
               })}
           </box>

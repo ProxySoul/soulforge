@@ -1,4 +1,4 @@
-import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
+import type { ModelMessage, ProviderOptions, SystemModelMessage } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
 import { ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
@@ -166,16 +166,13 @@ function buildForgePrepareStep(
     buildCrossTabSection(): string | null;
     isEditorOpen(): boolean;
     getEditorIntegration(): import("../../types/index.js").EditorIntegration | undefined;
-    buildSoulMapMessages():
-      | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
-      | null;
+    buildSystemPrompt(): string;
+    buildSoulMapSystemBlock(): string | null;
     buildSkillsMessages():
       | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
       | null;
   },
 ) {
-  // Markers for detecting already-injected message pairs (must match the opening text)
-  const SOUL_MAP_MARKER = "<soul_map>";
   const SKILLS_MARKER = "<loaded_skills>";
 
   // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
@@ -186,39 +183,64 @@ function buildForgePrepareStep(
       messages?: ModelMessage[];
       activeTools?: string[];
       toolChoice?: "required" | "auto";
-      system?: string;
+      system?: SystemModelMessage[];
     } = {};
 
-    // Inject context message pairs (Soul Map + Skills) at the start of the conversation.
-    // Each pair is user→assistant — the model "acknowledges" the context, making it
-    // much more likely to reference it. Rebuilt every step to stay current after edits.
-    // Order: Soul Map first (most important), then Skills.
+    // Build system prompt as multi-block array:
+    // Block 0: main system prompt (cached — stable between steps)
+    // Block 1: Soul Map (uncached — rebuilds after edits, in system prompt for reliability)
     if (contextManager) {
-      // Strip any existing injected pairs (they start with known markers)
+      const systemBlocks: SystemModelMessage[] = [
+        {
+          role: "system" as const,
+          content: contextManager.buildSystemPrompt(),
+          providerOptions: EPHEMERAL_CACHE,
+        },
+      ];
+      const soulMap = contextManager.buildSoulMapSystemBlock();
+      if (soulMap) {
+        systemBlocks.push({ role: "system" as const, content: soulMap });
+      }
+      result.system = systemBlocks;
+
+      // Strip any legacy Soul Map/Skills message pairs from before the system block migration
       let conversationStart = 0;
       while (conversationStart < stripped.length - 1) {
         const msg = stripped[conversationStart];
         if (
           msg?.role === "user" &&
           typeof msg.content === "string" &&
-          (msg.content.startsWith(SOUL_MAP_MARKER) || msg.content.startsWith(SKILLS_MARKER))
+          (msg.content.startsWith("<soul_map>") || msg.content.startsWith(SKILLS_MARKER))
         ) {
-          conversationStart += 2; // skip the user + assistant pair
+          conversationStart += 2;
         } else {
           break;
         }
       }
-      const conversation = stripped.slice(conversationStart);
+      if (conversationStart > 0) {
+        stripped = stripped.slice(conversationStart);
+        result.messages = stripped;
+      }
 
-      // Build fresh context pairs
-      const prefix: ModelMessage[] = [];
-      const mapMsgs = contextManager.buildSoulMapMessages();
-      if (mapMsgs) prefix.push(...(mapMsgs as unknown as ModelMessage[]));
+      // Skills still injected as message pairs (lower priority, less adherence-critical)
       const skillsMsgs = contextManager.buildSkillsMessages();
-      if (skillsMsgs) prefix.push(...(skillsMsgs as unknown as ModelMessage[]));
-
-      if (prefix.length > 0) {
-        stripped = [...prefix, ...conversation];
+      if (skillsMsgs) {
+        const prefix = skillsMsgs as unknown as ModelMessage[];
+        // Strip existing skills pair if present
+        let skillStart = 0;
+        while (skillStart < stripped.length - 1) {
+          const msg = stripped[skillStart];
+          if (
+            msg?.role === "user" &&
+            typeof msg.content === "string" &&
+            msg.content.startsWith(SKILLS_MARKER)
+          ) {
+            skillStart += 2;
+          } else {
+            break;
+          }
+        }
+        stripped = [...prefix, ...stripped.slice(skillStart)];
         result.messages = stripped;
       }
     }
@@ -248,15 +270,23 @@ function buildForgePrepareStep(
       }
     }
 
+    // Helper: append a nudge/hint to the system blocks array
+    const appendSystemHint = (text: string) => {
+      if (!result.system) result.system = [];
+      result.system.push({ role: "system" as const, content: text });
+    };
+
     if (isPlanMode && stepNumber >= PLAN_NUDGE_STEP && !hasPlanToolCall(messages)) {
       if (stepNumber >= PLAN_FORCE_STEP) {
         result.activeTools = ["plan", "ask_user"];
         result.toolChoice = "required";
-        result.system =
-          "You have done enough research. Call plan NOW with everything you have. Do not read more files.";
+        appendSystemHint(
+          "You have done enough research. Call plan NOW with everything you have. Do not read more files.",
+        );
       } else {
-        result.system =
-          "You have gathered substantial context. Start assembling the plan — call plan when ready.";
+        appendSystemHint(
+          "You have gathered substantial context. Start assembling the plan — call plan when ready.",
+        );
       }
     }
 
@@ -264,9 +294,9 @@ function buildForgePrepareStep(
       const hasDispatch = hasToolCall(messages, "dispatch");
       const readsAfterDispatch = countReadsAfterLastDispatch(messages);
       if (hasDispatch && readsAfterDispatch >= 2) {
-        const hint =
-          "You have dispatch results. Proceed to implementation or respond — additional reads are likely redundant.";
-        result.system = result.system ? `${result.system}\n\n${hint}` : hint;
+        appendSystemHint(
+          "You have dispatch results. Proceed to implementation or respond — additional reads are likely redundant.",
+        );
       }
 
       // Detect excessive reads without action — language-agnostic
@@ -321,8 +351,9 @@ function buildForgePrepareStep(
       // and the agent isn't in plan mode (audits/plans legitimately need many reads)
       if (!hasDispatch) {
         if (readsSinceAction >= 8) {
-          const nudge = `${String(readsSinceAction)} consecutive reads without an action (edit/dispatch). Act on what you have — edit files directly or use dispatch for parallel work.`;
-          result.system = result.system ? `${result.system}\n\n${nudge}` : nudge;
+          appendSystemHint(
+            `${String(readsSinceAction)} consecutive reads without an action (edit/dispatch). Act on what you have — edit files directly or use dispatch for parallel work.`,
+          );
         }
       }
     }
@@ -330,14 +361,14 @@ function buildForgePrepareStep(
     // Inject task list so it survives compaction and is always visible
     const taskBlock = renderTaskList();
     if (taskBlock) {
-      result.system = `${result.system ?? ""}\n\n${taskBlock}`.trim();
+      appendSystemHint(taskBlock);
     }
 
     // Inject fresh cross-tab claims on every step (always live from coordinator)
     if (contextManager) {
       const crossTab = contextManager.buildCrossTabSection();
       if (crossTab) {
-        result.system = `${result.system ?? ""}\n\n${crossTab}`.trim();
+        appendSystemHint(crossTab);
       }
     }
 

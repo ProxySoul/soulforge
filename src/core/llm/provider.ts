@@ -9,12 +9,14 @@ export interface ProviderStatus {
   envVar: string;
 }
 
-/**
- * Check which providers have API keys configured.
- * Providers with a `checkAvailability` method (e.g. Ollama) are probed async.
- */
+let cachedStatuses: ProviderStatus[] | null = null;
+
+export function getCachedProviderStatuses(): ProviderStatus[] | null {
+  return cachedStatuses;
+}
+
 export async function checkProviders(): Promise<ProviderStatus[]> {
-  return Promise.all(
+  const results = await Promise.all(
     getAllProviders().map(async (p) => {
       let available: boolean;
       if (p.checkAvailability) {
@@ -25,6 +27,8 @@ export async function checkProviders(): Promise<ProviderStatus[]> {
       return { id: p.id, name: p.name, envVar: p.envVar, available };
     }),
   );
+  cachedStatuses = results;
+  return results;
 }
 
 let activeProviderId: string | null = null;
