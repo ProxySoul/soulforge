@@ -44,6 +44,7 @@ function BarRow({
   barColor,
   descColor,
   innerW,
+  labelW = 18,
 }: {
   label: string;
   pct: number;
@@ -51,14 +52,15 @@ function BarRow({
   barColor: string;
   descColor: string;
   innerW: number;
+  labelW?: number;
 }) {
-  const labelW = 18;
-  const barW = Math.max(8, innerW - labelW - desc.length - 8);
+  const truncLabel = label.length > labelW ? `${label.slice(0, labelW - 1)}…` : label;
+  const barW = Math.max(6, innerW - labelW - desc.length - 6);
   const filled = Math.round((pct / 100) * barW);
   return (
     <PopupRow w={innerW}>
       <text fg="#888" bg={POPUP_BG}>
-        {label.padEnd(labelW)}
+        {truncLabel.padEnd(labelW)}
       </text>
       <text fg={barColor} bg={POPUP_BG}>
         {"▰".repeat(filled)}
@@ -147,7 +149,7 @@ export function StatusDashboard({
   currentModeLabel,
 }: Props) {
   const { width: termCols, height: termRows } = useTerminalDimensions();
-  const popupWidth = Math.min(76, Math.floor(termCols * 0.85));
+  const popupWidth = Math.min(82, Math.floor(termCols * 0.85));
   const innerW = popupWidth - 2;
   const maxVisible = Math.max(6, Math.floor((termRows - 2) * 0.8) - CHROME_ROWS);
   const [tab, setTab] = useState<Tab>(initialTab ?? "Context");
@@ -205,6 +207,10 @@ export function StatusDashboard({
     lines.push(<Spacer key="s1" innerW={innerW} />);
 
     if (activeSections.length > 0) {
+      const sysLabelW = Math.min(
+        22,
+        Math.max(18, ...activeSections.map((s) => s.section.length + 4)),
+      );
       lines.push(<SectionHeader key="h-sys" label="System Prompt" innerW={innerW} />);
       for (const s of activeSections) {
         const sTokens = Math.ceil(s.chars / 4);
@@ -218,6 +224,7 @@ export function StatusDashboard({
             barColor={sPct > 40 ? "#FF8C00" : "#555"}
             descColor="#666"
             innerW={innerW}
+            labelW={sysLabelW}
           />,
         );
       }
