@@ -729,8 +729,7 @@ export const InputBox = memo(function InputBox({
         {focused && !fuzzyMode && isMultiline && (
           <box paddingX={2} height={1}>
             <text fg="#333">
-              <span fg="#444">S-⏎</span> newline <span fg="#444">^U</span> del line{" "}
-              <span fg="#444">^K</span> cut to EOL
+              <span fg="#444">S-⏎</span> newline <span fg="#444">^U</span> del line
             </text>
           </box>
         )}
