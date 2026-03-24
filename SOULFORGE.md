@@ -116,6 +116,23 @@ SQLite-backed codebase graph with:
 - Conflicts auto-suffix to `{id}-custom`
 - `--set-key` works for both built-in and custom providers
 
+### Prompt System
+
+Per-family system prompts optimized for each model provider (inspired by [OpenCode](https://github.com/opencode-ai/opencode)'s provider-specific prompt architecture):
+
+- `src/core/prompts/families/` — base prompts per model family (claude, openai, google, default)
+- `src/core/prompts/shared/` — tool guidance, Soul Map builder, directory tree
+- `src/core/prompts/modes/` — mode overlays (architect, plan, auto, socratic, challenge)
+- `src/core/prompts/builder.ts` — assembles everything into a complete system prompt
+
+Family detection uses `detectModelFamily()` which handles direct providers, gateways, and proxy routing.
+Soul Map is injected as a user→assistant message pair (aider-style repo map pattern) for cache efficiency.
+
+To add a new model family:
+1. Create a new file in `src/core/prompts/families/` importing `SHARED_RULES`
+2. Add to `FAMILY_PROMPTS` in `builder.ts`
+3. Add detection case in `src/core/llm/provider-options.ts` `detectModelFamily()`
+
 ## Testing
 
 - Tests live in `tests/` directory

@@ -111,7 +111,7 @@ function getClaudeGen(model: string): ClaudeGen {
 // For gateways (llmgateway/, openrouter/, vercel_gateway/), we inspect the model name
 // to determine the underlying provider family.
 
-type ModelFamily = "claude" | "openai" | "google" | "other";
+export type ModelFamily = "claude" | "openai" | "google" | "other";
 
 export function detectModelFamily(modelId: string): ModelFamily {
   const { provider } = parseModelId(modelId);

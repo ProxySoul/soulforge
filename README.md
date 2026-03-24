@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-BSL%201.1-blue.svg" alt="License" /></a>
   <a href="#"><img src="https://img.shields.io/badge/version-1.0.0-brightgreen.svg" alt="Version" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-strict-blue.svg" alt="TypeScript" /></a>
-  <a href="#testing"><img src="https://img.shields.io/badge/tests-1979%20passing-brightgreen.svg" alt="Tests" /></a>
+  <a href="#testing"><img src="https://img.shields.io/badge/tests-2080%20passing-brightgreen.svg" alt="Tests" /></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6.svg" alt="Bun" /></a>
 </p>
 
@@ -599,7 +599,7 @@ See [GETTING_STARTED.md](GETTING_STARTED.md) for the full reference.
 ## Testing
 
 ```bash
-bun test              # 1979 tests across 42 files
+bun test              # 2080 tests across 44 files
 bun run typecheck     # tsc --noEmit
 bun run lint          # biome check (lint + format)
 bun run lint:fix      # auto-fix
@@ -621,6 +621,7 @@ bun run lint:fix      # auto-fix
 | **[Project Tool](docs/project-tool.md)** | Toolchain detection, pre-commit checks, monorepo discovery |
 | **[Steering](docs/steering.md)** | Mid-stream user input injection |
 | **[Provider Options](docs/provider-options.md)** | Thinking modes, context management, degradation |
+| **[Prompt System](docs/prompt-system.md)** | Per-family prompts, Soul Map injection, mode overlays |
 | [Getting Started](GETTING_STARTED.md) | Installation, configuration, first steps |
 | [Contributing](CONTRIBUTING.md) | Dev setup, project structure, PR guidelines |
 | [Security](SECURITY.md) | Security policy, forbidden file management, responsible disclosure |
@@ -662,7 +663,8 @@ SoulForge TUI              Full experience (what you're looking at now)
 
 SoulForge builds on ideas from projects we respect:
 
-- **[Aider](https://github.com/Aider-AI/aider)** — pioneered tree-sitter repo maps with PageRank for AI code editing. SoulForge extends this with cochange analysis, blast radius, clone detection, and real-time graph updates on file edits.
+- **[Aider](https://github.com/Aider-AI/aider)** — tree-sitter repo maps with PageRank for code context. Similar approach to SoulForge's repo map, though SoulForge adds cochange analysis, blast radius, clone detection, and real-time graph updates.
+- **[OpenCode](https://github.com/opencode-ai/opencode)** — per-provider prompt routing. SoulForge's family-specific prompt system takes a similar approach with separate base prompts for Claude, OpenAI, Gemini, and a generic fallback.
 - **[Everything Claude Code (ECC)](https://github.com/affaan-m/everything-claude-code)** — design philosophy: enforce behavior with code, not prompt instructions. Our `targetFiles` schema validation, pre-commit lint gates, confident tool output, and auto-enrichment patterns come from this thinking.
 - **[Vercel AI SDK](https://sdk.vercel.ai)** — the multi-provider abstraction layer that makes 9 providers possible with a single tool loop interface.
 - **[Neovim](https://neovim.io)** — the editor. SoulForge embeds it via msgpack-RPC rather than reimplementing it, because your config and muscle memory shouldn't be a compromise.

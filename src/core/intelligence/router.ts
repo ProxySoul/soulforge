@@ -312,30 +312,74 @@ export class CodeIntelligenceRouter {
     }
   }
 
-  /** Detect all languages present in the project (from config files). */
+  /** Detect all languages present in the project (config files + file scan). */
   private detectAllLanguages(): Language[] {
     const found: Language[] = [];
     const seen = new Set<Language>();
 
-    // Config override takes priority
-    if (this.config.language) {
-      const lang = this.config.language as Language;
-      if (lang !== "unknown") {
-        found.push(lang);
-        seen.add(lang);
-      }
-    }
+    const add = (lang: Language) => {
+      if (seen.has(lang) || lang === "unknown") return;
+      found.push(lang);
+      seen.add(lang);
+    };
 
-    // Scan for all project config files
+    // 1. Config override
+    if (this.config.language) add(this.config.language as Language);
+
+    // 2. Project config files (fast, no recursion)
     for (const [configFile, lang] of Object.entries(PROJECT_FILE_TO_LANGUAGE)) {
-      if (seen.has(lang)) continue;
-      if (existsSync(join(this.cwd, configFile))) {
-        found.push(lang);
-        seen.add(lang);
-      }
+      if (existsSync(join(this.cwd, configFile))) add(lang);
     }
 
-    // Cache the primary for detectLanguage()
+    // 3. Scan source files (BFS, same skip/depth as findProbeFile)
+    const SKIP = new Set([
+      "node_modules",
+      ".git",
+      "dist",
+      "build",
+      "out",
+      "vendor",
+      "__pycache__",
+      ".venv",
+      "venv",
+      "target",
+      ".next",
+      ".nuxt",
+      ".output",
+      "coverage",
+      ".turbo",
+      ".cache",
+    ]);
+    const MAX_DEPTH = 3;
+    const MAX_DIRS = 100;
+    const queue: Array<{ dir: string; depth: number }> = [{ dir: this.cwd, depth: 0 }];
+    let visited = 0;
+
+    while (queue.length > 0 && visited < MAX_DIRS) {
+      const item = queue.shift()!;
+      visited++;
+      try {
+        const entries = readdirSync(item.dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isFile()) {
+            const dot = entry.name.lastIndexOf(".");
+            if (dot > 0) {
+              const ext = entry.name.slice(dot).toLowerCase();
+              const lang = EXT_TO_LANGUAGE[ext];
+              if (lang) add(lang);
+            }
+          }
+        }
+        if (item.depth < MAX_DEPTH) {
+          for (const entry of entries) {
+            if (entry.isDirectory() && !SKIP.has(entry.name) && !entry.name.startsWith(".")) {
+              queue.push({ dir: join(item.dir, entry.name), depth: item.depth + 1 });
+            }
+          }
+        }
+      } catch {}
+    }
+
     if (found.length > 0 && !this.detectedLanguage) {
       this.detectedLanguage = found[0] ?? null;
     }
@@ -343,23 +387,56 @@ export class CodeIntelligenceRouter {
     return found;
   }
 
-  /** Find a file to use for LSP warmup probing */
+  /**
+   * Find a source file for the given language via breadth-first directory scan.
+   * Skips node_modules, .git, dist, build, vendor, and hidden dirs.
+   * Returns the first matching file found, preferring shallower directories.
+   */
   private findProbeFile(language: Language): string | null {
-    // Build extensions list from the canonical EXT_TO_LANGUAGE map
     const exts = Object.entries(EXT_TO_LANGUAGE)
       .filter(([_, lang]) => lang === language)
       .map(([ext]) => ext);
     if (exts.length === 0) return null;
 
-    // Check src/ first, then root
-    for (const dir of ["src", "."]) {
-      const full = join(this.cwd, dir);
+    const SKIP = new Set([
+      "node_modules",
+      ".git",
+      "dist",
+      "build",
+      "out",
+      "vendor",
+      "__pycache__",
+      ".venv",
+      "venv",
+      "target",
+      ".next",
+      ".nuxt",
+      ".output",
+      "coverage",
+      ".turbo",
+      ".cache",
+    ]);
+    const MAX_DEPTH = 4;
+    const MAX_DIRS = 200;
+
+    const queue: Array<{ dir: string; depth: number }> = [{ dir: this.cwd, depth: 0 }];
+    let visited = 0;
+
+    while (queue.length > 0 && visited < MAX_DIRS) {
+      const item = queue.shift()!;
+      visited++;
       try {
-        if (!existsSync(full)) continue;
-        const entries = readdirSync(full);
+        const entries = readdirSync(item.dir, { withFileTypes: true });
         for (const entry of entries) {
-          if (exts.some((ext) => entry.endsWith(ext))) {
-            return join(full, entry);
+          if (entry.isFile() && exts.some((ext) => entry.name.endsWith(ext))) {
+            return join(item.dir, entry.name);
+          }
+        }
+        if (item.depth < MAX_DEPTH) {
+          for (const entry of entries) {
+            if (entry.isDirectory() && !SKIP.has(entry.name) && !entry.name.startsWith(".")) {
+              queue.push({ dir: join(item.dir, entry.name), depth: item.depth + 1 });
+            }
           }
         }
       } catch {}

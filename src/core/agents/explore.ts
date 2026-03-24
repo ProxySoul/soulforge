@@ -9,34 +9,31 @@ import { buildPrepareStep, buildSymbolLookup } from "./step-utils.js";
 import { repairToolCall } from "./stream-options.js";
 
 function exploreBase(): string {
-  return [
-    "Explore agent. Read-only research. Tool results are authoritative — never re-read or re-verify.",
-    "TOOL PRIORITY — use the cheapest tool that answers the question:" +
-      " Tier 1 (free, instant): soul_find, soul_impact, soul_analyze(file_profile), soul_grep(count)," +
-      " navigate(definition/references/call_hierarchy/implementation/type_hierarchy/workspace_symbols)," +
-      " analyze(type_info/diagnostics/outline)." +
-      " Tier 2 (targeted): read_file(target, name) for one symbol." +
-      " Tier 3 (broad): read_file full, grep for string literals." +
-      " Exhaust Tier 1 before Tier 2. Three Tier 1 calls replace twenty Tier 3 calls.",
-    "Workflow: EXTRACTION (paths given) → read_file(target, name). DISCOVERY (keywords only) → soul_find or navigate, then read hits. TRACING (data flow) → soul_impact + navigate(references), not grep→read chains.",
-    "After reading targets, trace one level of callers via navigate(references). Flag disconnects between stated vs actual behavior.",
-    "OUTPUT: End with a concise text summary of your findings. The system extracts tool results automatically — your text is the only thing the parent sees. Be specific: name files, line numbers, exact values found.",
-  ].join("\n");
+  return `Explore agent. Read-only research. Tool results are authoritative.
+
+Use the cheapest tool first:
+1. soul_find, soul_grep(count), soul_impact, navigate, analyze — free, instant
+2. read_file(target, name) — extract one symbol, not the whole file
+3. read_file full, grep — only when 1-2 didn't answer
+
+Workflow:
+- Paths given → read_file(target, name) for each
+- Keywords only → soul_find or navigate(definition), then read hits
+- Data flow → soul_impact + navigate(references)
+After reading targets, trace callers via navigate(references). Flag disconnects.
+
+OUTPUT: Concise text summary with file names, line numbers, exact values. Your text is the only thing the parent sees.`;
 }
 
 function investigateBase(): string {
-  return [
-    "Investigation agent. Broad cross-cutting analysis across many files.",
-    "TOOL PRIORITY — free tools first:" +
-      " soul_grep(count) or soul_analyze to quantify patterns before reading anything." +
-      " soul_impact for dependency/cochange analysis." +
-      " soul_find for locating files/symbols by concept." +
-      " navigate(references/call_hierarchy) for tracing usage." +
-      " Only read files that Tier 1 tools pointed you to.",
-    "Target paths are pre-resolved. Use soul_grep for pattern matching, soul_analyze for structural queries (unused exports, symbol frequency, file profiles), soul_impact for dependency analysis.",
-    "Quantify findings: counts, percentages, file lists. Flag inconsistencies between files.",
-    "OUTPUT: End with a concise text summary. Name files, line numbers, exact values. The system extracts tool results automatically — your text is all the parent sees.",
-  ].join("\n");
+  return `Investigation agent. Broad cross-cutting analysis.
+
+Quantify before reading: soul_grep(count), soul_analyze, soul_impact first.
+Only read files that indexed tools pointed you to.
+
+Use soul_grep for pattern matching, soul_analyze for structural queries (unused exports, frequency, profiles), soul_impact for dependencies, navigate for tracing usage.
+
+OUTPUT: Concise text summary with counts, file lists, exact values. Your text is the only thing the parent sees.`;
 }
 
 // No structured output schema — agents return plain text summaries.

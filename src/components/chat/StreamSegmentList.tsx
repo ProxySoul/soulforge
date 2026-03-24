@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { Markdown } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
 import { type LiveToolCall, ToolCallDisplay } from "./ToolCallDisplay.js";
@@ -15,29 +15,16 @@ function trimToCompleteLines(text: string): string {
   return text;
 }
 
-const OPACITY_SETTLED = 0.75;
-const OPACITY_FRESH = 0.45;
-const FRESH_DECAY_MS = 80;
+const STREAM_OPACITY = 0.65;
 
-/** Wrapper that applies the drip buffer + dim→bright to the active streaming text. */
+/** Wrapper that applies the drip buffer to the active streaming text. */
 function DripText({ content, streaming }: { content: string; streaming: boolean }) {
-  const { text: display, freshCount } = useTextDrip(content, streaming);
-  const [bright, setBright] = useState(true);
-
-  // Pulse dim when fresh chars arrive, then brighten
-  useEffect(() => {
-    if (freshCount <= 0) return;
-    setBright(false);
-    const timer = setTimeout(() => setBright(true), FRESH_DECAY_MS);
-    return () => clearTimeout(timer);
-  }, [freshCount]);
+  const { text: display } = useTextDrip(content, streaming);
 
   if (display.length === 0) return null;
 
-  const opacity = bright ? OPACITY_SETTLED : OPACITY_FRESH;
-
   return (
-    <box flexDirection="column" opacity={opacity}>
+    <box flexDirection="column" opacity={STREAM_OPACITY}>
       <Markdown text={`${display}▊`} streaming />
     </box>
   );

@@ -9,114 +9,23 @@ import { buildGitContext } from "../git/status.js";
 import { RepoMap, type SymbolForSummary } from "../intelligence/repo-map.js";
 import { resolveModel } from "../llm/provider.js";
 import { MemoryManager } from "../memory/manager.js";
-import { getModeInstructions } from "../modes/prompts.js";
+import {
+  buildDirectoryTree,
+  buildSystemPrompt as buildPrompt,
+  buildSoulMapAck,
+  buildSoulMapUserMessage as buildSoulMapContent,
+  getModeInstructions,
+  type PromptBuilderOptions,
+} from "../prompts/index.js";
 import { buildForbiddenContext, isForbidden } from "../security/forbidden.js";
 import { emitFileEdited, onFileEdited, onFileRead } from "../tools/file-events.js";
 // extractConversationTerms removed — FTS boosting was noisy
 import { walkDir } from "./file-tree.js";
 import { detectToolchain } from "./toolchain.js";
 
-// System prompt: question-driven tool routing + prohibition enforcement
-// Pattern: map the QUESTION the agent would ask → the tool that answers it
-// Sources: Claude Code (fragments), ECC (schema > prompt), omo (prohibition + clearance)
-// ── STATIC PROMPT SECTIONS (cached across all turns) ──
-
-// ── Tool guidance: tier-based escalation ──────────────────────────────
-// Tier 0 is the Soul Map already in context (files, symbols, signatures, rankings).
-// Each tier costs ~10x more tokens than the one above. Stay as low as possible.
-
-const TOOL_ROUTING = [
-  // Mandatory pre-flight gate — LSP first, Soul Map as context feed
-  `BEFORE EVERY TOOL CALL — run this gate:
-1. Is it a symbol/identifier question? → navigate or analyze FIRST. These are your primary tools — they resolve symbols across the entire codebase from just a name, return file:line locations, callers, type info. One call replaces 3-5 read_file calls. The Soul Map in your context gives you the symbol names and file paths to feed into navigate/analyze.
-2. Is it a broad/conceptual question? → soul_find, soul_grep(count), soul_impact. These search by pattern, not type system.
-3. Only if steps 1-2 cannot answer → read_file, grep, shell.
-Every read_file you skip saves ~2k tokens. LSP + Soul Map answer 80% of exploration questions without reading files.`,
-  // Core discipline
-  "Soul Map and tool results are authoritative (auto-updated on every edit). One read per file, one search per question. Stop as soon as you can act. Every response ends with an action.",
-  // Tier system
-  `TOOL TIERS — always start at the lowest tier that answers your question, escalate only when it doesn't:
-
-Tier 0 — Soul Map (already in your context, zero cost):
-Check the rendered Soul Map FIRST. It has file paths, exported symbols with signatures, PageRank rankings, and dependency edges. Often answers "where is X" / "what does X export" without any tool call.
-
-Tier 1 — Structural queries (instant, zero file I/O):
-  LSP (primary — use for any symbol/identifier question, auto-resolves files from name alone):
-    navigate(definition) → returns file:line where symbol is defined
-    navigate(references) → returns all file:line locations that use the symbol (up to 50)
-    navigate(call_hierarchy) → returns callers (incoming) or callees (outgoing) with file:line
-    navigate(implementation) → returns file:line of concrete implementations
-    navigate(type_hierarchy) → returns supertypes and subtypes with file:line
-    navigate(workspace_symbols) → returns matching symbols across all files with kind + file:line
-    analyze(type_info) → returns type signature + docs for a symbol
-    analyze(diagnostics) → returns type errors and warnings in a file
-    analyze(outline) → returns compact symbol list with line numbers for a file
-  Soul Map tools (for broad/pattern queries — concepts, counts, relationships):
-    soul_find → locate files/symbols by name (ranked, with signatures)
-    soul_impact → dependents, dependencies, cochanges, blast_radius
-    soul_analyze → file_profile, unused_exports, frequency, duplication, packages, symbols_by_kind
-    soul_grep(count) → quantify matches before reading anything
-
-Tier 2 — Targeted reads (read only what Tier 1 pointed you to):
-  read_file(target, name) → extract one symbol, not the whole file
-  analyze(code_actions) → quick-fix suggestions for a line range
-
-Tier 3 — Broad reads & external (when Tier 1-2 didn't resolve it):
-  read_file (full) → configs, markdown, small files. Once per file.
-  grep → string literals, non-code patterns, regex
-  web_search → external APIs, library docs, error messages
-
-Tier 4 — Expensive operations (last resort):
-  shell → only when project tool can't handle it
-  project → test/build/lint/typecheck (auto-detects toolchain)
-  dispatch → 7+ files or 4+ parallel edits
-
-Compound tools (one call, complete job — no verification needed after):
-  rename_symbol → workspace-wide rename via LSP, updates all importers
-  move_symbol → move to another file, auto-updates all imports
-  rename_file → rename + update all import paths
-  refactor → extract_function, extract_variable, organize_imports, format
-
-QUICK REF — question → best tool (cheapest first):
-"Where is X defined?" → navigate(definition, symbol: "X") — returns file:line
-"Who calls X?" → navigate(call_hierarchy, symbol: "X", direction: "incoming") — returns caller list
-"What uses X?" → navigate(references, symbol: "X") — returns all file:line locations
-"What type is X?" → analyze(type_info, symbol: "X") — returns signature + docs
-"What does file X export?" → Soul Map already lists this. Or: analyze(outline)
-"How is this component structured?" → analyze(outline) — returns symbol list with line numbers
-"Read one function body" → read_file(target: "function", name: "X") — extracts just that symbol
-"Read full file for editing" → read_file(startLine: 1) — always pass startLine to get content, not outline
-Full file reads are for editing, not for understanding code structure.`,
-];
-
-const TOOL_ROUTING_SOUL_MAP = [
-  "soul_find: use specific identifiers not generic words. soul_grep: intercepts identifier lookups via repo map (zero-cost). navigate: auto-resolves files from symbol names — no file param needed for most actions.",
-  "Editing: read file ONCE in full, plan all changes, multi_edit in ONE call.",
-];
-
-const TOOL_ROUTING_NO_MAP = [
-  "Soul Map not ready yet. Use: read_file for source/config. grep for patterns. glob for files. navigate for LSP when available. soul_grep, soul_find, soul_analyze, soul_impact become available after scan completes.",
-  "Editing: read file ONCE in full, plan all changes, multi_edit in ONE call. Compound tools (rename_symbol, move_symbol, rename_file, project) do the complete job.",
-];
-
-const DISPATCH_RULES = [
-  "Dispatch decision: 1) soul_grep/soul_analyze can answer it → do that, no dispatch. 2) ≤6 files → read/edit directly. 3) Pattern search across many files → soul_grep count first, then read hits only. 4) 7+ files or 4+ parallel edits → dispatch. Always search before dispatching read-only tasks.",
-  "After dispatch: act on results immediately. Never re-read dispatched files or re-search dispatched patterns.",
-  "Task rules: targetFiles must be exact paths (system validates). Each task: specific files, symbol names, what to return. Split by file ownership. One dispatch per turn.",
-  "Web search: one query per task with targetFiles ['web']. fetch_page URLs the user already shared before searching.",
-];
-
-const DISPATCH_RULES_SOUL_MAP =
-  "Use exact Soul Map paths for targetFiles. Agents with precise targets finish in 1-2 tool calls.";
-
-function buildToolGuidance(hasRepoMap: boolean): string[] {
-  return [...TOOL_ROUTING, ...(hasRepoMap ? TOOL_ROUTING_SOUL_MAP : TOOL_ROUTING_NO_MAP)];
-}
-
-function buildDispatchGuidance(hasRepoMap: boolean): string[] {
-  if (!hasRepoMap) return [...DISPATCH_RULES];
-  return [...DISPATCH_RULES, DISPATCH_RULES_SOUL_MAP];
-}
+// System prompt assembly is handled by src/core/prompts/builder.ts
+// Tool guidance is in src/core/prompts/shared/tool-guidance.ts
+// Mode instructions are in src/core/prompts/modes/index.ts
 
 export interface SharedContextResources {
   repoMap: RepoMap;
@@ -889,176 +798,88 @@ export class ContextManager {
     return cleared;
   }
 
-  /** Build a system prompt with project context, scaled to context window */
-  buildSystemPrompt(): string {
-    const ctxWindow = this.contextWindowTokens;
-    const isMinimal = ctxWindow <= MINIMAL_CONTEXT_THRESHOLD;
+  /** Build a system prompt with project context, scaled to context window. */
+  buildSystemPrompt(modelIdOverride?: string): string {
+    const opts: PromptBuilderOptions = {
+      modelId: modelIdOverride || this.lastActiveModel,
+      cwd: this.cwd,
+      hasRepoMap: this.repoMapReady,
+      hasSymbols: this.repoMapReady && this.repoMap.getStats().symbols > 0,
+      forgeMode: this.forgeMode,
+      contextPercent: this.getContextPercent(),
+      isMinimalContext: this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD,
+      projectInfo: this.getProjectInfo(),
+      projectInstructions: this.projectInstructions,
+      forbiddenContext: buildForbiddenContext(),
+      editorSection: this.buildEditorContextSection(),
+      gitContext: this.gitContext,
+      memoryContext: this.memoryManager.buildMemoryIndex(),
+    };
+    return buildPrompt(opts);
+  }
 
-    const projectInfo = this.getProjectInfo();
-
-    // ── STATIC SECTION (stable prefix → cached across all turns) ──
-    const parts = [
-      // 1. Identity + style (merged — one paragraph, no redundancy)
-      "You are Forge — SoulForge's core. You build, you act, you ship. Zero waste: every tool call answers a question, every read earns its tokens, every edit lands clean. Zero filler: no narration ('Let me...', 'Now I'll...', 'I can see that...', 'Here is...', 'Based on...'). No restating what the user said. No transition sentences. No summaries of what you just did. Deliver results, not commentary. Code blocks with language hints. Match response length to question complexity.",
-      // Fix-first discipline + investigation budget
-      "Fix-first: When a bug is reported, make your best fix quickly and let the user test. Do not over-investigate — 3 tool calls to understand, then act. If you need more context after the fix, the user will tell you. The user sees your tool calls in real-time; spending 20 calls investigating before acting feels broken. Prefer a targeted fix + iterate over a perfect diagnosis.",
-    ];
-
-    // 2. Tool routing + dispatch + planning (static behavioral rules)
-    if (!isMinimal) {
-      parts.push(
-        "A Soul Map of the codebase is included in the system prompt — it lists every file, exported symbol, signature, and dependency. Consult it before any tool call to identify relevant files and symbols.",
-        // Tool routing
-        ...buildToolGuidance(this.repoMapReady),
-      );
-
-      if (this.repoMapReady && this.repoMap.getStats().symbols === 0) {
-        parts.push(
-          "Code intelligence limited: No symbols indexed. Intelligence tools fall back to regex.",
-        );
-      }
-
-      // Dispatch
-      parts.push("", ...buildDispatchGuidance(this.repoMapReady));
-
-      // Planning
-      parts.push(
-        `Planning: edit files directly — the plan tool requires 7+ files (smaller plans are rejected). When planning: research → plan (self-contained with exact paths from Soul Map, symbols, step details) → user confirms → execute. Zero exploration during execution.`,
-      );
-    }
-
-    // 3. Conventions + error handling (static)
-    parts.push(
-      "Conventions: mimic existing code style, imports, and patterns. Check neighboring files before creating new ones. Never assume a library is available — check imports.",
-      "On tool failure: read the error, adjust approach, never retry the exact same call.",
-    );
-
-    if (!isMinimal) {
-      parts.push(
-        "User sees one-line tool summaries in real-time. Include file contents in your text only when asked. Abort: Ctrl+X, resume: /continue.",
-      );
-    }
-
-    // ── DYNAMIC SECTION (changes per project/session — after cache breakpoint) ──
-
-    // 4. Project context
-    parts.push(`Project cwd: ${this.cwd}`);
-    if (projectInfo) parts.push(projectInfo);
-    if (this.projectInstructions) parts.push(this.projectInstructions);
-
-    // 5. Skills are injected as a message pair (like Soul Map) to keep system prompt stable.
-    // Only a static reference line here.
-
-    // 6. Forbidden files (dynamic — changes per project)
-    const forbiddenCtx = buildForbiddenContext();
-    if (forbiddenCtx) {
-      parts.push("", forbiddenCtx);
-    }
-
-    // 7. Soul Map is injected as a separate system block via prepareStep
-    // (keeps the main system prompt cacheable while the Soul Map updates after edits).
-
-    parts.push("", ...this.buildEditorToolsSection());
-
+  /** Build editor context lines for the system prompt. */
+  private buildEditorContextSection(): string[] {
+    const lines = [...this.buildEditorToolsSection()];
     const showEditorContext = this.editorIntegration?.editorContext !== false;
     if (this.editorOpen && this.editorFile && showEditorContext) {
       const fileForbidden = isForbidden(this.editorFile);
       if (fileForbidden) {
-        parts.push(
+        lines.push(
           `Editor: "${this.editorFile}" — FORBIDDEN (pattern: "${fileForbidden}"). Do NOT read or reference its contents.`,
         );
       } else {
-        const editorLines = [
+        lines.push(
           `Editor: "${this.editorFile}" | mode: ${this.editorVimMode ?? "?"} | L${String(this.editorCursorLine)}:${String(this.editorCursorCol)}`,
-        ];
+        );
         if (this.editorVisualSelection) {
           const truncated =
             this.editorVisualSelection.length > 500
               ? `${this.editorVisualSelection.slice(0, 500)}...`
               : this.editorVisualSelection;
-          editorLines.push("Selection:", "```", truncated, "```");
+          lines.push("Selection:", "```", truncated, "```");
         }
-        editorLines.push(
+        lines.push(
           "'the file'/'this file'/'what's open' = this file. `edit_file` for disk. `editor(action: read)` for buffer.",
         );
-        parts.push(...editorLines);
       }
     } else if (this.editorOpen) {
-      parts.push("Editor: panel open, no file loaded.");
+      lines.push("Editor: panel open, no file loaded.");
     }
-
-    if (this.gitContext) {
-      parts.push(`Git: ${this.gitContext}`);
-    }
-
-    const memoryContext = this.memoryManager.buildMemoryIndex();
-    if (memoryContext) {
-      parts.push(`Memory: ${memoryContext}`);
-    }
-
-    const modeInstructions = getModeInstructions(this.forgeMode, {
-      contextPercent: this.getContextPercent(),
-    });
-    if (modeInstructions) {
-      parts.push(`Mode: ${modeInstructions}`);
-    }
-
-    // Skills status is injected as a message pair, not here. Static reference only.
-    parts.push(
-      "Skills may be loaded as context at the start of the conversation. Use skills(action: search) to find new ones, or Ctrl+S to browse.",
-    );
-
-    // Cross-tab claims injected via prepareStep (fresh on every step),
-    // not here in the system prompt (would go stale as claims change).
-
-    return parts.filter(Boolean).join("\n");
+    return lines;
   }
 
   /**
-   * Build the Soul Map as a system prompt block.
-   * Returned as a separate block so it can have its own cache control
-   * (the main system prompt is stable/cached, the Soul Map changes after edits).
+   * Build the Soul Map as a user→assistant message pair (aider pattern).
+   * Models treat user content as context to reference, keeping it separate
+   * from system instructions. This also means it can update after edits
+   * without invalidating the cached system prompt.
    * Returns null if the repo map isn't ready.
    */
-  buildSoulMapSystemBlock(): string | null {
+  buildSoulMapMessages():
+    | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
+    | null {
     if (!this.repoMapEnabled || !this.repoMapReady) return null;
     const rendered = this.renderRepoMap();
     if (!rendered) return null;
 
     const isMinimal = this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD;
-    const legend = isMinimal
-      ? ""
-      : "+ = exported. (→N) = blast radius. [NEW] = new since last render.\n";
+    const dirTree = buildDirectoryTree(this.cwd);
+    return [
+      { role: "user" as const, content: buildSoulMapContent(rendered, isMinimal, dirTree) },
+      { role: "assistant" as const, content: buildSoulMapAck() },
+    ];
+  }
 
-    return (
-      `<soul_map>\n` +
-      `<description>\n` +
-      `This is the Soul Map — a live structural index of the entire codebase. ` +
-      `It is rebuilt automatically after every edit using AST parsing (tree-sitter), ` +
-      `PageRank file ranking, and git co-change analysis.\n\n` +
-      `What each part means:\n` +
-      `- Files are ranked by importance (highest-impact files first)\n` +
-      `- (→N) after a file = blast radius — N other files depend on it\n` +
-      `- + before a symbol = exported (part of the public API)\n` +
-      `- ← arrows = "imported by" — shows which files depend on this one\n` +
-      `- Signatures show function/type shapes so you can understand APIs without reading files\n` +
-      `- Key dependencies section shows external packages and how widely they're used\n` +
-      `</description>\n\n` +
-      `<how_to_use>\n` +
-      `This map answers most structural questions about the codebase directly:\n` +
-      `- "Where is X?" → find the file and line in the map\n` +
-      `- "What does file Y export?" → listed under that file\n` +
-      `- "What depends on Z?" → check the ← arrows and blast radius\n` +
-      `- "What packages does this project use?" → Key dependencies section\n\n` +
-      `For deeper questions, feed symbol names from the map into navigate() or analyze() — ` +
-      `these return precise file:line results from the type system. ` +
-      `The map gives you the names, LSP gives you the details.\n` +
-      `</how_to_use>\n\n` +
-      `<data>\n` +
-      `${legend}${rendered}\n` +
-      `</data>\n` +
-      `</soul_map>`
-    );
+  /**
+   * @deprecated Use buildSoulMapMessages() instead. Kept for backwards compatibility.
+   */
+  buildSoulMapSystemBlock(): string | null {
+    if (!this.repoMapEnabled || !this.repoMapReady) return null;
+    const rendered = this.renderRepoMap();
+    if (!rendered) return null;
+    const isMinimal = this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD;
+    return buildSoulMapContent(rendered, isMinimal);
   }
 
   /**

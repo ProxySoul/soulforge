@@ -166,12 +166,15 @@ function buildForgePrepareStep(
     buildCrossTabSection(): string | null;
     isEditorOpen(): boolean;
     getEditorIntegration(): import("../../types/index.js").EditorIntegration | undefined;
-    buildSystemPrompt(): string;
-    buildSoulMapSystemBlock(): string | null;
+    buildSystemPrompt(modelIdOverride?: string): string;
+    buildSoulMapMessages():
+      | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
+      | null;
     buildSkillsMessages():
       | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
       | null;
   },
+  activeModelId?: string,
 ) {
   const SKILLS_MARKER = "<loaded_skills>";
 
@@ -186,24 +189,19 @@ function buildForgePrepareStep(
       system?: SystemModelMessage[];
     } = {};
 
-    // Build system prompt as multi-block array:
-    // Block 0: main system prompt (cached — stable between steps)
-    // Block 1: Soul Map (uncached — rebuilds after edits, in system prompt for reliability)
+    // System prompt: single cached block (stable between steps)
+    // Soul Map + Skills: user→assistant message pairs prepended to conversation
+    // (aider pattern — models treat user content as context to reference)
     if (contextManager) {
-      const systemBlocks: SystemModelMessage[] = [
+      result.system = [
         {
           role: "system" as const,
-          content: contextManager.buildSystemPrompt(),
+          content: contextManager.buildSystemPrompt(activeModelId),
           providerOptions: EPHEMERAL_CACHE,
         },
       ];
-      const soulMap = contextManager.buildSoulMapSystemBlock();
-      if (soulMap) {
-        systemBlocks.push({ role: "system" as const, content: soulMap });
-      }
-      result.system = systemBlocks;
 
-      // Strip any legacy Soul Map/Skills message pairs from before the system block migration
+      // Strip stale Soul Map / Skills pairs from previous steps
       let conversationStart = 0;
       while (conversationStart < stripped.length - 1) {
         const msg = stripped[conversationStart];
@@ -219,30 +217,22 @@ function buildForgePrepareStep(
       }
       if (conversationStart > 0) {
         stripped = stripped.slice(conversationStart);
-        result.messages = stripped;
       }
 
-      // Skills still injected as message pairs (lower priority, less adherence-critical)
+      // Prepend fresh Soul Map + Skills as user→assistant message pairs
+      const prefix: ModelMessage[] = [];
+      const soulMapMsgs = contextManager.buildSoulMapMessages();
+      if (soulMapMsgs) {
+        prefix.push(...(soulMapMsgs as unknown as ModelMessage[]));
+      }
       const skillsMsgs = contextManager.buildSkillsMessages();
       if (skillsMsgs) {
-        const prefix = skillsMsgs as unknown as ModelMessage[];
-        // Strip existing skills pair if present
-        let skillStart = 0;
-        while (skillStart < stripped.length - 1) {
-          const msg = stripped[skillStart];
-          if (
-            msg?.role === "user" &&
-            typeof msg.content === "string" &&
-            msg.content.startsWith(SKILLS_MARKER)
-          ) {
-            skillStart += 2;
-          } else {
-            break;
-          }
-        }
-        stripped = [...prefix, ...stripped.slice(skillStart)];
-        result.messages = stripped;
+        prefix.push(...(skillsMsgs as unknown as ModelMessage[]));
       }
+      if (prefix.length > 0) {
+        stripped = [...prefix, ...stripped];
+      }
+      result.messages = stripped;
     }
 
     if (stripped !== messages && !result.messages) {
@@ -470,6 +460,9 @@ export function createForgeAgent({
     typeof model === "object" && model !== null && "modelId" in model
       ? String((model as { modelId: string }).modelId)
       : "";
+  // Ensure ContextManager knows the model before building the system prompt
+  // (family-specific prompt selection depends on this)
+  if (modelId) contextManager.setActiveModel(modelId);
   const canUseCodeExecution = codeExecution && isAnthropicNative(modelId);
 
   const directTools = buildTools(undefined, editorIntegration, onApproveWebSearch, {
@@ -563,7 +556,7 @@ export function createForgeAgent({
     }),
     instructions: {
       role: "system" as const,
-      content: contextManager.buildSystemPrompt(),
+      content: contextManager.buildSystemPrompt(modelId),
       providerOptions: EPHEMERAL_CACHE,
     },
     prepareCall: ({ options: _options, ...settings }) => {
@@ -577,6 +570,7 @@ export function createForgeAgent({
       drainSteering,
       repoMap,
       contextManager,
+      modelId,
     ),
     experimental_repairToolCall: repairToolCall,
     ...(providerOptions && Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),

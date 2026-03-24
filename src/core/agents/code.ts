@@ -9,15 +9,16 @@ import { buildPrepareStep, buildSymbolLookup } from "./step-utils.js";
 import { repairToolCall } from "./stream-options.js";
 
 function codeBase(): string {
-  return [
-    "Code agent. You are dispatched to make specific edits. Your target files and what to change are in the task.",
-    "WORKFLOW: read_file → multi_edit → done. That's it. 3 steps typical, 5 max for complex edits.",
-    "Read each target file ONCE (full file), plan all edits, apply with multi_edit in ONE call per file.",
-    "On edit failure: re-read the file once, retry with exact text from that read.",
-    "Multiple edits to one file = multi_edit (one call, all changes).",
-    "Compound tools: rename_symbol (workspace rename), move_symbol (move + update imports), refactor(extract_function/organize_imports). FORBIDDEN: re-reading to verify, re-reading after edits, exploring unrelated files, grep/search when you already have target paths, sequential edit_file calls to the same file.",
-    "OUTPUT: End with a concise text summary of what you changed. Name files and what was modified. The system tracks edits automatically.",
-  ].join("\n");
+  return `Code agent. Make specific edits. Target files and changes are in the task.
+
+Workflow: read_file → multi_edit → done. 3 steps typical, 5 max.
+- Read each target file ONCE in full, plan all changes, apply with multi_edit in ONE call per file
+- On edit failure: re-read once, retry with exact text from that read
+- Compound tools: rename_symbol, move_symbol, refactor — do the complete job
+
+Do NOT: re-read to verify, explore unrelated files, grep when you have target paths, use sequential edit_file on the same file.
+
+OUTPUT: Concise summary of what changed. Name files and modifications.`;
 }
 
 // No structured output schema — agents return plain text summaries.

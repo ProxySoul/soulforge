@@ -1,5 +1,6 @@
 import { toErrorMessage } from "../../utils/errors.js";
 import { ensureProxy } from "../proxy/lifecycle.js";
+import { getProviderApiKey } from "../secrets.js";
 import { getAllProviders, getProvider } from "./providers/index.js";
 import type { ProviderModelInfo } from "./providers/types.js";
 
@@ -263,7 +264,7 @@ interface AnthropicModelEntry {
  */
 async function fetchAnthropicContextWindows(): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = getProviderApiKey("ANTHROPIC_API_KEY");
   if (!apiKey) return map;
   try {
     const res = await fetch("https://api.anthropic.com/v1/models", {
@@ -359,7 +360,7 @@ export async function fetchVercelGatewayModels(): Promise<GroupedModelsResult> {
 }
 
 async function fetchVercelGatewayGrouped(): Promise<GroupedModelsResult> {
-  if (!process.env.AI_GATEWAY_API_KEY) {
+  if (!getProviderApiKey("AI_GATEWAY_API_KEY")) {
     return {
       subProviders: [],
       modelsByProvider: {},
@@ -408,7 +409,7 @@ async function fetchVercelGatewayGrouped(): Promise<GroupedModelsResult> {
 }
 
 async function fetchLLMGatewayGrouped(): Promise<GroupedModelsResult> {
-  const apiKey = process.env.LLM_GATEWAY_API_KEY;
+  const apiKey = getProviderApiKey("LLM_GATEWAY_API_KEY");
   if (!apiKey) {
     return {
       subProviders: [],

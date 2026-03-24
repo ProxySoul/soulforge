@@ -12,11 +12,11 @@ async function handleExportAll(ctx: CommandContext): Promise<void> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const outPath = join(exportDir, `diagnostic-${stamp}.json`);
 
-  const systemPrompt = ctx.contextManager.buildSystemPrompt();
+  const activeModel = ctx.chat.activeModel;
+  const systemPrompt = ctx.contextManager.buildSystemPrompt(activeModel);
   const coreMessages = ctx.chat.coreMessages;
   const chatMessages = ctx.chat.messages;
   const tokenUsage = ctx.chat.tokenUsage;
-  const activeModel = ctx.chat.activeModel;
   const forgeMode = ctx.chat.forgeMode;
   const repoMapReady = ctx.contextManager.isRepoMapReady();
 

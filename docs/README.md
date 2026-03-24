@@ -12,6 +12,7 @@
 ## Architecture
 
 - **[Architecture](architecture.md)** — System overview, data flow, component lifecycle
+- **[Prompt System](prompt-system.md)** — Per-family prompts, Soul Map injection, mode overlays, cache strategy
 - **[Repo Map](repo-map.md)** — Graph intelligence (PageRank, cochange, blast radius, clone detection)
 - **[Agent Bus](agent-bus.md)** — Multi-agent coordination (shared cache, edit mutex, findings board)
 - **[Compound Tools](compound-tools.md)** — rename_symbol, move_symbol, refactor internals

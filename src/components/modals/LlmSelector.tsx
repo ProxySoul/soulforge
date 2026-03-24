@@ -223,7 +223,14 @@ export const LlmSelector = memo(function LlmSelector({
     if (visible) {
       const cached = getCachedProviderStatuses();
       if (cached) setProviderStatuses(cached);
-      checkProviders().then(setProviderStatuses);
+      // Only re-check providers if cache is stale (>30s) or empty
+      const shouldRefresh = !cached || cached.length === 0;
+      if (shouldRefresh) {
+        checkProviders().then(setProviderStatuses);
+      } else {
+        // Background refresh — don't block the popup
+        queueMicrotask(() => checkProviders().then(setProviderStatuses));
+      }
       setLevel("provider");
       setExpandedProvider(null);
       setExpandedSubprovider(null);
@@ -236,7 +243,7 @@ export const LlmSelector = memo(function LlmSelector({
     if (!loading) return;
     const interval = setInterval(() => {
       setSpinnerIdx((prev) => (prev + 1) % SPINNER_FRAMES_FILLED.length);
-    }, 80);
+    }, 150);
     return () => clearInterval(interval);
   }, [loading]);
 
