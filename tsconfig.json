@@ -37,9 +37,8 @@
     "noUnusedParameters": true,
 
     // Path mapping
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
 
     "skipLibCheck": true

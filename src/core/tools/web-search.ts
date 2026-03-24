@@ -112,10 +112,14 @@ export function buildWebSearchTool(opts?: {
           const combinedSignal = abortSignal
             ? AbortSignal.any([abortSignal, AbortSignal.timeout(120_000)])
             : AbortSignal.timeout(120_000);
+          // The agent's generate() forwards extra options to generateText() via
+          // spread, but AgentCallParameters doesn't type the experimental callbacks.
           const result = await agent.generate({
             prompt: args.query,
             abortSignal: combinedSignal,
-            experimental_onToolCallStart: (event) => {
+            experimental_onToolCallStart: (event: {
+              toolCall?: { toolName: string; args: unknown };
+            }) => {
               const tc = event.toolCall;
               if (!tc) return;
               const stepArgs = formatSearchArgs(tc);
@@ -127,7 +131,12 @@ export function buildWebSearchTool(opts?: {
                 state: "running",
               });
             },
-            experimental_onToolCallFinish: (event) => {
+            experimental_onToolCallFinish: (event: {
+              toolCall?: { toolName: string; args: unknown };
+              success?: boolean;
+              output?: unknown;
+              result?: unknown;
+            }) => {
               const tc = event.toolCall;
               if (!tc) return;
               const stepArgs = formatSearchArgs(tc);
@@ -147,7 +156,7 @@ export function buildWebSearchTool(opts?: {
                 backend: stepBackend,
               });
             },
-          });
+          } as Parameters<typeof agent.generate>[0]);
           agentSearchCache.set(cacheKey, { output: result.text, ts: Date.now() });
           return { success: true, output: result.text, backend: backendLabel };
         } catch (err: unknown) {
