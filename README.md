@@ -32,10 +32,15 @@ Your real Neovim — config, plugins, LSP — embedded in an AI agent that under
 | | SoulForge | Claude Code | Copilot CLI | Aider |
 |---|---|---|---|---|
 | **Editor** | Embedded Neovim (LazyVim, your config) | No editor | No editor | No editor |
-| **Code intelligence** | Graph + PageRank + blast radius + cochange + clone detection | File reads + grep + LSP (experimental) | LSP (optional) | Tree-sitter repo map + PageRank |
-| **Multi-agent** | Parallel dispatch (8 agents, shared cache) | Subagents + Agent Teams | Subagents + Fleet | Single agent |
-| **Providers** | 10 (Anthropic, OpenAI, Google, xAI, Ollama, +5) | Anthropic models (API, Bedrock, Vertex) | Multi-model | 100+ LLMs |
+| **Code graph** | SQLite graph — PageRank, blast radius, cochange, clone detection, FTS5 search, unused export detection, file profiles, identifier frequency | None (file reads + grep) | None | Tree-sitter repo map + PageRank |
+| **Code intelligence** | 4-tier fallback: LSP → ts-morph → tree-sitter → regex. Dual LSP (Neovim bridge + standalone). 33 languages | Native LSP (go-to-definition, references, hover) | LSP (VS Code engines) | Tree-sitter AST |
+| **Compound tools** | `rename_symbol`, `move_symbol`, `refactor` — compiler-guaranteed, atomic, cross-file | Rename via LSP | — | — |
+| **Semantic context** | AST summaries for top 500 symbols, dispatch auto-enrichment with symbol line ranges | — | — | Tree-sitter tag summaries |
+| **Multi-agent** | Parallel dispatch (8 agents, 3 concurrent, shared file cache, edit ownership) | Subagents + Agent Teams | Subagents + Fleet | Single agent |
+| **Providers** | 10 (Anthropic, OpenAI, Google, xAI, Ollama, +5) | Anthropic models (API, Bedrock, Vertex) | Multi-model (Anthropic, OpenAI, Google) | 100+ LLMs |
+| **Task routing** | Per-task model assignment (plan, code, explore, search, trivial, cleanup, compact) | Single model | Single model | Single model |
 | **Cost visibility** | Per task, per agent, per model | `/cost` per session | Request counts | Per message |
+| **Context management** | 2-layer: per-step pruning + V1 (LLM summary) / V2 (deterministic extraction) compaction | Auto-compaction | Context window management | — |
 | **MCP** | Roadmap | Yes | Yes | No |
 | **License** | BSL 1.1 (source-available) | Proprietary | Proprietary | Apache 2.0 |
 
