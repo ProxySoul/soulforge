@@ -16,6 +16,8 @@ icon: "rocket"
   ```
 
   Or via Homebrew: `brew tap proxysoul/tap && brew install soulforge`
+
+  See [Installation](/installation) for all methods.
 </Step>
 
 <Step title="Set an API key">
@@ -31,7 +33,7 @@ icon: "rocket"
   soulforge
   ```
 
-  Press `Ctrl+L` to open the model picker. Select a provider, then a model. Claude Sonnet 4 is a good default.
+  On first launch, SoulForge checks for Neovim and Nerd Fonts and offers to install them if missing. Press `Ctrl+L` to open the model picker. Claude Sonnet 4 is a good default.
 </Step>
 
 <Step title="Send your first prompt">
@@ -45,8 +47,6 @@ icon: "rocket"
 </Step>
 
 <Step title="Explore features">
-  Now that you're running, try these:
-
   - **Open the editor**: `Ctrl+E` to toggle the embedded Neovim panel
   - **Git menu**: `Ctrl+G` for commit, push, pull, stash
   - **Browse commands**: Type `/` or press `Ctrl+K` for the command palette
@@ -93,7 +93,7 @@ icon: "rocket"
 
 ## Task router
 
-Use `/router` to assign different models to different tasks. For example:
+Use `/router` to assign different models to different tasks:
 
 | Slot | Model | Purpose |
 |------|-------|---------|
@@ -125,7 +125,7 @@ See [Headless mode](/tools/headless) for the full reference.
 
 ## Next steps
 
-- [Architecture](/concepts/architecture) — understand the system design
-- [Repo Map](/concepts/repo-map) — how SoulForge understands your codebase
-- [Commands](/reference/commands) — all 76 slash commands
-- [Configuration](/reference/configuration) — customize everything
+- [Architecture](/concepts/architecture) -- understand the system design
+- [Repo Map](/concepts/repo-map) -- how SoulForge understands your codebase
+- [Commands](/reference/commands) -- all 76 slash commands
+- [Configuration](/reference/configuration) -- customize everything

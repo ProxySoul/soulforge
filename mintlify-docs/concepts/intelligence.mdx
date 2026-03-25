@@ -1,19 +1,21 @@
 ---
-title: "Code Intelligence"
+title: "Code intelligence"
 description: "4-tier fallback chain, LSP integration, dual-backend architecture, and convention-based visibility detection."
 icon: "brain"
 ---
 
-SoulForge routes every code intelligence operation through a tiered fallback chain. Each backend reports what it supports; the router picks the highest-tier backend available.
+Every code intelligence operation routes through a tiered fallback chain. Each backend reports what it supports; the router picks the highest-tier backend available.
+
+See also: [Compound tools](/concepts/compound-tools) for the tools that use this intelligence layer.
 
 ## Fallback chain
 
 | Tier | Backend | Capabilities |
 |------|---------|-------------|
 | 1 | **LSP** | definitions, references, rename, diagnostics, code actions, call hierarchy, type info, formatting |
-| 2 | **ts-morph** | TypeScript/JavaScript — AST definitions, references, rename, extract function/variable, unused detection, type info |
-| 2 | **tree-sitter** | 33 languages — symbol extraction, imports/exports, scopes, outlines via WASM grammars |
-| 3 | **regex** | Universal fallback — symbol search, simple definitions, import patterns |
+| 2 | **ts-morph** | TypeScript/JavaScript --AST definitions, references, rename, extract function/variable, unused detection, type info |
+| 2 | **tree-sitter** | 33 languages --symbol extraction, imports/exports, scopes, outlines via WASM grammars |
+| 3 | **regex** | Universal fallback --symbol search, simple definitions, import patterns |
 
 For each operation, the router tries backends in tier order. If tier 1 returns null or throws, tier 2 is tried, then tier 3.
 
@@ -47,7 +49,7 @@ When the editor is closed, spawns LSP servers directly as child processes with J
 
 ### Multi-language warmup
 
-On boot, `detectAllLanguages()` scans project config files and spawns standalone LSP servers for all detected languages in parallel — not just the primary language. Standalone servers stay warm as hot standby even when Neovim is open.
+On boot, `detectAllLanguages()` scans project config files and spawns standalone LSP servers for all detected languages in parallel --not just the primary language. Standalone servers stay warm as hot standby even when Neovim is open.
 
 ### Server discovery
 

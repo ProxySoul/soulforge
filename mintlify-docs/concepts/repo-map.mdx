@@ -1,23 +1,10 @@
 ---
-title: "Repo Map"
+title: "Repo map"
 description: "Graph-ranked, context-adaptive, semantically-enriched codebase index with PageRank, cochange analysis, and blast radius estimation."
 icon: "diagram-project"
 ---
 
-The repo map is SoulForge's primary mechanism for codebase awareness. It replaces the naive file tree listing used by most AI coding tools with a graph-ranked, context-adaptive, semantically-enriched view.
-
-## The problem
-
-AI coding assistants need to know what's in the codebase to make useful edits. Common approaches:
-
-| Approach | Tool | Limitation |
-|----------|------|-----------|
-| Flat file tree | Claude Code, most tools | No structural info — the AI can't tell which files matter |
-| Manual file reads | All tools | Burns tokens reading irrelevant files |
-| Static repo map | Aider (original) | Fixed-size, doesn't adapt to conversation context |
-| RAG / embeddings | Cursor, Cody | Requires embedding model, chunk boundaries are lossy |
-
-SoulForge's approach: **build the dependency graph, rank with PageRank, personalize to the active conversation, and enrich with LLM summaries.**
+The repo map replaces flat file tree listings with a graph-ranked, context-adaptive view. Read the [full story](https://proxysoul.com/blog/soulforge) for the motivation behind this approach.
 
 ## How it works
 
@@ -30,7 +17,7 @@ Walk the file tree (respecting `.gitignore`, max depth 10). For each source file
 3. Build cross-file edges: if file A references a symbol exported by file B, create an edge A to B
 4. Store everything in SQLite (in-memory for speed, on-disk for persistence)
 
-Indexing is incremental — files are re-indexed only when their mtime changes.
+Indexing is incremental -- files are re-indexed only when their mtime changes.
 
 ### 2. Graph phase
 
@@ -40,7 +27,7 @@ Run PageRank (20 iterations, damping factor 0.85) over the file-to-file edge gra
 
 Parse `git log --name-only` for the last 300 commits. For each commit that touches 2-20 files, record all pairwise file combinations. Commits with >20 files are filtered as noise (refactors, mass renames).
 
-This captures implicit coupling that the import graph misses — files that are always edited together even without direct imports.
+This captures implicit coupling that the import graph misses -- files that are always edited together even without direct imports.
 
 ### 4. Ranking phase (per-turn)
 
@@ -165,19 +152,20 @@ CREATE VIRTUAL TABLE symbols_fts USING fts5(name, content=symbols, content_rowid
 
 ## Comparison
 
-| Feature | SoulForge | Aider | Claude Code | OpenCode |
-|---------|-----------|-------|-------------|----------|
-| Index method | tree-sitter AST | tree-sitter AST | None | LSP diagnostics |
-| Ranking | PageRank + personalization | Graph ranking | N/A | N/A |
-| Context adaptation | Per-turn personalization vector | Dynamic sizing | N/A | N/A |
-| Git co-change | Yes (300 commits) | No | No | No |
-| Semantic summaries | LLM-generated, cached by mtime | No | No | No |
-| FTS on symbols | Yes (SQLite FTS5) | No | No | No |
-| Real-time updates | Debounced re-index on edit | Per-turn rescan | N/A | N/A |
-| Blast radius tags | Yes ([R:N]) | No | No | No |
-| Clone detection | AST shape hash + MinHash | No | No | No |
-| Dead code detection | Unused exports (dead vs unnecessary) | No | No | No |
-| External package tracking | Yes (per-file specifiers) | No | No | No |
+| Feature | SoulForge | Aider | Claude Code |
+|---------|-----------|-------|-------------|
+| Index method | tree-sitter AST | tree-sitter AST | None |
+| Ranking | PageRank + personalization | Graph ranking | N/A |
+| Context adaptation | Per-turn personalization vector | Dynamic sizing | N/A |
+| Git co-change | Yes (300 commits) | No | No |
+| Semantic summaries | LLM-generated, cached by mtime | No | No |
+| FTS on symbols | Yes (SQLite FTS5) | No | No |
+| Real-time updates | Debounced re-index on edit | Per-turn rescan | N/A |
+| Blast radius tags | Yes ([R:N]) | No | No |
+| Clone detection | AST shape hash + MinHash | No | No |
+| Dead code detection | Unused exports (dead vs unnecessary) | No | No |
+
+See also: [Code intelligence](/concepts/intelligence) for the LSP and tree-sitter fallback chain that powers symbol extraction.
 
 ## Language support
 

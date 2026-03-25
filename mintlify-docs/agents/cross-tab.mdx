@@ -1,5 +1,5 @@
 ---
-title: "Cross-Tab Coordination"
+title: "Cross-tab coordination"
 description: "Advisory file claims, contention handling, and git blocking across up to 5 concurrent tabs."
 icon: "table-columns"
 ---
@@ -26,7 +26,7 @@ When any tab edits a file (via `edit_file`, `multi_edit`, `rename_symbol`, `move
 
 Git operations that modify the working tree (`commit`, `stash`, `restore`, `branch switch`) are blocked while another tab has active dispatch agents. This prevents partial commits during concurrent edits.
 
-The block is per-tab — a tab's own agents don't block its own git operations. When blocked, the tool returns a terminal error instead of a retryable error, preventing token-burning retry loops.
+The block is per-tab --a tab's own agents don't block its own git operations. When blocked, the tool returns a terminal error instead of a retryable error, preventing token-burning retry loops.
 
 ### Contention handling
 
@@ -56,23 +56,23 @@ WorkspaceCoordinator (singleton)
 ### Events
 
 All claim state changes emit batched events via `queueMicrotask`:
-- `claim` — file claimed by a tab
-- `release` — file released
-- `conflict` — tab tried to claim a file owned by another tab
+- `claim` --file claimed by a tab
+- `release` --file released
+- `conflict` --tab tried to claim a file owned by another tab
 
 ### Tool integration
 
 Every file-modifying tool calls `checkAndClaim` before execution or `claimAfterCompoundEdit` after:
 
-- `edit_file`, `multi_edit` — `checkAndClaim` before edit
-- `rename_symbol`, `move_symbol`, `rename_file`, `refactor` — `checkAndClaim` before + `claimAfterCompoundEdit` after
-- `shell` (sed, cp, mv, tee, >) — `claimAfterCompoundEdit` after
-- `test_scaffold` — `claimAfterCompoundEdit` after
+- `edit_file`, `multi_edit` --`checkAndClaim` before edit
+- `rename_symbol`, `move_symbol`, `rename_file`, `refactor` --`checkAndClaim` before + `claimAfterCompoundEdit` after
+- `shell` (sed, cp, mv, tee, >) --`claimAfterCompoundEdit` after
+- `test_scaffold` --`claimAfterCompoundEdit` after
 
 ## Design decisions
 
 <Note>
-**Advisory, not blocking.** Edits always proceed. The warning tells the agent another tab owns the file — the agent can choose to skip or proceed. This avoids deadlocks.
+**Advisory, not blocking.** Edits always proceed. The warning tells the agent another tab owns the file --the agent can choose to skip or proceed. This avoids deadlocks.
 </Note>
 
 <Note>

@@ -1,6 +1,6 @@
 ---
-title: "Context Compaction"
-description: "V1 LLM summarization vs V2 deterministic extraction — two strategies for managing long conversations."
+title: "Context compaction"
+description: "V1 LLM summarization vs V2 deterministic extraction -- two strategies for managing long conversations."
 icon: "layers"
 ---
 
@@ -9,18 +9,18 @@ SoulForge supports two compaction strategies for managing long conversations. Wh
 ## Strategies
 
 <Tabs>
-  <Tab title="V2 — Incremental Extraction (default)">
+  <Tab title="V2 -- Incremental extraction (default)">
     Maintains a `WorkingStateManager` that extracts structured state **as the conversation happens**, not in a batch at compaction time.
 
     **Extracted deterministically (zero LLM cost):**
-    - **Files** — tracked from read/edit/write tool calls with action details
-    - **Failures** — extracted from error results
-    - **Tool results** — rolling window of shell/grep/project outputs
-    - **Task** — set from first user message
+    - **Files** -- tracked from read/edit/write tool calls with action details
+    - **Failures** -- extracted from error results
+    - **Tool results** -- rolling window of shell/grep/project outputs
+    - **Task** -- set from first user message
 
     **Extracted via regex (zero LLM cost):**
-    - **Decisions** — patterns like "I'll use...", "decided to...", "because..."
-    - **Discoveries** — patterns like "found that...", "the issue was..."
+    - **Decisions** -- patterns like "I'll use...", "decided to...", "because..."
+    - **Discoveries** -- patterns like "found that...", "the issue was..."
 
     **On compaction:**
     1. Serializes the pre-built structured state into markdown
@@ -29,7 +29,7 @@ SoulForge supports two compaction strategies for managing long conversations. Wh
 
     **Cost**: Rule-based extraction during conversation (free). Gap-fill ~2k tokens vs V1's 8k.
   </Tab>
-  <Tab title="V1 — LLM Batch Summarization">
+  <Tab title="V1 -- LLM batch summarization">
     The original approach. When compaction triggers:
 
     1. Splits messages: last N kept verbatim, everything older goes to the summarizer
@@ -69,7 +69,7 @@ All fields are optional. Omitting `compaction` or `strategy` defaults to V2.
 
 ### Live toggle
 
-Use `/compaction` to switch strategies. The change takes effect immediately — switching to V2 starts extraction on the next message, switching to V1 drops the working state entirely.
+Use `/compaction` to switch strategies. The change takes effect immediately -- switching to V2 starts extraction on the next message, switching to V1 drops the working state entirely.
 
 ### Dedicated model
 
@@ -101,7 +101,7 @@ Context > threshold --> buildV2Summary() --> serialize WSM          |
 
 ## Real-world example
 
-A session with 10 user turns fixing TypeScript errors, updating a README, testing LSP rename, and fixing a `project format` bug.
+<Accordion title="Session with 10 user turns (fix/edit/test cycle)">
 
 ### Before compaction
 
@@ -121,7 +121,7 @@ A session with 10 user turns fixing TypeScript errors, updating a README, testin
 | Gap-fill tokens | **0** (WSM had 15+ slots, skipped) |
 | Context utilization | **4%** |
 
-34 messages to 5. The compaction cost **zero tokens** — no LLM call at all.
+34 messages to 5. The compaction cost **zero tokens** -- no LLM call at all.
 
 ### What V2 produced
 
@@ -161,6 +161,8 @@ The same compaction with V1 would have:
 - Cost ~8K output tokens
 - Taken 5-15 seconds of latency
 - Produced a prose summary that captures reasoning better but loses structured data
+
+</Accordion>
 
 <Note>
 **V2's tradeoff**: Zero cost, instant, structured data preserved, but reasoning chains truncated. For mechanical coding sessions (fix/edit/test cycles), V2 is strictly better. For design-heavy sessions where the "why" matters more, V1's LLM summarization may retain more nuance.

@@ -1,10 +1,10 @@
 ---
-title: "Headless Mode"
-description: "Run SoulForge without the TUI — pipe in a prompt, get back results. For CI/CD, automation, scripting, and batch processing."
+title: "Headless mode"
+description: "Run SoulForge without the TUI -- pipe in a prompt, get back results. For CI/CD, automation, scripting, and batch processing."
 icon: "terminal"
 ---
 
-Run SoulForge without the TUI — pipe in a prompt, get back results.
+Run SoulForge without the TUI --pipe in a prompt, get back results.
 
 ## Quick start
 
@@ -44,7 +44,7 @@ soulforge --headless --chat
 | `--model <provider/model>` | Override the configured default model. |
 | `--mode <mode>` | Set forge mode: `default`, `architect`, `socratic`, `challenge`, `plan`, `auto`. |
 | `--json` | Output structured JSON after completion. |
-| `--events` | JSONL event stream — one JSON object per line, real-time. |
+| `--events` | JSONL event stream --one JSON object per line, real-time. |
 | `--quiet` / `-q` | Suppress header/footer on stderr. |
 | `--max-steps <n>` | Limit agent to N steps, then abort. |
 | `--timeout <ms>` | Abort after N milliseconds. |
@@ -62,7 +62,7 @@ soulforge --headless --chat
 
 ### Provider management
 
-These work standalone — no `--headless` needed:
+These work standalone --no `--headless` needed:
 
 ```bash
 soulforge --list-providers                   # Show providers + key status
@@ -127,9 +127,9 @@ soulforge --set-key anthropic sk-ant-...     # Save API key to OS keychain
 
 In `--chat --events` mode, additional events are emitted:
 
-- `ready` — agent is ready for the next prompt
-- `turn-done` — a turn completed (per-turn stats)
-- `chat-done` — chat session ended (total stats, `sessionId` if saved)
+- `ready` --agent is ready for the next prompt
+- `turn-done` --a turn completed (per-turn stats)
+- `chat-done` --chat session ended (total stats, `sessionId` if saved)
 
 ## What's available
 
@@ -250,4 +250,4 @@ boot.tsx (CLI flag detected)
       -> stdout                         (text, JSON, or JSONL events)
 ```
 
-The `createForgeAgent()` factory is shared with the TUI — same tools, same prompts, same agent loop. The only difference is no interactive callbacks and no renderer.
+The `createForgeAgent()` factory is shared with the TUI --same tools, same prompts, same agent loop. The only difference is no interactive callbacks and no renderer.

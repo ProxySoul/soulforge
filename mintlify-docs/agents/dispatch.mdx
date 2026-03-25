@@ -1,10 +1,10 @@
 ---
-title: "Multi-Agent Dispatch"
-description: "Parallel agent coordination via AgentBus — shared cache, edit mutex, findings, and staggered spawning."
+title: "Multi-agent dispatch"
+description: "Parallel agent coordination via AgentBus -- shared cache, edit mutex, findings, and staggered spawning."
 icon: "users"
 ---
 
-The AgentBus is SoulForge's mechanism for running multiple AI agents in parallel without duplicate work, file conflicts, or lost findings.
+The AgentBus runs multiple AI agents in parallel without duplicate work, file conflicts, or lost findings.
 
 ## Architecture
 
@@ -108,17 +108,17 @@ Real-time peer communication without shared context windows.
     Finding appended to bus with `agentId`, `label`, `content`, `timestamp`. Deduplication via `findingKeys` set.
   </Step>
   <Step title="Track">
-    Each agent tracks `_lastSeenFindingIdx` — its index into the findings array.
+    Each agent tracks `_lastSeenFindingIdx` -- its index into the findings array.
   </Step>
   <Step title="Drain">
-    On each step, `prepareStep()` calls `drainUnseenFindings(agentId)` — returns findings since last drain.
+    On each step, `prepareStep()` calls `drainUnseenFindings(agentId)` -- returns findings since last drain.
   </Step>
   <Step title="Inject">
     New findings injected into the system prompt as peer discovery messages.
   </Step>
 </Steps>
 
-Findings propagate within one step (~100ms agent stagger + step processing time). Not instant, but fast enough — one agent's discovery influences the next agent's tool calls within 1-2 steps.
+Findings propagate within one step (~100ms agent stagger + step processing time). One agent's discovery influences the next agent's tool calls within 1-2 steps.
 
 ## Dispatch orchestration
 
@@ -152,20 +152,4 @@ If only one task is dispatched, the system skips bus coordination overhead and r
 - Truncate individual lines (500 char limit, skip inside code blocks)
 - Strip verbose reasoning that doesn't add information
 
-## Comparison
-
-| Feature | SoulForge AgentBus | Claude Code Agent Teams | OpenCode |
-|---------|-------------------|------------------------|----------|
-| Execution | In-process, shared memory | Separate processes, mailbox | Sequential |
-| File sharing | Instant (shared cache) | Worktree isolation | N/A |
-| Spawn time | ~100ms stagger | 20-30s per teammate | N/A |
-| Coordination | Real-time findings | Async mailbox messages | N/A |
-| Token efficiency | Deduplicated reads | Each agent reads independently | N/A |
-| Edit safety | Promise-chaining mutex | Worktree isolation | N/A |
-| Cache persistence | Between dispatches | Per-session | N/A |
-
-<Note>
-**SoulForge's advantage**: Shared cache eliminates duplicate disk reads across parallel agents. In a typical 3-agent dispatch touching 15 files, the cache serves 40-60% of file reads from memory.
-
-**Claude Code's advantage**: Worktree isolation is inherently safer — no mutex needed, no possibility of edit conflicts. Better for large-scale parallel refactoring where agents touch many overlapping files.
-</Note>
+See also: [User steering](/agents/steering) for redirecting agents mid-execution.

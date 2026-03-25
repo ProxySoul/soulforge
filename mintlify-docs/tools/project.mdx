@@ -1,10 +1,10 @@
 ---
-title: "Project Tool"
+title: "Project tool"
 description: "Auto-detected project commands across 21 ecosystems with pre-commit enforcement and monorepo discovery."
 icon: "toolbox"
 ---
 
-The `project` tool auto-detects your toolchain from config files and runs the correct commands — no setup, no guessing.
+The `project` tool auto-detects your toolchain from config files and runs the correct commands -- no setup, no guessing.
 
 ## Actions
 
@@ -61,25 +61,25 @@ Priority order:
 |-----------|------|-----------|------|-------|
 | **JS/TS (Bun)** | biome / oxlint / eslint | tsc | bun test | bun run build |
 | **JS/TS (Node)** | biome / oxlint / eslint | tsc | npm test | npm run build |
-| **Deno** | deno lint | deno check | deno test | — |
+| **Deno** | deno lint | deno check | deno test | -- |
 | **Rust** | cargo clippy | cargo check | cargo test | cargo build |
 | **Go** | golangci-lint / go vet | go build | go test | go build |
-| **Python** | ruff / flake8 | pyright / mypy | pytest | — |
-| **PHP** | phpstan / psalm | phpstan / psalm | phpunit | — |
-| **Ruby** | rubocop | — | rspec / rails test | — |
+| **Python** | ruff / flake8 | pyright / mypy | pytest | -- |
+| **PHP** | phpstan / psalm | phpstan / psalm | phpunit | -- |
+| **Ruby** | rubocop | -- | rspec / rails test | -- |
 | **Swift** | swiftlint | swift build | swift test | swift build |
 | **Elixir** | credo | dialyzer | mix test | mix compile |
 | **Java/Kotlin** | gradle check | javac / kotlinc | gradle test | gradle build |
 | **C/C++** | clang-tidy | cmake build | ctest | cmake build |
 | **Dart/Flutter** | dart analyze | dart analyze | flutter test | flutter build |
-| **Zig** | — | zig build | zig build test | zig build |
+| **Zig** | -- | zig build | zig build test | zig build |
 | **Haskell** | hlint | stack build | stack test | stack build |
-| **Scala** | — | sbt compile | sbt test | sbt compile |
+| **Scala** | -- | sbt compile | sbt test | sbt compile |
 | **.NET/C#** | dotnet format | dotnet build | dotnet test | dotnet build |
 | **iOS/Xcode** | swiftlint | xcodebuild build | xcodebuild test | xcodebuild build |
 | **Java (Maven)** | checkstyle | mvn compile | mvn test | mvn package |
-| **C/C++ (Make)** | — | — | make test | make |
-| **Clojure** | clj-kondo | — | lein test / clj -M:test | lein uberjar |
+| **C/C++ (Make)** | -- | -- | make test | make |
+| **Clojure** | clj-kondo | -- | lein test / clj -M:test | lein uberjar |
 
 ## Pre-commit checks
 
@@ -90,7 +90,9 @@ When the agent runs `git commit` via the shell tool, SoulForge auto-runs `detect
 - **Go:** `golangci-lint run && go build ./...`
 - **Python:** `ruff check && pyright`
 
-If checks fail, the commit is blocked and errors are returned to the agent. This is code-enforced — no prompt instruction needed.
+If checks fail, the commit is blocked and errors are returned to the agent. This is code-enforced -- no prompt instruction needed.
+
+To skip pre-commit checks, commit directly via shell outside SoulForge.
 
 <Warning>
 The pre-commit check uses `detectNativeChecks()` which identifies tools from config files directly, never from `package.json` scripts. This ensures only known, safe tools are run.

@@ -6,28 +6,12 @@ icon: "download"
 
 ## Prerequisites
 
-### Neovim
-
-SoulForge embeds a real Neovim instance — your config, plugins, and LSP all work inside it.
-
-```bash
-# macOS
-brew install neovim
-
-# Ubuntu / Debian
-sudo apt install neovim
-
-# Arch
-sudo pacman -S neovim
-```
-
-Verify: `nvim --version` (need >= 0.11)
-
-### Nerd Font
-
-SoulForge uses [Nerd Font](https://www.nerdfonts.com/) icons throughout the UI. Without one, you'll see blank squares. Any Nerd Font works — popular choices: [JetBrains Mono](https://github.com/ryanoasis/nerd-fonts/releases), [FiraCode](https://github.com/ryanoasis/nerd-fonts/releases).
-
-After installing, set it as your terminal's font. Or run `/setup` inside SoulForge to check and install fonts automatically.
+| Dependency | Required | Notes |
+|-----------|----------|-------|
+| **Bun** >= 1.0 | Only for npm/Bun install method | Not needed for prebuilt binary or Homebrew |
+| **Neovim** >= 0.11 | Auto-installed on first launch | SoulForge offers to download it if missing |
+| **Nerd Font** | Auto-installed on first launch | SoulForge offers to download one if missing |
+| **API key** | At least one LLM provider | See below |
 
 ### API key
 
@@ -39,7 +23,7 @@ You need at least one LLM provider key:
 | OpenAI | `OPENAI_API_KEY` | GPT-4o, o3, o4-mini |
 | xAI | `XAI_API_KEY` | Grok |
 | Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini |
-| Ollama | *(none — runs locally)* | Llama, Mistral, Qwen, etc. |
+| Ollama | *(none -- runs locally)* | Llama, Mistral, Qwen, etc. |
 
 Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
 
@@ -47,13 +31,13 @@ Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Alternatively, use a single [AI Gateway](https://sdk.vercel.ai/docs/ai-sdk-core/provider-management) key for all providers, or the built-in **Proxy provider** to relay through a local CLIProxyAPI instance (no API key needed).
+Or use a single [AI Gateway](https://sdk.vercel.ai/docs/ai-sdk-core/provider-management) key for all providers, or the built-in **Proxy provider** to relay through a local CLIProxyAPI instance (no API key needed).
 
 ## Install
 
 <Tabs>
   <Tab title="Prebuilt binary (recommended)">
-    Download the standalone binary — no runtime dependencies:
+    Download the standalone binary -- no runtime dependencies:
 
     ```bash
     # macOS (Apple Silicon)
@@ -96,7 +80,7 @@ Alternatively, use a single [AI Gateway](https://sdk.vercel.ai/docs/ai-sdk-core/
     ```
   </Tab>
   <Tab title="Build from source">
-    Requires [Bun](https://bun.sh) >= 1.0 and [Neovim](https://neovim.io) >= 0.11.
+    Requires [Bun](https://bun.sh) >= 1.0.
 
     ```bash
     git clone https://github.com/ProxySoul/soulforge.git
@@ -116,10 +100,12 @@ Alternatively, use a single [AI Gateway](https://sdk.vercel.ai/docs/ai-sdk-core/
 
 ## First launch
 
-On first launch, SoulForge creates a config at `~/.soulforge/config.json` with sensible defaults. It checks for Neovim and Nerd Fonts and offers to install them if missing.
+On first launch, SoulForge checks for Neovim and Nerd Fonts. If either is missing, it offers to download and install them from official GitHub releases. This is optional -- you can install them manually if you prefer.
+
+Run [`/setup`](/reference/commands) anytime to re-check prerequisites.
 
 ```bash
-soulforge                    # Launch — select a model with Ctrl+L
+soulforge                    # Launch -- select a model with Ctrl+L
 soulforge --set-key anthropic sk-ant-...   # Or save a key first
 soulforge --list-providers   # Check which providers are ready
 ```

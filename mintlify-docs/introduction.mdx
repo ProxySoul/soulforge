@@ -4,73 +4,75 @@ description: "AI-powered terminal IDE with embedded Neovim, multi-agent dispatch
 icon: "terminal"
 ---
 
-Your real Neovim — config, plugins, LSP — embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 10 providers. Works over SSH.
+<img src="/images/soulforge-hero.png" alt="SoulForge" />
+
+Your real Neovim -- config, plugins, LSP -- embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 10 providers. Works over SSH.
 
 ## How it compares
 
 | | SoulForge | Claude Code | Copilot CLI | Aider |
 |---|---|---|---|---|
-| **Editor** | Embedded Neovim (LazyVim, your config) | No editor | No editor | No editor |
-| **Code graph** | SQLite graph — PageRank, blast radius, cochange, clone detection, FTS5, unused exports, file profiles, identifier frequency | None (file reads + grep) | None | Tree-sitter repo map + PageRank |
-| **Code intelligence** | 4-tier fallback: LSP → ts-morph → tree-sitter → regex. Dual LSP (Neovim bridge + standalone). 12 LSP operations including rename. 33 languages | LSP via plugin (5 ops, no rename, no auto-install) | Agent has no LSP access (IDE only) | Tree-sitter AST |
-| **Compound tools** | `rename_symbol`, `move_symbol`, `refactor` — compiler-guaranteed, atomic, cross-file | Rename via LSP | — | — |
-| **Semantic context** | AST summaries for top 500 symbols, dispatch auto-enrichment | — | — | Tree-sitter tag summaries |
+| **Editor** | Embedded Neovim (your config) | No editor | No editor | No editor |
+| **Code graph** | SQLite graph -- PageRank, blast radius, cochange, clone detection, FTS5 | None (file reads + grep) | None | Tree-sitter repo map + PageRank |
+| **Code intelligence** | 4-tier fallback: LSP, ts-morph, tree-sitter, regex. Dual LSP. 12 operations. 33 languages | LSP via plugin (5 ops, no rename) | No agent LSP access | Tree-sitter AST |
+| **Compound tools** | `rename_symbol`, `move_symbol`, `refactor` -- compiler-guaranteed, atomic | Rename via LSP | -- | -- |
+| **Semantic context** | AST summaries for top 500 symbols, dispatch auto-enrichment | -- | -- | Tree-sitter tag summaries |
 | **Multi-agent** | Parallel dispatch (8 agents, 3 concurrent, shared cache, edit ownership) | Subagents + Agent Teams | Subagents + Fleet | Single agent |
 | **Providers** | 10 (Anthropic, OpenAI, Google, xAI, Ollama, +5) | Anthropic only | Multi-model | 100+ LLMs |
 | **Task routing** | Per-task model assignment (plan, code, explore, search, trivial, cleanup, compact) | Single model | Single model | Single model |
-| **Context management** | 2-layer: per-step pruning + V1/V2 compaction | Auto-compaction | Context window management | — |
+| **Context management** | 2-layer: per-step pruning + V1/V2 compaction | Auto-compaction | Context window management | -- |
 | **License** | BSL 1.1 (source-available) | Proprietary | Proprietary | Apache 2.0 |
 
 ## Highlights
 
 <CardGroup cols={2}>
 
-<Card title="Embedded Neovim + LazyVim" icon="code">
-  Your actual Neovim — LazyVim with 30+ plugins, LSP auto-installed via Mason, Catppuccin theme, treesitter highlighting. The AI reads and edits through the same editor you use.
+<Card title="Embedded Neovim" icon="code">
+  Your Neovim with LazyVim, LSP via Mason, treesitter highlighting. The AI edits through the same editor you use.
 </Card>
 
-<Card title="Multi-Agent Dispatch" icon="users">
-  Parallelize work across explore, code, and web search agents. Shared file cache prevents redundant reads. Edit coordination prevents conflicts. Up to 8 agents, 3 concurrent.
+<Card title="Multi-agent dispatch" icon="users">
+  Parallel explore, code, and web search agents with shared file cache and edit coordination.
 </Card>
 
-<Card title="Graph-Powered Repo Map" icon="diagram-project">
-  SQLite codebase graph with PageRank ranking, cochange analysis, blast radius estimation, and clone detection. The agent knows which files matter before reading a single line.
+<Card title="Graph-powered repo map" icon="diagram-project">
+  SQLite codebase graph with PageRank, cochange analysis, blast radius, and clone detection.
 </Card>
 
-<Card title="4-Tier Code Intelligence" icon="brain">
-  LSP, ts-morph, tree-sitter, regex fallback chain. 33 languages with convention-based visibility. Dual LSP: bridges to Neovim when open, spawns standalone servers when closed.
+<Card title="4-tier code intelligence" icon="brain">
+  LSP, ts-morph, tree-sitter, regex fallback chain across 33 languages with dual LSP backend.
 </Card>
 
-<Card title="Compound Tools" icon="wrench">
-  `rename_symbol`, `move_symbol`, `refactor`, `project` do the complete job in one call. Compiler-guaranteed renames. Atomic moves with import updates across all importers.
+<Card title="Compound tools" icon="wrench">
+  `rename_symbol`, `move_symbol`, `refactor`, `project` do the complete job in one call.
 </Card>
 
-<Card title="Task Router + Cost Transparency" icon="route">
-  Assign models per task: Opus for planning, Sonnet for coding, Haiku for search. Token usage visible per task, per agent, per model.
+<Card title="Task router" icon="route">
+  Assign models per task: Opus for planning, Sonnet for coding, Haiku for search.
 </Card>
 
-<Card title="Context Management" icon="layers">
-  Two-layer compaction: rolling tool-result pruning per step, plus V1 (LLM summary) or V2 (deterministic extraction) compaction on threshold.
+<Card title="Context management" icon="layers">
+  Rolling tool-result pruning per step, plus V1/V2 compaction on threshold.
 </Card>
 
-<Card title="User Steering" icon="compass">
-  Type messages while the agent is working — they queue up and inject into the next step. Steer without interrupting. Abort with Ctrl+X.
+<Card title="User steering" icon="compass">
+  Type messages while the agent works -- they queue and inject into the next step.
 </Card>
 
-<Card title="10 Providers, Any Model" icon="plug">
-  Anthropic, OpenAI, Google, xAI, Ollama, OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy, and custom OpenAI-compatible APIs. No vendor lock-in.
+<Card title="10 providers" icon="plug">
+  Anthropic, OpenAI, Google, xAI, Ollama, OpenRouter, and custom OpenAI-compatible APIs.
 </Card>
 
-<Card title="Cross-Tab Coordination" icon="table-columns">
-  Up to 5 concurrent tabs with advisory file claims. Agents see what other tabs are editing. Git operations blocked during active dispatch.
+<Card title="Cross-tab coordination" icon="table-columns">
+  Up to 5 concurrent tabs with advisory file claims and git blocking during dispatch.
 </Card>
 
-<Card title="Project Toolchain" icon="toolbox">
-  Auto-detects lint, typecheck, test, and build across 21 ecosystems. Pre-commit gate blocks git commit on errors. Monorepo package discovery.
+<Card title="Project toolchain" icon="toolbox">
+  Auto-detects lint, typecheck, test, and build across 21 ecosystems with pre-commit enforcement.
 </Card>
 
-<Card title="Skills & Approval Gates" icon="shield-check">
-  Installable skill system for domain-specific capabilities. Destructive action approval — rm -rf, git push --force, sensitive file edits individually prompted.
+<Card title="Skills and approval gates" icon="shield-check">
+  Installable skills for domain-specific capabilities. Destructive actions individually prompted.
 </Card>
 
 </CardGroup>
@@ -97,7 +99,7 @@ SoulForge ships 31 tools organized by capability:
 | `soul_grep` | Count-mode ripgrep with repo map intercept |
 | `soul_find` | Fuzzy file/symbol search, PageRank-ranked, signatures included |
 | `soul_analyze` | Identifier frequency, unused exports, file profiles, top files, packages, symbols by kind |
-| `soul_impact` | Dependency graph — dependents, cochanges, blast radius |
+| `soul_impact` | Dependency graph -- dependents, cochanges, blast radius |
 
 ### Project management
 
@@ -122,3 +124,7 @@ SoulForge ships 31 tools organized by capability:
 | **Vercel AI Gateway** | Unified gateway for 15+ providers | `AI_GATEWAY_API_KEY` |
 | **Proxy** | Local proxy with auto-lifecycle | `PROXY_API_KEY` |
 | **Custom** | Any OpenAI-compatible API | Any env var |
+
+<Note>
+Read the [full story](https://proxysoul.com/blog/soulforge) on why we built SoulForge.
+</Note>

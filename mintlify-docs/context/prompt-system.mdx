@@ -1,10 +1,10 @@
 ---
-title: "Prompt System"
+title: "Prompt system"
 description: "Per-family prompt architecture, family detection, mode overlays, and Soul Map injection."
 icon: "message-square"
 ---
 
-SoulForge uses a modular, per-family prompt architecture. Each model family (Claude, OpenAI, Gemini) gets a tailored system prompt optimized for its strengths, with shared rules and tool guidance appended automatically.
+Each model family (Claude, OpenAI, Gemini) gets a tailored system prompt, with shared rules and tool guidance appended automatically.
 
 ## Family detection
 
@@ -60,9 +60,9 @@ Gateway providers (OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy) are detect
 
 The system prompt is split for Anthropic prompt caching efficiency:
 
-- **System prompt** (steps 1-10) — marked with `EPHEMERAL_CACHE`, stable across steps
-- **Soul Map** — injected as a user/assistant message pair (updates after edits without invalidating the cached system prompt)
-- **Skills** — injected as a separate user/assistant message pair
+- **System prompt** (steps 1-10) --marked with `EPHEMERAL_CACHE`, stable across steps
+- **Soul Map** --injected as a user/assistant message pair (updates after edits without invalidating the cached system prompt)
+- **Skills** --injected as a separate user/assistant message pair
 
 The ~12k token system prompt + tool schemas are cached on the first turn and reused on subsequent turns.
 
@@ -72,14 +72,14 @@ Modes append additional instructions to the base prompt:
 
 | Mode | Behavior |
 |---|---|
-| `default` | No overlay — full agent |
+| `default` | No overlay --full agent |
 | `architect` | Read-only, produces structured architecture analysis |
 | `socratic` | Investigates first, asks targeted questions |
 | `challenge` | Adversarial review with evidence from soul tools |
 | `plan` | Research, structured plan, user confirms, execute |
 | `auto` | Autonomous execution, minimal interruptions |
 
-Plan mode has two variants: `full` (high context — includes code snippets and diffs) and `light` (low context — just steps and descriptions).
+Plan mode has two variants: `full` (high context --includes code snippets and diffs) and `light` (low context --just steps and descriptions).
 
 ## Soul Map injection
 

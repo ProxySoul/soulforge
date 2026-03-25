@@ -1,5 +1,5 @@
 ---
-title: "Provider Options"
+title: "Provider options"
 description: "Thinking modes, context management, and per-family configuration for LLM providers."
 icon: "sliders"
 ---
@@ -28,11 +28,11 @@ Anthropic API context management features:
 | **Clear Tool Uses** | Clears old tool use content when input exceeds 100k tokens |
 | **Compact** | API-side compaction at 75% of context window |
 
-These are applied per-model based on capabilities. Clear thinking requires thinking to be enabled — the system enforces this at the code level.
+These are applied per-model based on capabilities. Clear thinking requires thinking to be enabled -- the system enforces this at the code level.
 
 ## Subagent options
 
-Subagents inherit the parent's provider options with one exception: `contextManagement` is stripped. Subagents are short-lived (token-budgeted) and don't need context window management strategies. This prevents errors when the subagent model doesn't support the same features as the parent.
+Subagents inherit the parent's provider options with one exception: `contextManagement` is stripped. Subagents are short-lived and token-budgeted, so context window management strategies don't apply. Stripping also prevents errors when the subagent model doesn't support the same features as the parent.
 
 ## Graceful degradation
 
@@ -47,5 +47,5 @@ When provider options cause an API error, the system automatically retries with 
 Detection patterns: "not supported", "thinking is not supported", "adaptive thinking", "clear_thinking", "context management", "unknown parameter".
 
 <Note>
-Degradation is automatic and transparent. If a model doesn't support thinking, SoulForge detects the error and retries without it — no user intervention needed.
+Degradation is automatic and transparent. If a model doesn't support thinking, SoulForge detects the error and retries without it -- no user intervention needed.
 </Note>
