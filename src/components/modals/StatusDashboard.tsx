@@ -336,7 +336,14 @@ export function StatusDashboard({
         const t = allTabs[i];
         if (!t) continue;
         const c = tabMgr.getChat(t.id);
-        const u = c?.tokenUsage ?? { prompt: 0, completion: 0, total: 0 };
+        const u = c?.tokenUsage ?? {
+          prompt: 0,
+          completion: 0,
+          total: 0,
+          cacheRead: 0,
+          subagentInput: 0,
+          subagentOutput: 0,
+        };
         grandTotal += u.total;
         const isActive = t.id === tabMgr.activeTabId;
         lines.push(

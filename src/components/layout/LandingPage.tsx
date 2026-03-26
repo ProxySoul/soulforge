@@ -5,8 +5,8 @@ import { icon, providerIcon } from "../../core/icons.js";
 import type { ProviderStatus } from "../../core/llm/provider.js";
 import type { PrerequisiteStatus } from "../../core/setup/prerequisites.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
-import { SPINNER_FRAMES } from "./shared.js";
 import { ScanDivider } from "./ScanDivider.js";
+import { SPINNER_FRAMES } from "./shared.js";
 
 const PURPLE = "#9B30FF";
 const PURPLE_DIM = "#6B20B0";

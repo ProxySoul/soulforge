@@ -244,6 +244,14 @@ async function readSymbolFromFile(filePath: string, args: ReadFileArgs): Promise
     };
   }
 
+  if (!existsSync(filePath)) {
+    return {
+      success: false,
+      output: `File not found: ${filePath}`,
+      error: `File not found: ${filePath}`,
+    };
+  }
+
   const { getIntelligenceRouter } = await import("../intelligence/index.js");
   const router = getIntelligenceRouter(process.cwd());
   const language = router.detectLanguage(filePath);

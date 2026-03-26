@@ -92,6 +92,12 @@ const CLAUDE_ITEMS: SettingItem[] = [
     desc: "Auto-clear old thinking blocks, keep last 5",
     type: "toggle",
   },
+  {
+    key: "pruning",
+    label: "Tool Result Pruning",
+    desc: "Compact old tool results into one-line summaries (saves tokens)",
+    type: "toggle",
+  },
 ];
 
 const OPENAI_ITEMS: SettingItem[] = [
@@ -152,6 +158,7 @@ interface CurrentValues {
   compact: boolean;
   clearToolUses: boolean;
   clearThinking: boolean;
+  pruning: boolean;
 }
 
 const DEFAULTS: CurrentValues = {
@@ -168,6 +175,7 @@ const DEFAULTS: CurrentValues = {
   compact: false,
   clearToolUses: false,
   clearThinking: false,
+  pruning: true,
 };
 
 function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentValues> {
@@ -191,6 +199,8 @@ function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentV
     v.clearToolUses = layer.contextManagement.clearToolUses;
   if (layer.contextManagement?.clearThinking !== undefined)
     v.clearThinking = layer.contextManagement.clearThinking;
+  if (layer.contextManagement?.disablePruning !== undefined)
+    v.pruning = !layer.contextManagement.disablePruning;
   return v;
 }
 
@@ -228,6 +238,10 @@ function buildPatch(key: string, value: string | number | boolean): Partial<AppC
       return { contextManagement: { clearToolUses: value as boolean } as ContextManagementConfig };
     case "clearThinking":
       return { contextManagement: { clearThinking: value as boolean } as ContextManagementConfig };
+    case "pruning":
+      return {
+        contextManagement: { disablePruning: !(value as boolean) } as ContextManagementConfig,
+      };
     default:
       return {};
   }

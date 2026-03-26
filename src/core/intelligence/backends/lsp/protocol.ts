@@ -208,9 +208,21 @@ export function lspSeverityToSeverity(
   return "info";
 }
 
+// Characters valid in file URI path segments per RFC 3986 pchar.
+// encodeURIComponent is too aggressive — avoid it for file URIs.
+const FILE_URI_SAFE_RE = /[^A-Za-z0-9\-._~!$&'()*+,;=:@]/g;
+function encodePathSegment(seg: string): string {
+  return seg.replace(FILE_URI_SAFE_RE, (c) => {
+    const code = c.charCodeAt(0);
+    return `%${code.toString(16).toUpperCase().padStart(2, "0")}`;
+  });
+}
+
 export function filePathToUri(path: string): string {
-  // Encode path components but keep slashes
-  const encoded = path.split("/").map(encodeURIComponent).join("/");
+  // Use a file-URI-aware encoder that only escapes characters actually invalid
+  // in the path component. encodeURIComponent over-encodes '@', '+', '!' etc.
+  // that are valid in file URI paths, and double-encodes paths containing '%'.
+  const encoded = path.split("/").map(encodePathSegment).join("/");
   return `file://${encoded}`;
 }
 

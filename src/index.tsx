@@ -235,7 +235,10 @@ function AppRoot({ opts }: { opts: StartOptions }) {
       setFreshProjectConfig(newProjectConfig);
       setFreshProviders(newProviders);
       setFreshPrereqs(newPrereqs);
-    } catch {}
+    } catch (err) {
+      // biome-ignore lint/suspicious/noConsole: intentional error surfacing on restart failure
+      console.error("Restart config reload failed:", err);
+    }
     // Batch all state updates to avoid 7 separate re-renders after await
     startTransition(() => {
       setContextManager(undefined);

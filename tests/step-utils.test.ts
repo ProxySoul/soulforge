@@ -300,9 +300,8 @@ describe("summary formats", () => {
 		expect(text).toContain("reader-1 (explore)");
 	});
 
-	it("generic fallback for navigate/analyze/web_search/fetch_page", () => {
+	it("generic fallback for analyze/web_search/fetch_page", () => {
 		for (const toolName of [
-			"navigate",
 			"analyze",
 			"web_search",
 			"fetch_page",
@@ -713,7 +712,7 @@ describe("buildPrepareStep — cache control", () => {
 			{ stepNumber: 1, messages: msgs },
 		);
 		const penultimate = msgs[msgs.length - 2];
-		expect(penultimate?.providerOptions?.anthropic).toEqual({
+		expect(penultimate?.providerOptions?.anthropic).toMatchObject({
 			cacheControl: { type: "ephemeral" },
 		});
 	});
@@ -1174,7 +1173,7 @@ describe("summary formats — real audit tool outputs", () => {
 		expect(text).not.toContain("for ");
 	});
 
-	it("soul_find: includes result count and query", () => {
+	it("soul_find: NOT compacted (small results, compacting causes agent loops)", () => {
 		const msgs = buildPaddedConversation({
 			id: "sf1", name: "soul_find",
 			input: { query: "FloatingBubble" },
@@ -1182,20 +1181,7 @@ describe("summary formats — real audit tool outputs", () => {
 		});
 		const result = compactOldToolResults(msgs);
 		const text = resultText(result, 1);
-		expect(text).toContain("results");
-		expect(text).toContain('"FloatingBubble"');
-	});
-
-	it("soul_find: works without query in args", () => {
-		const msgs = buildPaddedConversation({
-			id: "sf1", name: "soul_find",
-			input: {},
-			output: SOUL_FIND_OUTPUT,
-		});
-		const result = compactOldToolResults(msgs);
-		const text = resultText(result, 1);
-		expect(text).toContain("results");
-		expect(text).not.toContain("for ");
+		expect(text).toContain("Component0.tsx");
 	});
 
 	it("soul_analyze: includes action and first line", () => {

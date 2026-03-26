@@ -87,7 +87,6 @@ const SUMMARIZABLE_TOOLS = new Set([
   "read_file",
   "grep",
   "glob",
-  "navigate",
   "analyze",
   "web_search",
   "fetch_page",
@@ -95,7 +94,6 @@ const SUMMARIZABLE_TOOLS = new Set([
   "dispatch",
   "list_dir",
   "soul_grep",
-  "soul_find",
   "soul_analyze",
   "soul_impact",
   "memory",
@@ -182,11 +180,8 @@ function buildSummary(toolName: string, text: string, ctx?: SummaryContext): str
     const entryMatch = text.match(/(\d+) entries/);
     return `${tag} ${entryMatch ? entryMatch[1] : String(lineCount)} entries`;
   }
-  if (toolName === "soul_find") {
-    const matchCount = (text.match(/\n/g) || []).length;
-    const query = typeof args?.query === "string" ? ` for "${args.query.slice(0, 40)}"` : "";
-    return `${tag} ${String(matchCount)} results${query}`;
-  }
+  // soul_find: NOT summarized — results are small (file paths) and compacting them
+  // causes the agent to think it hasn't found anything, triggering loops
   if (toolName === "soul_analyze" || toolName === "soul_impact") {
     const action = typeof args?.action === "string" ? `${args.action}: ` : "";
     const firstLine = text.split("\n")[0] ?? "";
@@ -441,7 +436,7 @@ export function buildPrepareStep({
   parentToolCallId,
   role,
   allTools: _allTools,
-  symbolLookup,
+  symbolLookup: _symbolLookup,
   contextWindow: ctxWindow,
   disablePruning,
 }: PrepareStepOptions): PrepareStepResult {
@@ -512,7 +507,6 @@ export function buildPrepareStep({
     if (stepNumber >= 1 && !disablePruning) {
       let msgs = result.messages ?? messages;
       msgs = semanticPrune(msgs, pathMap);
-      msgs = compactOldToolResults(msgs, symbolLookup, pathMap);
       msgs = stripOldEditArgs(msgs, msgs.length - KEEP_RECENT_MESSAGES);
       result.messages = msgs;
     }

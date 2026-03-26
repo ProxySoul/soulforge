@@ -304,7 +304,7 @@ function buildContextEdits(
   if (config.clearThinking && thinkingEnabled) {
     edits.push({
       type: "clear_thinking_20251015",
-      keep: { type: "thinking_turns", value: 5 },
+      keep: { type: "thinking_turns", value: 2 },
     });
   }
 
@@ -312,8 +312,9 @@ function buildContextEdits(
     edits.push({
       type: "clear_tool_uses_20250919",
       trigger: { type: "input_tokens", value: 100_000 },
-      keep: { type: "tool_uses", value: 10 },
+      keep: { type: "tool_uses", value: 6 },
       clearToolInputs: true,
+      clear_at_least: { type: "input_tokens", value: 5_000 },
     });
   }
 
@@ -332,7 +333,7 @@ function buildContextEdits(
 // so caching works regardless of which provider routes to Anthropic/Claude.
 // The Vercel AI SDK silently ignores keys that don't match the active provider.
 
-const CACHE_EPHEMERAL = { cacheControl: { type: "ephemeral" } } as const;
+const CACHE_EPHEMERAL = { cacheControl: { type: "ephemeral", ttl: "1h" } } as const;
 
 export const EPHEMERAL_CACHE: ProviderOptions = {
   anthropic: CACHE_EPHEMERAL,

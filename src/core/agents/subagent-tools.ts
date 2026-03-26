@@ -175,7 +175,18 @@ export function createAgent(
     task.role === "explore" || task.role === "investigate" || models.readOnly === true;
   const { model } = selectModel(task, models);
   const tier = detectTaskTier(task);
-  const subagentProviderOptions = stripContextManagement(models.providerOptions);
+  let subagentProviderOptions = stripContextManagement(models.providerOptions);
+  if (useExplore && subagentProviderOptions) {
+    const patched: Record<string, unknown> = {};
+    for (const [provider, val] of Object.entries(subagentProviderOptions)) {
+      if (val && typeof val === "object" && "effort" in val) {
+        patched[provider] = { ...(val as Record<string, unknown>), effort: "low" };
+      } else {
+        patched[provider] = val;
+      }
+    }
+    subagentProviderOptions = patched as ProviderOptions;
+  }
   const modelId =
     typeof model === "object" && "modelId" in model ? String(model.modelId) : "unknown";
   const contextWindow = getModelContextWindow(modelId);

@@ -1,7 +1,26 @@
 import { fg as fgStyle, StyledText, type TextRenderable } from "@opentui/core";
+import { useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef } from "react";
 import { icon } from "../../core/icons.js";
 import { useStatusBarStore } from "../../stores/statusbar.js";
+
+const PURPLE_GLOW = "#BF5FFF";
+const PURPLE = "#9B30FF";
+const PURPLE_DIM = "#6B20B0";
+const SCAN_FAINT = "#1a1a2e";
+const SCAN_SPEED = 120;
+
+function buildScanContent(pos: number, width: number): StyledText {
+  const segments: ReturnType<ReturnType<typeof fgStyle>>[] = [];
+  for (let i = 0; i < width; i++) {
+    const dist = Math.abs(i - pos);
+    const color =
+      dist === 0 ? PURPLE_GLOW : dist === 1 ? PURPLE : dist === 2 ? PURPLE_DIM : SCAN_FAINT;
+    const ch = dist === 0 ? "━" : "─";
+    segments.push(fgStyle(color)(ch));
+  }
+  return new StyledText(segments);
+}
 
 const FORGE_STATUSES = [
   "Forging response…",
@@ -62,18 +81,22 @@ interface LoadingStatusProps {
 }
 
 export function LoadingStatus({ isLoading, isCompacting, queueCount }: LoadingStatusProps) {
+  const { width: termWidth } = useTerminalDimensions();
   const ghostRef = useRef<TextRenderable>(null);
   const statusRef = useRef<TextRenderable>(null);
   const elapsedRef = useRef<TextRenderable>(null);
   const completedRef = useRef<TextRenderable>(null);
+  const scanRef = useRef<TextRenderable>(null);
   const ghostTickRef = useRef(0);
   const forgeStatusRef = useRef("");
   const wasLoadingRef = useRef(false);
   const loadingStartRef = useRef(0);
   const completedTimeRef = useRef<string | null>(null);
   const elapsedSecRef = useRef(0);
+  const scanPosRef = useRef(0);
   const propsRef = useRef({ isLoading, isCompacting, queueCount });
   propsRef.current = { isLoading, isCompacting, queueCount };
+  const scanWidth = Math.max(10, (termWidth ?? 80) - 4);
 
   const showBusy = isLoading || isCompacting;
 
@@ -111,6 +134,24 @@ export function LoadingStatus({ isLoading, isCompacting, queueCount }: LoadingSt
     return () => clearInterval(timer);
   }, [showBusy]);
 
+  // Scan line animation — fast interval, only touches scanRef
+  useEffect(() => {
+    if (!showBusy) {
+      scanPosRef.current = 0;
+      return;
+    }
+    const w = scanWidth;
+    const timer = setInterval(() => {
+      scanPosRef.current = (scanPosRef.current + 1) % (w + 6);
+      try {
+        if (scanRef.current) {
+          scanRef.current.content = buildScanContent(scanPosRef.current, w);
+        }
+      } catch {}
+    }, SCAN_SPEED);
+    return () => clearInterval(timer);
+  }, [showBusy, scanWidth]);
+
   // Elapsed timer — 1s interval, only touches elapsedRef
   useEffect(() => {
     if (!showBusy) {
@@ -144,30 +185,37 @@ export function LoadingStatus({ isLoading, isCompacting, queueCount }: LoadingSt
   }, [showBusy]);
 
   return (
-    <box paddingX={0} height={1} flexDirection="row" flexShrink={0}>
-      {showBusy ? (
-        <>
+    <box paddingX={0} flexDirection="column" flexShrink={0}>
+      {showBusy && (
+        <box height={1} paddingX={1}>
+          <text ref={scanRef} content={buildScanContent(scanPosRef.current, scanWidth)} />
+        </box>
+      )}
+      <box height={1} flexDirection="row">
+        {showBusy ? (
+          <>
+            <text
+              ref={ghostRef}
+              content={buildGhostContent(ghostTickRef.current % 4 !== 3, isCompacting)}
+            />
+            <text
+              ref={statusRef}
+              content={buildStatusContent(isCompacting, forgeStatusRef.current)}
+            />
+            <text
+              ref={elapsedRef}
+              truncate
+              content={buildElapsedContent(elapsedSecRef.current, queueCount)}
+            />
+          </>
+        ) : completedTimeRef.current ? (
           <text
-            ref={ghostRef}
-            content={buildGhostContent(ghostTickRef.current % 4 !== 3, isCompacting)}
-          />
-          <text
-            ref={statusRef}
-            content={buildStatusContent(isCompacting, forgeStatusRef.current)}
-          />
-          <text
-            ref={elapsedRef}
+            ref={completedRef}
             truncate
-            content={buildElapsedContent(elapsedSecRef.current, queueCount)}
+            content={buildCompletedContent(completedTimeRef.current)}
           />
-        </>
-      ) : completedTimeRef.current ? (
-        <text
-          ref={completedRef}
-          truncate
-          content={buildCompletedContent(completedTimeRef.current)}
-        />
-      ) : null}
+        ) : null}
+      </box>
     </box>
   );
 }

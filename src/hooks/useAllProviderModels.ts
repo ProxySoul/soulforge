@@ -63,11 +63,14 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
     for (const c of PROVIDER_CONFIGS) init[c.id] = { items: [], loading: true };
     setProviderData(init);
 
-    checkProviders().then((statuses) => {
-      const map = new Map<string, boolean>();
-      for (const s of statuses) map.set(s.id, s.available);
-      setAvailability(map);
-    });
+    checkProviders()
+      .then((statuses) => {
+        if (dead) return;
+        const map = new Map<string, boolean>();
+        for (const s of statuses) map.set(s.id, s.available);
+        setAvailability(map);
+      })
+      .catch(() => {});
 
     let dead = false;
 

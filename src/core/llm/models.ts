@@ -370,7 +370,10 @@ async function fetchVercelGatewayGrouped(): Promise<GroupedModelsResult> {
   }
 
   try {
-    const res = await fetch("https://ai-gateway.vercel.sh/v1/models");
+    const apiKey = getProviderApiKey("AI_GATEWAY_API_KEY");
+    const res = await fetch("https://ai-gateway.vercel.sh/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
     if (!res.ok) {
       return {
         subProviders: [],

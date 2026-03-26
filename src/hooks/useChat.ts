@@ -89,6 +89,63 @@ const ZERO_USAGE: TokenUsage = {
   subagentOutput: 0,
 };
 
+const CHARS_PER_TOKEN = 4;
+const PRUNE_PROTECT_TOKENS = 40_000;
+const PRUNE_MINIMUM_TOKENS = 20_000;
+
+function pruneOldToolResults(msgs: ModelMessage[]): ModelMessage[] {
+  let protectedTokens = 0;
+  let prunableTokens = 0;
+  const toPrune = new Set<number>();
+
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const msg = msgs[i];
+    if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
+    for (const part of msg.content) {
+      if (typeof part !== "object" || part === null || !("type" in part)) continue;
+      const p = part as { type: string; output?: unknown };
+      if (p.type !== "tool-result") continue;
+      const text =
+        typeof p.output === "string"
+          ? p.output
+          : typeof (p.output as Record<string, unknown>)?.value === "string"
+            ? ((p.output as Record<string, unknown>).value as string)
+            : JSON.stringify(p.output ?? "");
+      const tokens = Math.round(text.length / CHARS_PER_TOKEN);
+      if (protectedTokens < PRUNE_PROTECT_TOKENS) {
+        protectedTokens += tokens;
+      } else {
+        prunableTokens += tokens;
+        toPrune.add(i);
+      }
+    }
+  }
+
+  if (prunableTokens < PRUNE_MINIMUM_TOKENS || toPrune.size === 0) return msgs;
+
+  return msgs.map((msg, idx) => {
+    if (!toPrune.has(idx)) return msg;
+    if (msg.role !== "tool" || !Array.isArray(msg.content)) return msg;
+    const newContent = msg.content.map((part) => {
+      if (typeof part !== "object" || part === null || !("type" in part)) return part;
+      const p = part as { type: string; output?: unknown; toolName?: string };
+      if (p.type !== "tool-result") return part;
+      if (
+        p.toolName === "edit_file" ||
+        p.toolName === "multi_edit" ||
+        p.toolName === "write_file" ||
+        p.toolName === "create_file"
+      )
+        return part;
+      return {
+        ...p,
+        output: { type: "text" as const, value: "[Old tool result content cleared]" },
+      };
+    });
+    return { ...msg, content: newContent } as ModelMessage;
+  });
+}
+
 export interface WorkspaceSnapshot {
   tabStates: TabState[];
   activeTabId: string;
@@ -1340,12 +1397,14 @@ export function useChat({
         const trivialModelId = tr?.trivial ?? undefined;
         const desloppifyModelId = tr?.desloppify ?? undefined;
         const verifyModelId = tr?.verify ?? undefined;
+        const editingModelId = tr?.editing ?? undefined;
         const hasSubagentModels =
           explorationModelId ||
           codingModelId ||
           trivialModelId ||
           desloppifyModelId ||
-          verifyModelId;
+          verifyModelId ||
+          editingModelId;
         const subagentModels = hasSubagentModels
           ? {
               exploration: explorationModelId ? resolveModel(explorationModelId) : undefined,
@@ -1353,6 +1412,7 @@ export function useChat({
               trivial: trivialModelId ? resolveModel(trivialModelId) : undefined,
               desloppify: desloppifyModelId ? resolveModel(desloppifyModelId) : undefined,
               verify: verifyModelId ? resolveModel(verifyModelId) : undefined,
+              editing: editingModelId ? resolveModel(editingModelId) : undefined,
             }
           : undefined;
         const webSearchModel = webSearchModelId ? resolveModel(webSearchModelId) : undefined;
@@ -1488,9 +1548,9 @@ export function useChat({
           agentFeatures: effectiveConfig.agentFeatures,
           planExecution: planExecutionRef.current,
           drainSteering,
-          disablePruning: effectiveConfig.compaction?.disablePruning !== false,
+          disablePruning: effectiveConfig.contextManagement?.disablePruning === true,
         });
-        let result!: StreamTextResult<ToolSet, never>;
+        let result: StreamTextResult<ToolSet, never> | undefined;
         const MAX_TRANSIENT_RETRIES = 3;
         for (let retry = 0; retry <= MAX_TRANSIENT_RETRIES; retry++) {
           if (abortController.signal.aborted) break;
@@ -1513,6 +1573,7 @@ export function useChat({
                           interactive: interactiveCallbacks,
                           editorIntegration: effectiveConfig.editorIntegration,
                           subagentModels,
+                          webSearchModel: effectiveWebSearchModel,
                           onApproveWebSearch: webSearchApproval,
                           onApproveFetchPage: fetchPageApproval,
                           onApproveOutsideCwd: promptOutsideCwd,
@@ -1522,9 +1583,12 @@ export function useChat({
                           codeExecution: effectiveConfig.codeExecution,
                           cwd,
                           sessionId: sessionIdRef.current,
+                          sharedCacheRef: sharedCacheRef.current,
                           agentFeatures: effectiveConfig.agentFeatures,
                           planExecution: planExecutionRef.current,
-                          disablePruning: effectiveConfig.compaction?.disablePruning !== false,
+                          drainSteering,
+                          disablePruning:
+                            effectiveConfig.contextManagement?.disablePruning === true,
                         });
                       })();
                 result = (await currentAgent.stream({
@@ -1639,6 +1703,10 @@ export function useChat({
         };
 
         flushTimerRef.current = setInterval(flushStreamState, 32);
+
+        if (!result) {
+          throw new Error("Stream aborted before result was assigned");
+        }
 
         let streamEventCount = 0;
         for await (const part of result.fullStream) {
@@ -1992,7 +2060,12 @@ export function useChat({
           return allMsgs;
         });
 
-        setCoreMessages((prev) => [...prev, ...responseMessages]);
+        setCoreMessages((prev) => {
+          const updated = [...prev, ...responseMessages];
+          return effectiveConfig.contextManagement?.disablePruning === true
+            ? updated
+            : pruneOldToolResults(updated);
+        });
         streamSegmentsBuffer.current = [];
         liveToolCallsBuffer.current = [];
         lastFlushedSegments.current = [];

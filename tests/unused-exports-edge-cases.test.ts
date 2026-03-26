@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { RepoMap } from "../src/core/intelligence/repo-map.js";
+import { initForbidden } from "../src/core/security/forbidden.js";
 
 /**
  * Edge case tests for unused export detection.
@@ -454,6 +455,7 @@ circle.draw()
 `,
   );
 
+  initForbidden(TMP);
   repoMap = new RepoMap(TMP);
   await repoMap.scan();
 });

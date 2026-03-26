@@ -9,7 +9,7 @@ import type {
   InteractiveCallbacks,
 } from "../../types/index.js";
 import type { ContextManager } from "../context/manager.js";
-import { EPHEMERAL_CACHE, isAnthropicNative } from "../llm/provider-options.js";
+import { detectModelFamily, EPHEMERAL_CACHE, isAnthropicNative } from "../llm/provider-options.js";
 import {
   buildInteractiveTools,
   buildTools,
@@ -157,7 +157,6 @@ function stripRejectedDispatches(messages: ModelMessage[]): ModelMessage[] {
   });
 }
 
-// No step-level tool result pruning — main agent relies on v1/v2 compaction for context management.
 function buildForgePrepareStep(
   isPlanMode: boolean,
   drainSteering?: () => string | null,
@@ -175,19 +174,56 @@ function buildForgePrepareStep(
       | null;
   },
   activeModelId?: string,
+  toolNames?: string[],
+  editingModel?: LanguageModel,
 ) {
   const SKILLS_MARKER = "<loaded_skills>";
+  const EDIT_TOOL_NAMES = new Set(["edit_file", "multi_edit", "write_file", "create_file"]);
+
+  // Validate editing model compatibility: only switch if same provider family
+  // (e.g., Opus → Sonnet is safe, Opus → GPT-4 would have incompatible providerOptions)
+  const editingModelId =
+    editingModel && typeof editingModel === "object" && "modelId" in editingModel
+      ? String((editingModel as { modelId: string }).modelId)
+      : undefined;
+  const safeEditingModel =
+    editingModel && editingModelId && activeModelId
+      ? detectModelFamily(editingModelId) === detectModelFamily(activeModelId)
+        ? editingModel
+        : undefined
+      : editingModel;
 
   // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
   return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): any => {
     const sanitized = sanitizeMessages(messages);
     let stripped = stripRejectedDispatches(sanitized);
     const result: {
+      model?: LanguageModel;
       messages?: ModelMessage[];
       activeTools?: string[];
       toolChoice?: "required" | "auto";
       system?: SystemModelMessage[];
     } = {};
+
+    if (safeEditingModel && stepNumber > 0) {
+      for (const msg of messages) {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        for (const part of msg.content) {
+          if (
+            typeof part === "object" &&
+            part !== null &&
+            "type" in part &&
+            (part as { type: string }).type === "tool-call" &&
+            "toolName" in part &&
+            EDIT_TOOL_NAMES.has((part as { toolName: string }).toolName)
+          ) {
+            result.model = safeEditingModel;
+            break;
+          }
+        }
+        if (result.model) break;
+      }
+    }
 
     // System prompt: single cached block (stable between steps)
     // Soul Map + Skills: user→assistant message pairs prepended to conversation
@@ -371,12 +407,21 @@ function buildForgePrepareStep(
           else callCounts.set(sig, { toolName: p.toolName, count: 1 });
         }
       }
+      const loopingTools = new Set<string>();
       for (const [, entry] of callCounts) {
         if (entry.count >= LOOP_THRESHOLD) {
-          appendSystemHint(
-            `🔁 LOOP DETECTED: ${entry.toolName} called ${String(entry.count)} times with identical arguments. Results have not changed. Do NOT call it again. Act on the results you already have or try a different approach.`,
-          );
-          break;
+          loopingTools.add(entry.toolName);
+        }
+      }
+      if (loopingTools.size > 0) {
+        const blocked = [...loopingTools].join(", ");
+        appendSystemHint(
+          `🔁 LOOP DETECTED: ${blocked} called 3+ times with identical arguments. These tools are now BLOCKED for this step. Use read_file to read the files directly, or edit_file to make changes.`,
+        );
+        if (result.activeTools) {
+          result.activeTools = result.activeTools.filter((t) => !loopingTools.has(t));
+        } else if (toolNames) {
+          result.activeTools = toolNames.filter((t) => !loopingTools.has(t));
         }
       }
     }
@@ -413,6 +458,30 @@ function buildForgePrepareStep(
       }
     }
 
+    // Debug: dump the exact messages being sent to the API
+    if (process.env.SOULFORGE_DEBUG_API) {
+      const msgs = result.messages ?? messages;
+      const dump = msgs
+        .map((m, i) => {
+          const raw = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+          const preview = raw.slice(0, 300);
+          return `[${String(i)}] ${m.role} (${String(raw.length)} chars): ${preview}${raw.length > 300 ? "..." : ""}`;
+        })
+        .join("\n---\n");
+      const sys = result.system
+        ?.map(
+          (s, i) =>
+            `[sys ${String(i)}] (${String(s.content.length)} chars): ${s.content.slice(0, 300)}`,
+        )
+        .join("\n---\n");
+      import("../tools/tee.js").then(({ saveTee }) => {
+        saveTee(
+          `forge-step-${String(stepNumber)}`,
+          `Forge Step ${String(stepNumber)} — ${String(msgs.length)} messages\n\n${sys ? `=== SYSTEM ===\n${sys}\n\n` : ""}=== MESSAGES ===\n${dump}`,
+        );
+      });
+    }
+
     return Object.keys(result).length > 0 ? result : undefined;
   };
 }
@@ -429,6 +498,7 @@ interface ForgeAgentOptions {
     trivial?: LanguageModel;
     desloppify?: LanguageModel;
     verify?: LanguageModel;
+    editing?: LanguageModel;
   };
   webSearchModel?: LanguageModel;
   onApproveWebSearch?: (query: string) => Promise<boolean>;
@@ -604,6 +674,8 @@ export function createForgeAgent({
       repoMap,
       contextManager,
       modelId,
+      Object.keys(allTools),
+      subagentModels?.editing,
     ),
     experimental_repairToolCall: repairToolCall,
     ...(providerOptions && Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),

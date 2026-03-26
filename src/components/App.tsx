@@ -41,7 +41,7 @@ import { cleanupAndExit, setExitSessionId } from "../index.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { startMemoryPoll } from "../stores/statusbar.js";
 import { type ModalName, selectIsAnyModalOpen, useUIStore } from "../stores/ui.js";
-import type { AppConfig, ChatMessage, EditorIntegration } from "../types/index.js";
+import type { AppConfig, ChatMessage, EditorIntegration, TaskRouter } from "../types/index.js";
 import { BrandTag } from "./layout/BrandTag.js";
 import { ContextBar } from "./layout/ContextBar.js";
 import { EditorPanel } from "./layout/EditorPanel.js";
@@ -75,7 +75,7 @@ function truncate(str: string, max: number): string {
 
 const ABORT_ON_LOADING = new Set(["/clear", "/compact", "/plan"]);
 
-const DEFAULT_TASK_ROUTER = {
+const DEFAULT_TASK_ROUTER: TaskRouter = {
   planning: null,
   coding: null,
   exploration: null,
@@ -85,6 +85,7 @@ const DEFAULT_TASK_ROUTER = {
   trivial: null,
   desloppify: null,
   verify: null,
+  editing: null,
   default: null,
 };
 
