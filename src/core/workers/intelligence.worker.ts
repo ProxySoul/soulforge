@@ -254,6 +254,9 @@ ctx = createWorkerHandler(
 
     const { RepoMap } = await import("../intelligence/repo-map.js");
     repoMap = new RepoMap(config.cwd as string);
+    if (typeof config.maxFiles === "number" && config.maxFiles > 0) {
+      repoMap.maxFiles = config.maxFiles;
+    }
 
     repoMap.onProgress = (indexed, total) => {
       const rm = repoMap;

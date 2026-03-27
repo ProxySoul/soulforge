@@ -25,6 +25,7 @@ import {
   INDEXABLE_EXTENSIONS,
   kindTag,
   MAX_COCHANGE_FILES_PER_COMMIT,
+  MAX_INDEXED_FILES,
   MAX_REFS_PER_FILE,
   MAX_TOKEN_BUDGET,
   MIN_TOKEN_BUDGET,
@@ -101,6 +102,7 @@ export class RepoMap {
   private semanticMode: "off" | "ast" | "synthetic" | "llm" | "full" | "on" = "off";
   private summaryGenerator: SummaryGenerator | null = null;
   private regenTimer: ReturnType<typeof setTimeout> | null = null;
+  maxFiles: number = MAX_INDEXED_FILES;
   onProgress: ((indexed: number, total: number) => void) | null = null;
   onScanComplete: ((success: boolean) => void) | null = null;
   onStaleSymbols: ((count: number) => void) | null = null;
@@ -418,7 +420,11 @@ export class RepoMap {
   private async doScan(): Promise<void> {
     const tick = () => new Promise<void>((r) => setTimeout(r, 1));
     try {
-      const files = await collectFiles(this.cwd);
+      const allFiles = await collectFiles(this.cwd);
+      const files =
+        this.maxFiles > 0 && allFiles.length > this.maxFiles
+          ? await this.applyFileCap(allFiles)
+          : allFiles;
 
       const existingFiles = new Map<string, { id: number; mtime_ms: number }>();
       for (const row of this.db
@@ -501,6 +507,50 @@ export class RepoMap {
     } finally {
       this.scanPromise = null;
     }
+  }
+
+  private async applyFileCap(
+    files: Array<{ path: string; mtimeMs: number }>,
+  ): Promise<Array<{ path: string; mtimeMs: number }>> {
+    const gitRecency = new Map<string, number>();
+    if (this.detectGit()) {
+      try {
+        const { execFile } = await import("node:child_process");
+        const output = await new Promise<string>((resolve) => {
+          execFile(
+            "git",
+            ["log", "--all", "--name-only", "--format=", "-n", "1000"],
+            { cwd: this.cwd, timeout: 10_000, maxBuffer: 5_000_000 },
+            (err, stdout) => resolve(err ? "" : stdout),
+          );
+        });
+        let rank = 0;
+        for (const line of output.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed && !gitRecency.has(trimmed)) {
+            gitRecency.set(trimmed, rank++);
+          }
+        }
+      } catch {
+        // git unavailable — fall back to mtime-only sorting
+      }
+    }
+
+    const sorted = files
+      .map((f) => ({
+        path: f.path,
+        mtimeMs: f.mtimeMs,
+        gitRank: gitRecency.get(relative(this.cwd, f.path)),
+      }))
+      .sort((a, b) => {
+        const aGit = a.gitRank !== undefined;
+        const bGit = b.gitRank !== undefined;
+        if (aGit !== bGit) return aGit ? -1 : 1;
+        if (aGit && bGit) return (a.gitRank as number) - (b.gitRank as number);
+        return b.mtimeMs - a.mtimeMs;
+      });
+
+    return sorted.slice(0, this.maxFiles);
   }
 
   private async ensureTreeSitter(): Promise<void> {

@@ -367,3 +367,5 @@ export const DIRTY_DEBOUNCE_MS = 500;
 export const GIT_LOG_COMMITS = 300;
 
 export const MAX_COCHANGE_FILES_PER_COMMIT = 20;
+
+export const MAX_INDEXED_FILES = 10_000;
