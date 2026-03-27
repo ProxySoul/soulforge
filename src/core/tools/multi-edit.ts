@@ -1,4 +1,4 @@
-import { access, writeFile } from "node:fs/promises";
+import { stat as statAsync, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
@@ -44,9 +44,13 @@ export const multiEditTool = {
       }
 
       try {
-        await access(filePath);
-      } catch {
-        const msg = `File not found: ${filePath}`;
+        await statAsync(filePath);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        const msg =
+          code === "EACCES" || code === "EPERM"
+            ? `Permission denied: ${filePath}`
+            : `File not found: ${filePath}`;
         return { success: false, output: msg, error: msg };
       }
 

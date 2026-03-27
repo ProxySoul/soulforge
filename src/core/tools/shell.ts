@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import stripAnsi from "strip-ansi";
 import type { ToolResult } from "../../types";
 import { isForbidden } from "../security/forbidden.js";
+import { getIOClient } from "../workers/io-client.js";
 import { checkShellBinaryRead } from "./binary-detect.js";
-import { compressShellOutputFull } from "./shell-compress.js";
+import { compressShellOutputFull as compressLocal } from "./shell-compress.js";
 import { saveTee, truncateWithTee } from "./tee.js";
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -401,13 +402,18 @@ export const shellTool = {
         if (stderrBytes <= MAX_COLLECT_BYTES) errChunks.push(data.toString());
       });
 
-      proc.on("close", (code: number | null) => {
+      proc.on("close", async (code: number | null) => {
         cleanupAbortListener?.();
         let raw = sanitizeOutput(chunks.join(""));
         if (stdoutBytes > MAX_COLLECT_BYTES) {
           raw += `\n[output truncated — ${String(Math.round(stdoutBytes / 1024))}KB total, showing first ${String(Math.round(MAX_COLLECT_BYTES / 1024))}KB]`;
         }
-        const compressed = compressShellOutputFull(raw);
+        let compressed: { text: string; original: string | null };
+        try {
+          compressed = await getIOClient().compressShellOutputFull(raw);
+        } catch {
+          compressed = compressLocal(raw);
+        }
         let stdout = compressed.text;
         const stderr = sanitizeOutput(errChunks.join(""));
 

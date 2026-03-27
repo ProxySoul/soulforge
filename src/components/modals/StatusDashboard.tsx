@@ -10,6 +10,7 @@ import type { ChatInstance } from "../../hooks/useChat.js";
 import type { UseTabsReturn } from "../../hooks/useTabs.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
 import { computeCost, useStatusBarStore } from "../../stores/statusbar.js";
+import { useWorkerStore } from "../../stores/workers.js";
 import { Overlay, POPUP_BG, PopupRow } from "../layout/shared.js";
 
 const CHROME_ROWS = 6;
@@ -157,6 +158,7 @@ export function StatusDashboard({
 
   const sb = useStatusBarStore();
   const rm = useRepoMapStore();
+  const wk = useWorkerStore();
 
   useEffect(() => {
     if (visible) {
@@ -456,6 +458,87 @@ export function StatusDashboard({
     }
     lines.push(<Spacer key="s3" innerW={innerW} />);
 
+    lines.push(
+      <SectionHeader
+        key="h-wk"
+        label={`${icon("worker")} Workers`}
+        color="#2dd4bf"
+        innerW={innerW}
+      />,
+    );
+    const wkIcon = (s: string) =>
+      s === "busy"
+        ? icon("worker_busy")
+        : s === "crashed"
+          ? icon("worker_crash")
+          : s === "restarting"
+            ? icon("worker_restart")
+            : icon("worker");
+    const wkColor = (s: string) =>
+      s === "ready" || s === "busy"
+        ? "#4a7"
+        : s === "starting" || s === "restarting"
+          ? "#b87333"
+          : s === "crashed"
+            ? "#f44"
+            : "#666";
+    const intelStatus =
+      wk.intelligence.status === "busy"
+        ? `busy (${String(wk.intelligence.rpcInFlight)} rpc)`
+        : wk.intelligence.status;
+    lines.push(
+      <EntryRow
+        key="wk-intel"
+        label={`  ${wkIcon(wk.intelligence.status)} Intelligence`}
+        value={
+          wk.intelligence.restarts > 0
+            ? `${intelStatus} (${String(wk.intelligence.restarts)} ${icon("worker_restart")})`
+            : intelStatus
+        }
+        valueColor={wkColor(wk.intelligence.status)}
+        innerW={innerW}
+      />,
+    );
+    if (wk.intelligence.totalCalls > 0) {
+      lines.push(
+        <EntryRow
+          key="wk-intel-stats"
+          label="    Calls"
+          value={`${String(wk.intelligence.totalCalls)} total${wk.intelligence.totalErrors > 0 ? `, ${String(wk.intelligence.totalErrors)} ${icon("error")}` : ""}`}
+          valueColor="#666"
+          innerW={innerW}
+        />,
+      );
+    }
+    const ioStatus =
+      wk.io.status === "busy" ? `busy (${String(wk.io.rpcInFlight)} rpc)` : wk.io.status;
+    lines.push(
+      <EntryRow
+        key="wk-io"
+        label={`  ${wkIcon(wk.io.status)} IO (smol)`}
+        value={
+          wk.io.restarts > 0
+            ? `${ioStatus} (${String(wk.io.restarts)} ${icon("worker_restart")})`
+            : ioStatus
+        }
+        valueColor={wkColor(wk.io.status)}
+        innerW={innerW}
+      />,
+    );
+    if (wk.intelligence.lastError || wk.io.lastError) {
+      const errMsg = wk.intelligence.lastError ?? wk.io.lastError ?? "";
+      lines.push(
+        <EntryRow
+          key="wk-err"
+          label={`  ${icon("error")} Last Error`}
+          value={errMsg.slice(0, 40)}
+          valueColor="#f44"
+          innerW={innerW}
+        />,
+      );
+    }
+    lines.push(<Spacer key="s4" innerW={innerW} />);
+
     lines.push(<SectionHeader key="h-sys" label="System" innerW={innerW} />);
     lines.push(
       <EntryRow
@@ -495,7 +578,7 @@ export function StatusDashboard({
     );
 
     return lines;
-  }, [sb, rm, currentMode, currentModeLabel, innerW]);
+  }, [sb, rm, wk, currentMode, currentModeLabel, innerW]);
 
   const activeLines = tab === "Context" ? contextLines : systemLines;
   const clampedScroll = Math.min(scrollOffset, Math.max(0, activeLines.length - maxVisible));

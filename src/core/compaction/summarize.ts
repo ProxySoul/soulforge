@@ -2,12 +2,13 @@ import type { JSONObject } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
 import { generateText } from "ai";
 import { logBackgroundError } from "../../stores/errors.js";
+import type { IOClient } from "../workers/io-client.js";
 import type { WorkingStateManager } from "./working-state.js";
 
 /**
  * Build the compacted summary for v2.
  *
- * 1. Serialize the incrementally-built working state (free, already computed).
+ * 1. Serialize the incrementally-built working state (offloaded to IO worker when available).
  * 2. Optionally run a cheap LLM pass to verify completeness against the
  *    full older messages — not a gap-fill on a tiny sample, but a real
  *    verification pass that sees everything.
@@ -21,10 +22,21 @@ export async function buildV2Summary(opts: {
   headers?: Record<string, string>;
   skipLlm?: boolean;
   abortSignal?: AbortSignal;
+  ioClient?: IOClient;
 }): Promise<string> {
-  const { wsm, olderMessages, model, providerOptions, headers, skipLlm, abortSignal } = opts;
+  const { wsm, olderMessages, model, providerOptions, headers, skipLlm, abortSignal, ioClient } =
+    opts;
 
-  const structuredState = wsm.serialize();
+  let structuredState: string;
+  if (ioClient) {
+    try {
+      structuredState = await ioClient.serializeWorkingState(wsm.getState());
+    } catch {
+      structuredState = wsm.serialize();
+    }
+  } else {
+    structuredState = wsm.serialize();
+  }
 
   // Skip gap-fill when structured state is rich enough — the incremental
   // extraction already captured the important context. Saves ~2k tokens.
@@ -33,7 +45,16 @@ export async function buildV2Summary(opts: {
     return structuredState;
   }
 
-  const convoText = buildFullConvoText(olderMessages, 12000);
+  let convoText: string;
+  if (ioClient) {
+    try {
+      convoText = await ioClient.buildConvoText(olderMessages, 12000);
+    } catch {
+      convoText = buildFullConvoText(olderMessages, 12000);
+    }
+  } else {
+    convoText = buildFullConvoText(olderMessages, 12000);
+  }
 
   let gapFill: string | undefined;
   try {
@@ -84,7 +105,7 @@ export async function buildV2Summary(opts: {
   return `${structuredState}\n\n## Additional Details\n${gapFill.trim()}`;
 }
 
-function buildFullConvoText(messages: ModelMessage[], charBudget: number): string {
+export function buildFullConvoText(messages: ModelMessage[], charBudget: number): string {
   const parts: string[] = [];
   let chars = 0;
 

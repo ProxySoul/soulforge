@@ -1,11 +1,11 @@
 import { extname, relative } from "node:path";
 import type { ToolResult } from "../../types";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import {
   IMPORT_TRACKABLE_LANGUAGES,
   INDEXABLE_EXTENSIONS,
 } from "../intelligence/repo-map-utils.js";
 import { isForbidden } from "../security/forbidden.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
 type AnalyzeAction =
   | "identifier_frequency"
@@ -28,7 +28,7 @@ export const soulAnalyzeTool = {
   name: "soul_analyze",
   description: "Codebase analysis from Soul Map — zero file I/O, instant results.",
 
-  createExecute: (repoMap?: RepoMap) => {
+  createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulAnalyzeArgs): Promise<ToolResult> => {
       if (!repoMap?.isReady) {
         return {
@@ -42,19 +42,19 @@ export const soulAnalyzeTool = {
 
       switch (args.action) {
         case "identifier_frequency":
-          return identifierFrequency(repoMap, cwd, args.name, args.limit);
+          return await identifierFrequency(repoMap, cwd, args.name, args.limit);
         case "unused_exports":
-          return unusedExports(repoMap, cwd, args.limit);
+          return await unusedExports(repoMap, cwd, args.limit);
         case "file_profile":
-          return fileProfile(repoMap, cwd, args.file);
+          return await fileProfile(repoMap, cwd, args.file);
         case "duplication":
-          return duplication(repoMap, cwd, args.file, args.limit);
+          return await duplication(repoMap, cwd, args.file, args.limit);
         case "top_files":
-          return topFiles(repoMap, cwd, args.limit);
+          return await topFiles(repoMap, cwd, args.limit);
         case "packages":
-          return packages(repoMap, args.name, args.limit);
+          return await packages(repoMap, args.name, args.limit);
         case "symbols_by_kind":
-          return symbolsByKind(repoMap, cwd, args.kind, args.name, args.limit);
+          return await symbolsByKind(repoMap, cwd, args.kind, args.name, args.limit);
         default:
           return {
             success: false,
@@ -66,16 +66,16 @@ export const soulAnalyzeTool = {
   },
 };
 
-function identifierFrequency(
-  repoMap: RepoMap,
+async function identifierFrequency(
+  repoMap: IntelligenceClient,
   cwd: string,
   name: string | undefined,
   limit: number | undefined,
-): ToolResult {
+): Promise<ToolResult> {
   if (name) {
-    const symbols = repoMap.findSymbols(name);
-    const freq = repoMap.getIdentifierFrequency(500);
-    const match = freq.find((f) => f.name === name);
+    const symbols = await repoMap.findSymbols(name);
+    const freq = await repoMap.getIdentifierFrequency(500);
+    const match = freq.find((f: { name: string; fileCount: number }) => f.name === name);
 
     const lines: string[] = [`Identifier "${name}":`];
 
@@ -97,7 +97,7 @@ function identifierFrequency(
     return { success: true, output: lines.join("\n") };
   }
 
-  const entries = repoMap.getIdentifierFrequency(limit ?? 25);
+  const entries = await repoMap.getIdentifierFrequency(limit ?? 25);
   if (entries.length === 0) {
     return { success: true, output: "No identifiers indexed." };
   }
@@ -112,10 +112,14 @@ function identifierFrequency(
   return { success: true, output: lines.join("\n") };
 }
 
-function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined): ToolResult {
-  const unused = repoMap.getUnusedExports(limit ?? 500);
-  const testOnly = repoMap.getTestOnlyExports();
-  const deadBarrels = repoMap.getDeadBarrels();
+async function unusedExports(
+  repoMap: IntelligenceClient,
+  cwd: string,
+  limit: number | undefined,
+): Promise<ToolResult> {
+  const unused = await repoMap.getUnusedExports(limit ?? 500);
+  const testOnly = await repoMap.getTestOnlyExports();
+  const deadBarrels = await repoMap.getDeadBarrels();
 
   if (unused.length === 0 && testOnly.length === 0 && deadBarrels.length === 0) {
     return {
@@ -172,10 +176,10 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
   }> = [];
 
   for (const [file, entry] of byFile) {
-    const totalExported = repoMap.getFileExportCount(file);
+    const totalExported = await repoMap.getFileExportCount(file);
     const totalDead = entry.dead.length + entry.unnecessary.length;
     const allDead = totalExported > 0 && totalDead >= totalExported;
-    const hasDependents = repoMap.getFileDependents(file).length > 0;
+    const hasDependents = (await repoMap.getFileDependents(file)).length > 0;
 
     if (allDead && !hasDependents && canTrackFileImports(file)) {
       deadFiles.push({
@@ -301,7 +305,11 @@ function unusedExports(repoMap: RepoMap, cwd: string, limit: number | undefined)
   return { success: true, output: lines.join("\n") };
 }
 
-function fileProfile(repoMap: RepoMap, cwd: string, file: string | undefined): ToolResult {
+async function fileProfile(
+  repoMap: IntelligenceClient,
+  cwd: string,
+  file: string | undefined,
+): Promise<ToolResult> {
   if (!file) {
     return {
       success: false,
@@ -320,11 +328,11 @@ function fileProfile(repoMap: RepoMap, cwd: string, file: string | undefined): T
 
   const relPath = file.startsWith("/") ? relative(cwd, file) : file;
 
-  const deps = repoMap.getFileDependencies(relPath);
-  const dependents = repoMap.getFileDependents(relPath);
-  const cochanges = repoMap.getFileCoChanges(relPath);
-  const blastRadius = repoMap.getFileBlastRadius(relPath);
-  const symbols = repoMap.getFileSymbols(relPath);
+  const deps = await repoMap.getFileDependencies(relPath);
+  const dependents = await repoMap.getFileDependents(relPath);
+  const cochanges = await repoMap.getFileCoChanges(relPath);
+  const blastRadius = await repoMap.getFileBlastRadius(relPath);
+  const symbols = await repoMap.getFileSymbols(relPath);
 
   if (deps.length === 0 && dependents.length === 0 && symbols.length === 0) {
     return { success: true, output: `"${relPath}" not found in soul map index.` };
@@ -338,8 +346,11 @@ function fileProfile(repoMap: RepoMap, cwd: string, file: string | undefined): T
   if (symbols.length > 0) {
     lines.push(`Exports (${String(symbols.length)}):`);
     for (const s of symbols) {
-      const sigs = repoMap.getSymbolSignature(s.name);
-      const sig = sigs.find((x) => x.path === relPath || x.path.endsWith(`/${relPath}`));
+      const sigs = await repoMap.getSymbolSignature(s.name);
+      const sig = sigs.find(
+        (x: { path: string; kind: string; signature: string | null; line: number }) =>
+          x.path === relPath || x.path.endsWith(`/${relPath}`),
+      );
       lines.push(`  ${sig?.signature ?? `${s.kind} ${s.name}`}`);
     }
     lines.push("");
@@ -376,12 +387,12 @@ function fileProfile(repoMap: RepoMap, cwd: string, file: string | undefined): T
   return { success: true, output: lines.join("\n") };
 }
 
-function duplication(
-  repoMap: RepoMap,
+async function duplication(
+  repoMap: IntelligenceClient,
   cwd: string,
   file: string | undefined,
   limit: number | undefined,
-): ToolResult {
+): Promise<ToolResult> {
   if (file) {
     if (isForbidden(file) !== null) {
       return {
@@ -391,7 +402,7 @@ function duplication(
       };
     }
     const relPath = file.startsWith("/") ? relative(cwd, file) : file;
-    const fileDups = repoMap.getFileDuplicates(relPath);
+    const fileDups = await repoMap.getFileDuplicates(relPath);
     if (fileDups.length === 0) {
       return { success: true, output: `No structural clones found for functions in "${relPath}".` };
     }
@@ -414,7 +425,7 @@ function duplication(
   const cap = limit ?? 15;
   const lines: string[] = [];
 
-  const clusters = repoMap.getDuplicateStructures(cap);
+  const clusters = await repoMap.getDuplicateStructures(cap);
   if (clusters.length > 0) {
     lines.push(`Exact structural clones (${String(clusters.length)} groups):\n`);
     for (const cluster of clusters) {
@@ -432,7 +443,7 @@ function duplication(
     }
   }
 
-  const nearDups = repoMap.getNearDuplicates(0.7, cap);
+  const nearDups = await repoMap.getNearDuplicates(0.7, cap);
   if (nearDups.length > 0) {
     lines.push(`Near-duplicates (>70% token similarity, ${String(nearDups.length)} pairs):\n`);
     for (const pair of nearDups) {
@@ -445,7 +456,7 @@ function duplication(
     }
   }
 
-  const fragments = repoMap.getRepeatedFragments(cap);
+  const fragments = await repoMap.getRepeatedFragments(cap);
   if (fragments.length > 0) {
     lines.push(
       `Repeated code fragments (${String(fragments.length)} patterns across multiple functions):\n`,
@@ -472,8 +483,12 @@ function duplication(
   return { success: true, output: lines.join("\n") };
 }
 
-function topFiles(repoMap: RepoMap, cwd: string, limit: number | undefined): ToolResult {
-  const files = repoMap.getTopFiles(limit ?? 20);
+async function topFiles(
+  repoMap: IntelligenceClient,
+  cwd: string,
+  limit: number | undefined,
+): Promise<ToolResult> {
+  const files = await repoMap.getTopFiles(limit ?? 20);
   if (files.length === 0) {
     return { success: true, output: "No files indexed." };
   }
@@ -490,13 +505,13 @@ function topFiles(repoMap: RepoMap, cwd: string, limit: number | undefined): Too
   return { success: true, output: lines.join("\n") };
 }
 
-function packages(
-  repoMap: RepoMap,
+async function packages(
+  repoMap: IntelligenceClient,
   name: string | undefined,
   limit: number | undefined,
-): ToolResult {
+): Promise<ToolResult> {
   if (name) {
-    const files = repoMap.getFilesByPackage(name);
+    const files = await repoMap.getFilesByPackage(name);
     if (files.length === 0) {
       return { success: true, output: `No files import "${name}" (or package not indexed).` };
     }
@@ -510,7 +525,7 @@ function packages(
     return { success: true, output: lines.join("\n") };
   }
 
-  const pkgs = repoMap.getExternalPackages(limit ?? 20);
+  const pkgs = await repoMap.getExternalPackages(limit ?? 20);
   if (pkgs.length === 0) {
     return { success: true, output: "No external packages detected." };
   }
@@ -524,15 +539,15 @@ function packages(
   return { success: true, output: lines.join("\n") };
 }
 
-function symbolsByKind(
-  repoMap: RepoMap,
+async function symbolsByKind(
+  repoMap: IntelligenceClient,
   cwd: string,
   kind: string | undefined,
   name: string | undefined,
   limit: number | undefined,
-): ToolResult {
+): Promise<ToolResult> {
   if (name) {
-    const sigs = repoMap.getSymbolSignature(name);
+    const sigs = await repoMap.getSymbolSignature(name);
     if (sigs.length === 0) {
       return { success: true, output: `Symbol "${name}" not found in index.` };
     }
@@ -556,7 +571,7 @@ function symbolsByKind(
     };
   }
 
-  const symbols = repoMap.getSymbolsByKind(kind, limit ?? 30);
+  const symbols = await repoMap.getSymbolsByKind(kind, limit ?? 30);
   if (symbols.length === 0) {
     return { success: true, output: `No exported ${kind} symbols found.` };
   }

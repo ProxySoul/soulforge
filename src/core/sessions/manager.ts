@@ -3,6 +3,7 @@ import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { ChatMessage } from "../../types/index.js";
+import { getIOClient } from "../workers/io-client.js";
 import { rebuildCoreMessages } from "./rebuild.js";
 import type { SessionMeta, TabMeta } from "./types.js";
 
@@ -43,6 +44,15 @@ export class SessionManager {
   async saveSession(meta: SessionMeta, tabMessages: Map<string, ChatMessage[]>): Promise<void> {
     this.ensureDir();
     const sessionDir = join(this.dir, meta.id);
+
+    try {
+      const io = getIOClient();
+      await io.saveSession(sessionDir, meta, [...tabMessages.entries()]);
+      return;
+    } catch {
+      // IO worker unavailable — fall back to local serialization
+    }
+
     if (!existsSync(sessionDir)) {
       mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
     }
@@ -112,6 +122,24 @@ export class SessionManager {
       const msg = err instanceof Error ? err.message : String(err);
       logBackgroundError("session-load", `Failed to load session ${id}: ${msg}`);
       return null;
+    }
+  }
+
+  async loadSessionAsync(
+    id: string,
+  ): Promise<{ meta: SessionMeta; tabMessages: Map<string, ChatMessage[]> } | null> {
+    const sessionDir = join(this.dir, id);
+    try {
+      const io = getIOClient();
+      const result = await io.loadSession(sessionDir);
+      if (!result) return null;
+      const tabMessages = new Map<string, ChatMessage[]>();
+      for (const [tabId, msgs] of result.tabEntries) {
+        tabMessages.set(tabId, msgs);
+      }
+      return { meta: result.meta, tabMessages };
+    } catch {
+      return this.loadSession(id);
     }
   }
 

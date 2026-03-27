@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { access, stat as fsStat } from "node:fs/promises";
+import { access, stat as statAsync } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { isBinaryFile } from "isbinaryfile";
 import type { ToolResult } from "../../types";
@@ -50,15 +50,16 @@ export const readFileTool = {
         return { success: false, output: msg, error: msg };
       }
 
-      let fileStat: Awaited<ReturnType<typeof fsStat>>;
+      let fileStat: Awaited<ReturnType<typeof statAsync>>;
       try {
-        fileStat = await fsStat(filePath);
-      } catch {
-        return {
-          success: false,
-          output: `File not found: ${filePath}`,
-          error: `File not found: ${filePath}`,
-        };
+        fileStat = await statAsync(filePath);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        const msg =
+          code === "EACCES" || code === "EPERM"
+            ? `Permission denied: ${filePath}`
+            : `File not found: ${filePath}`;
+        return { success: false, output: msg, error: msg };
       }
 
       if (fileStat.isDirectory()) {

@@ -49,7 +49,7 @@ const FILE_REQUIRED_ACTIONS = new Set<NavigateAction>([
 
 type RepoMapLike = {
   isReady: boolean;
-  findSymbols(name: string): Array<{ path: string; kind: string; isExported: boolean }>;
+  findSymbols(name: string): Promise<Array<{ path: string; kind: string; isExported: boolean }>>;
 };
 
 type ResolveResult = { resolved: string } | { candidates: string[] } | null;
@@ -104,7 +104,7 @@ async function autoResolveFile(
 ): Promise<ResolveResult> {
   // Tier 1: Repo map (instant SQLite lookup, ~0ms)
   if (repoMap?.isReady) {
-    const matches = repoMap.findSymbols(symbol);
+    const matches = await repoMap.findSymbols(symbol);
     if (matches.length === 1) return { resolved: (matches[0] as { path: string }).path };
     if (matches.length > 1) {
       const exported = matches.filter((m) => m.isExported);

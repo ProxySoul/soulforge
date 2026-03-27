@@ -133,71 +133,74 @@ export class WorkingStateManager {
   }
 
   serialize(): string {
-    const s = this.state;
-    const sections: string[] = [];
-
-    if (s.task) {
-      sections.push(`## Task\n${s.task}`);
-    }
-
-    if (s.userRequirements.length > 0) {
-      sections.push(`## User Requirements\n${s.userRequirements.map((r) => `- ${r}`).join("\n")}`);
-    }
-
-    if (s.plan.length > 0) {
-      const planLines = s.plan.map((step) => {
-        const icon =
-          step.status === "done"
-            ? "✓"
-            : step.status === "active"
-              ? "▸"
-              : step.status === "skipped"
-                ? "⊘"
-                : "○";
-        return `  ${icon} [${step.id}] ${step.label} — ${step.status}`;
-      });
-      sections.push(`## Plan\n${planLines.join("\n")}`);
-    }
-
-    if (s.environment.length > 0) {
-      sections.push(`## Environment\n${s.environment.map((e) => `- ${e}`).join("\n")}`);
-    }
-
-    if (s.files.size > 0) {
-      const fileLines: string[] = [];
-      for (const [path, slot] of s.files) {
-        const actions = slot.actions.map((a) => {
-          if (a.type === "read") return `read: ${a.summary}`;
-          if (a.type === "edit") return `edited: ${a.detail}`;
-          if (a.type === "create") return `created: ${a.detail}`;
-          return "deleted";
-        });
-        fileLines.push(`- \`${path}\`: ${actions.join("; ")}`);
-      }
-      sections.push(`## Files Touched\n${fileLines.join("\n")}`);
-    }
-
-    if (s.decisions.length > 0) {
-      sections.push(`## Key Decisions\n${s.decisions.map((d) => `- ${d}`).join("\n")}`);
-    }
-
-    if (s.assistantNotes.length > 0) {
-      sections.push(`## Assistant Notes\n${s.assistantNotes.map((n) => `- ${n}`).join("\n")}`);
-    }
-
-    if (s.toolResults.length > 0) {
-      const resultLines = s.toolResults.map((r) => `- **${r.tool}**: ${r.summary}`);
-      sections.push(`## Tool Results\n${resultLines.join("\n")}`);
-    }
-
-    if (s.failures.length > 0) {
-      sections.push(`## Errors & Failures\n${s.failures.map((f) => `- ${f}`).join("\n")}`);
-    }
-
-    if (s.discoveries.length > 0) {
-      sections.push(`## Discoveries\n${s.discoveries.map((d) => `- ${d}`).join("\n")}`);
-    }
-
-    return sections.join("\n\n");
+    return serializeState(this.state);
   }
+}
+
+export function serializeState(s: WorkingState): string {
+  const sections: string[] = [];
+
+  if (s.task) {
+    sections.push(`## Task\n${s.task}`);
+  }
+
+  if (s.userRequirements.length > 0) {
+    sections.push(`## User Requirements\n${s.userRequirements.map((r) => `- ${r}`).join("\n")}`);
+  }
+
+  if (s.plan.length > 0) {
+    const planLines = s.plan.map((step) => {
+      const icon =
+        step.status === "done"
+          ? "✓"
+          : step.status === "active"
+            ? "▸"
+            : step.status === "skipped"
+              ? "⊘"
+              : "○";
+      return `  ${icon} [${step.id}] ${step.label} — ${step.status}`;
+    });
+    sections.push(`## Plan\n${planLines.join("\n")}`);
+  }
+
+  if (s.environment.length > 0) {
+    sections.push(`## Environment\n${s.environment.map((e) => `- ${e}`).join("\n")}`);
+  }
+
+  if (s.files.size > 0) {
+    const fileLines: string[] = [];
+    for (const [path, slot] of s.files) {
+      const actions = slot.actions.map((a) => {
+        if (a.type === "read") return `read: ${a.summary}`;
+        if (a.type === "edit") return `edited: ${a.detail}`;
+        if (a.type === "create") return `created: ${a.detail}`;
+        return "deleted";
+      });
+      fileLines.push(`- \`${path}\`: ${actions.join("; ")}`);
+    }
+    sections.push(`## Files Touched\n${fileLines.join("\n")}`);
+  }
+
+  if (s.decisions.length > 0) {
+    sections.push(`## Key Decisions\n${s.decisions.map((d) => `- ${d}`).join("\n")}`);
+  }
+
+  if (s.assistantNotes.length > 0) {
+    sections.push(`## Assistant Notes\n${s.assistantNotes.map((n) => `- ${n}`).join("\n")}`);
+  }
+
+  if (s.toolResults.length > 0) {
+    const resultLines = s.toolResults.map((r) => `- **${r.tool}**: ${r.summary}`);
+    sections.push(`## Tool Results\n${resultLines.join("\n")}`);
+  }
+
+  if (s.failures.length > 0) {
+    sections.push(`## Errors & Failures\n${s.failures.map((f) => `- ${f}`).join("\n")}`);
+  }
+
+  if (s.discoveries.length > 0) {
+    sections.push(`## Discoveries\n${s.discoveries.map((d) => `- ${d}`).join("\n")}`);
+  }
+
+  return sections.join("\n\n");
 }

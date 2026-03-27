@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Selection, TextAttributes } from "@opentui/core";
 import { useRenderer, useTerminalDimensions } from "@opentui/react";
@@ -634,17 +633,20 @@ export function App({
   // biome-ignore lint/correctness/useExhaustiveDependencies: narrow trigger — only re-run on tab count/active changes
   useEffect(() => {
     if (tabMgr.tabCount <= 1) return;
-    try {
-      const dir = join(cwd, ".soulforge");
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const activeChat = tabMgr.getActiveChat();
-      const layout = tabMgr.tabs.map((t) => ({
-        id: t.id,
-        label: t.label,
-        activeModel: t.id === tabMgr.activeTabId ? activeChat?.activeModel : undefined,
-      }));
-      writeFileSync(join(dir, "tabs.json"), JSON.stringify(layout, null, 2));
-    } catch {}
+    (async () => {
+      try {
+        const { mkdir, writeFile } = await import("node:fs/promises");
+        const dir = join(cwd, ".soulforge");
+        await mkdir(dir, { recursive: true });
+        const activeChat = tabMgr.getActiveChat();
+        const layout = tabMgr.tabs.map((t) => ({
+          id: t.id,
+          label: t.label,
+          activeModel: t.id === tabMgr.activeTabId ? activeChat?.activeModel : undefined,
+        }));
+        await writeFile(join(dir, "tabs.json"), JSON.stringify(layout, null, 2));
+      } catch {}
+    })();
   }, [tabMgr.tabCount, tabMgr.activeTabId]);
 
   const { displayProvider, displayModel, isGateway, isProxy } = useMemo(() => {

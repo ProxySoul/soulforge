@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 import type { ToolResult } from "../../types";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import { isForbidden } from "../security/forbidden.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
 type ImpactAction = "dependents" | "dependencies" | "cochanges" | "blast_radius";
 
@@ -14,7 +14,7 @@ export const soulImpactTool = {
   name: "soul_impact",
   description: "Dependency graph queries: dependents, dependencies, cochanges, blast_radius.",
 
-  createExecute: (repoMap?: RepoMap) => {
+  createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulImpactArgs): Promise<ToolResult> => {
       if (!repoMap?.isReady) {
         return { success: false, output: "Soul map not ready.", error: "not ready" };
@@ -33,13 +33,13 @@ export const soulImpactTool = {
 
       switch (args.action) {
         case "dependents":
-          return showDependents(repoMap, relPath);
+          return await showDependents(repoMap, relPath);
         case "dependencies":
-          return showDependencies(repoMap, relPath);
+          return await showDependencies(repoMap, relPath);
         case "cochanges":
-          return showCoChanges(repoMap, relPath);
+          return await showCoChanges(repoMap, relPath);
         case "blast_radius":
-          return showBlastRadius(repoMap, relPath);
+          return await showBlastRadius(repoMap, relPath);
         default:
           return {
             success: false,
@@ -51,8 +51,8 @@ export const soulImpactTool = {
   },
 };
 
-function showDependents(repoMap: RepoMap, relPath: string): ToolResult {
-  const dependents = repoMap.getFileDependents(relPath);
+async function showDependents(repoMap: IntelligenceClient, relPath: string): Promise<ToolResult> {
+  const dependents = await repoMap.getFileDependents(relPath);
   if (dependents.length === 0) {
     return { success: true, output: `No files depend on "${relPath}" (or file not indexed).` };
   }
@@ -65,8 +65,8 @@ function showDependents(repoMap: RepoMap, relPath: string): ToolResult {
   return { success: true, output: lines.join("\n") };
 }
 
-function showDependencies(repoMap: RepoMap, relPath: string): ToolResult {
-  const deps = repoMap.getFileDependencies(relPath);
+async function showDependencies(repoMap: IntelligenceClient, relPath: string): Promise<ToolResult> {
+  const deps = await repoMap.getFileDependencies(relPath);
   if (deps.length === 0) {
     return {
       success: true,
@@ -82,8 +82,8 @@ function showDependencies(repoMap: RepoMap, relPath: string): ToolResult {
   return { success: true, output: lines.join("\n") };
 }
 
-function showCoChanges(repoMap: RepoMap, relPath: string): ToolResult {
-  const cochanges = repoMap.getFileCoChanges(relPath);
+async function showCoChanges(repoMap: IntelligenceClient, relPath: string): Promise<ToolResult> {
+  const cochanges = await repoMap.getFileCoChanges(relPath);
   if (cochanges.length === 0) {
     return { success: true, output: `No co-change partners found for "${relPath}".` };
   }
@@ -98,11 +98,11 @@ function showCoChanges(repoMap: RepoMap, relPath: string): ToolResult {
   return { success: true, output: lines.join("\n") };
 }
 
-function showBlastRadius(repoMap: RepoMap, relPath: string): ToolResult {
-  const dependents = repoMap.getFileDependents(relPath);
-  const cochanges = repoMap.getFileCoChanges(relPath);
-  const blastCount = repoMap.getFileBlastRadius(relPath);
-  const symbols = repoMap.getFileSymbols(relPath);
+async function showBlastRadius(repoMap: IntelligenceClient, relPath: string): Promise<ToolResult> {
+  const dependents = await repoMap.getFileDependents(relPath);
+  const cochanges = await repoMap.getFileCoChanges(relPath);
+  const blastCount = await repoMap.getFileBlastRadius(relPath);
+  const symbols = await repoMap.getFileSymbols(relPath);
 
   if (dependents.length === 0 && cochanges.length === 0 && symbols.length === 0) {
     return { success: true, output: `"${relPath}" not found in soul map index.` };

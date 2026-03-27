@@ -1,8 +1,8 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import { isForbidden } from "../security/forbidden.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
 interface ListDirArgs {
   path?: string;
@@ -17,7 +17,7 @@ interface ListDirArgs {
 export const listDirTool = {
   name: "list_dir",
   description: "List directory contents with file metadata.",
-  execute: async (args: ListDirArgs, repoMap?: RepoMap): Promise<ToolResult> => {
+  execute: async (args: ListDirArgs, repoMap?: IntelligenceClient): Promise<ToolResult> => {
     try {
       const cwd = process.cwd();
       const targetPath = args.path ? resolve(args.path) : cwd;
@@ -32,7 +32,7 @@ export const listDirTool = {
       // Try repo map first
       if (repoMap) {
         const dirKey = relPath === "" ? "." : relPath;
-        const entries = repoMap.listDirectory(dirKey);
+        const entries = await repoMap.listDirectory(dirKey);
         if (entries && entries.length > 0) {
           const lines: string[] = [];
           for (const e of entries) {
@@ -56,33 +56,36 @@ export const listDirTool = {
         }
       }
 
-      // Fallback: filesystem
-      let entries: string[];
+      // Fallback: filesystem (async)
+      let rawEntries: string[];
       try {
-        entries = readdirSync(targetPath);
+        rawEntries = await readdir(targetPath);
       } catch {
         const msg = `Cannot read directory: ${targetPath}`;
         return { success: false, output: msg, error: msg };
       }
 
-      // Filter forbidden entries and sort dirs first
+      const visible = rawEntries.filter(
+        (name) =>
+          (!name.startsWith(".") || name === ".gitignore") && !isForbidden(join(targetPath, name)),
+      );
+
+      const classified = await Promise.all(
+        visible.map(async (name) => {
+          try {
+            const s = await stat(join(targetPath, name));
+            return { name, isDir: s.isDirectory() };
+          } catch {
+            return { name, isDir: false };
+          }
+        }),
+      );
+
       const dirs: string[] = [];
       const files: string[] = [];
-
-      for (const name of entries) {
-        if (name.startsWith(".") && name !== ".gitignore") continue;
-        const full = join(targetPath, name);
-        if (isForbidden(full)) continue;
-        try {
-          const stat = statSync(full);
-          if (stat.isDirectory()) {
-            dirs.push(name);
-          } else {
-            files.push(name);
-          }
-        } catch {
-          files.push(name);
-        }
+      for (const { name, isDir } of classified) {
+        if (isDir) dirs.push(name);
+        else files.push(name);
       }
 
       const lines: string[] = [];

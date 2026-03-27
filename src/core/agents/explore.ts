@@ -48,7 +48,7 @@ interface ExploreAgentOptions {
   webSearchModel?: LanguageModel;
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
-  repoMap?: import("../intelligence/repo-map.js").RepoMap;
+  repoMap?: import("../workers/intelligence-client.js").IntelligenceClient;
   contextWindow?: number;
   disablePruning?: boolean;
   role?: "explore" | "investigate";

@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { ToolResult } from "../../types";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import { isForbidden } from "../security/forbidden.js";
 import { getVendoredPath } from "../setup/install.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { enrichWithSymbolContext } from "./grep.js";
 
 const ENRICHMENT_TIMEOUT_MS = 2000;
@@ -48,13 +48,13 @@ export const soulGrepTool = {
   name: "soul_grep",
   description:
     "Token-efficient search with count mode and word-boundary matching. Count mode returns per-file counts. Non-count mode includes symbol context.",
-  createExecute: (repoMap?: RepoMap) => {
+  createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulGrepArgs): Promise<ToolResult> => {
       const { pattern, count, wordBoundary, dep } = args;
       const searchPath = dep ? resolveDepPath(dep, args.path) : (args.path ?? ".");
 
       if (!dep && count && wordBoundary && repoMap?.isReady && !args.path && !args.glob) {
-        const intercept = tryRepoMapCount(repoMap, pattern);
+        const intercept = await tryIntelligenceClientCount(repoMap, pattern);
         if (intercept) return intercept;
       }
 
@@ -86,14 +86,17 @@ export const soulGrepTool = {
   },
 };
 
-function tryRepoMapCount(repoMap: RepoMap, pattern: string): ToolResult | null {
+async function tryIntelligenceClientCount(
+  repoMap: IntelligenceClient,
+  pattern: string,
+): Promise<ToolResult | null> {
   if (/[^a-zA-Z0-9_$]/.test(pattern)) return null;
 
-  const freq = repoMap.getIdentifierFrequency(500);
-  const match = freq.find((f) => f.name === pattern);
+  const freq = await repoMap.getIdentifierFrequency(500);
+  const match = freq.find((f: { name: string; fileCount: number }) => f.name === pattern);
   if (!match) return null;
 
-  const symbols = repoMap.findSymbols(pattern);
+  const symbols = await repoMap.findSymbols(pattern);
   const lines = [
     `${pattern}: referenced in ${String(match.fileCount)} files (from soul map index)`,
   ];
@@ -107,7 +110,9 @@ function tryRepoMapCount(repoMap: RepoMap, pattern: string): ToolResult | null {
     }
   }
 
-  const nearby = freq.filter((f) => f.name !== pattern).slice(0, 5);
+  const nearby = freq
+    .filter((f: { name: string; fileCount: number }) => f.name !== pattern)
+    .slice(0, 5);
   if (nearby.length > 0) {
     lines.push("");
     lines.push("Top identifiers for comparison:");

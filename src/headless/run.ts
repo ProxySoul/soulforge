@@ -369,6 +369,20 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
   env.contextManager.updateConversationContext(prompt, 0);
 
   // Header
+  const workerInfo = () => {
+    try {
+      const { useWorkerStore } =
+        require("../stores/workers.js") as typeof import("../stores/workers.js");
+      const wk = useWorkerStore.getState();
+      return {
+        intelligence: wk.intelligence.status,
+        io: wk.io.status,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   if (isEvents) {
     writeEvent({
       type: "start",
@@ -376,16 +390,22 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
       mode: env.mode,
       session: opts.sessionId ?? null,
       repoMap: env.repoMap
-        ? { files: env.repoMap.getStats().files, symbols: env.repoMap.getStats().symbols }
+        ? {
+            files: env.repoMap.getStatsCached().files,
+            symbols: env.repoMap.getStatsCached().symbols,
+          }
         : null,
+      workers: workerInfo(),
     });
   } else if (showProgress) {
     stderrLabel("Model", env.modelId);
     if (env.mode !== "default") stderrLabel("Mode", env.mode);
     if (env.repoMap) {
-      const stats = env.repoMap.getStats();
+      const stats = env.repoMap.getStatsCached();
       stderrLabel("Repo", `${String(stats.files)} files, ${String(stats.symbols)} symbols`);
     }
+    const wk = workerInfo();
+    if (wk) stderrDim(`Workers: intelligence=${wk.intelligence}, io=${wk.io}`);
     separator();
   }
 
@@ -569,6 +589,20 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   }
 
   // Header
+  const workerInfo = () => {
+    try {
+      const { useWorkerStore } =
+        require("../stores/workers.js") as typeof import("../stores/workers.js");
+      const wk = useWorkerStore.getState();
+      return {
+        intelligence: wk.intelligence.status,
+        io: wk.io.status,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   if (isEvents) {
     writeEvent({
       type: "start",
@@ -576,16 +610,22 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
       mode: env.mode,
       chat: true,
       repoMap: env.repoMap
-        ? { files: env.repoMap.getStats().files, symbols: env.repoMap.getStats().symbols }
+        ? {
+            files: env.repoMap.getStatsCached().files,
+            symbols: env.repoMap.getStatsCached().symbols,
+          }
         : null,
+      workers: workerInfo(),
     });
   } else if (showProgress) {
     stderrLabel("Model", env.modelId);
     if (env.mode !== "default") stderrLabel("Mode", env.mode);
     if (env.repoMap) {
-      const stats = env.repoMap.getStats();
+      const stats = env.repoMap.getStatsCached();
       stderrLabel("Repo", `${String(stats.files)} files, ${String(stats.symbols)} symbols`);
     }
+    const wk = workerInfo();
+    if (wk) stderrDim(`Workers: intelligence=${wk.intelligence}, io=${wk.io}`);
     stderrDim(
       "Chat mode — type a prompt and hit Enter (backslash \\ for multiline, Ctrl+C to exit)",
     );

@@ -6,7 +6,7 @@ import type { EditorIntegration, ForgeMode, TaskRouter } from "../../types/index
 import { toErrorMessage } from "../../utils/errors.js";
 import { setNeovimFileWrittenHandler } from "../editor/neovim.js";
 import { buildGitContext } from "../git/status.js";
-import { RepoMap, type SymbolForSummary } from "../intelligence/repo-map.js";
+import type { SymbolForSummary } from "../intelligence/repo-map.js";
 import { resolveModel } from "../llm/provider.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../prompts/index.js";
 import { buildForbiddenContext, isForbidden } from "../security/forbidden.js";
 import { emitFileEdited, onFileEdited, onFileRead } from "../tools/file-events.js";
+import { IntelligenceClient } from "../workers/intelligence-client.js";
 // extractConversationTerms removed — FTS boosting was noisy
 import { walkDir } from "./file-tree.js";
 import { detectToolchain } from "./toolchain.js";
@@ -27,7 +28,7 @@ import { detectToolchain } from "./toolchain.js";
 // Mode instructions are in src/core/prompts/modes/index.ts
 
 export interface SharedContextResources {
-  repoMap: RepoMap;
+  repoMap: IntelligenceClient;
   memoryManager: MemoryManager;
   workspaceCoordinator?: import("../coordination/WorkspaceCoordinator.js").WorkspaceCoordinator;
 }
@@ -59,7 +60,7 @@ export class ContextManager {
   private editorIntegration: EditorIntegration | null = null;
   private fileTreeCache: { tree: string; at: number } | null = null;
   private projectInfoCache: { info: string | null; at: number } | null = null;
-  private repoMap: RepoMap;
+  private repoMap: IntelligenceClient;
   private repoMapReady = false;
   private repoMapEnabled = process.env.SOULFORGE_NO_REPOMAP !== "1";
   private repoMapGeneration = 0;
@@ -95,7 +96,7 @@ export class ContextManager {
       this.wireFileEventHandlers();
     } else {
       this.memoryManager = new MemoryManager(cwd);
-      this.repoMap = new RepoMap(cwd);
+      this.repoMap = new IntelligenceClient(cwd);
       this.wireFileEventHandlers();
       if (this.repoMapEnabled) {
         this.wireRepoMapCallbacks();
@@ -120,7 +121,7 @@ export class ContextManager {
     await tick();
 
     onStep?.("Mapping the codebase…");
-    const repoMap = new RepoMap(cwd);
+    const repoMap = new IntelligenceClient(cwd);
     await tick();
 
     onStep?.("Wiring up the forge…");
@@ -182,7 +183,7 @@ export class ContextManager {
   }
 
   private wireRepoMapCallbacks(): void {
-    this.repoMap.onProgress = (indexed, total) => {
+    this.repoMap.onProgress = (indexed: number, total: number) => {
       const store = useRepoMapStore.getState();
       const phaseLabels: Record<number, string> = {
         [-1]: "building edges",
@@ -191,23 +192,25 @@ export class ContextManager {
       };
       const label = phaseLabels[indexed] ?? `${String(indexed)}/${String(total)}`;
       store.setScanProgress(label);
-      const stats = this.repoMap.getStats();
-      store.setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytes());
+      const stats = this.repoMap.getStatsCached();
+      store.setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytesCached());
     };
-    this.repoMap.onScanComplete = (success) => {
+    this.repoMap.onScanComplete = async (success: boolean) => {
       if (success) {
         this.repoMapReady = true;
         this.repoMapGeneration++;
         this.syncRepoMapStore("ready");
         useRepoMapStore.getState().setScanError("");
-        // Re-apply semantic mode now that repo map is ready (may have been set before scan finished)
         const current = this.repoMap.getSemanticMode();
-        if (current === "off") {
-          const persisted = this.repoMap.detectPersistedSemanticMode();
-          this.setSemanticSummaries(persisted === "off" ? "synthetic" : persisted);
-        } else {
-          this.setSemanticSummaries(current);
-        }
+        const semanticTask =
+          current === "off"
+            ? this.repoMap
+                .detectPersistedSemanticMode()
+                .then((persisted) =>
+                  this.setSemanticSummaries(persisted === "off" ? "synthetic" : persisted),
+                )
+            : this.setSemanticSummaries(current);
+        await Promise.all([semanticTask, this.warmRepoMapCache()]);
       } else {
         this.repoMapReady = false;
         this.syncRepoMapStore("error");
@@ -215,18 +218,16 @@ export class ContextManager {
       }
     };
 
-    // On stale symbols: always regen free summaries (ast/synthetic), optionally regen LLM
-    this.repoMap.onStaleSymbols = (count) => {
+    this.repoMap.onStaleSymbols = async (count: number) => {
       const mode = this.repoMap.getSemanticMode();
       if (mode === "off" || !this.repoMapReady) return;
 
-      // AST + synthetic regen is always free and instant
-      this.repoMap.generateAstSummaries();
+      const tasks: Promise<unknown>[] = [this.repoMap.generateAstSummaries()];
       if (mode === "synthetic" || mode === "full") {
-        this.repoMap.generateSyntheticSummaries();
+        tasks.push(this.repoMap.generateSyntheticSummaries());
       }
+      await Promise.all(tasks);
 
-      // LLM regen only when auto-regen is enabled (costs tokens)
       if ((mode === "llm" || mode === "full" || mode === "on") && this.semanticAutoRegen) {
         const modelId = this.getSemanticModelId(this.lastActiveModel ?? "");
         if (!modelId || modelId === "none") return;
@@ -235,8 +236,7 @@ export class ContextManager {
         store.setSemanticProgress(`${String(count)} stale — regenerating...`);
         this.generateSemanticSummaries(modelId).catch(() => {});
       } else {
-        // Just update counts from free regen
-        const stats = this.repoMap.getStats();
+        const stats = this.repoMap.getStatsCached();
         useRepoMapStore.getState().setSemanticCount(stats.summaries);
       }
     };
@@ -245,10 +245,9 @@ export class ContextManager {
   private syncRepoMapStore(status: "off" | "scanning" | "ready" | "error"): void {
     const store = useRepoMapStore.getState();
     store.setStatus(status);
-    // Don't reset stats to 0 during scanning — keep last-known values visible
     if (status !== "scanning") {
-      const stats = this.repoMap.getStats();
-      store.setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytes());
+      const stats = this.repoMap.getStatsCached();
+      store.setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytesCached());
       store.setScanProgress("");
     }
   }
@@ -319,17 +318,18 @@ export class ContextManager {
       this.repoMap.onFileChanged(absPath);
       if (this.repoMapReady) {
         setTimeout(() => {
-          const stats = this.repoMap.getStats();
+          const stats = this.repoMap.getStatsCached();
           useRepoMapStore
             .getState()
-            .setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytes());
+            .setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytesCached());
         }, 200);
       }
     }
     this.editedFiles.add(absPath);
     const rel = absPath.startsWith(`${this.cwd}/`) ? absPath.slice(this.cwd.length + 1) : absPath;
     this.soulMapDiffChangedFiles.add(rel);
-    this.repoMapCache = null;
+    if (this.repoMapCache) this.repoMapCache.at = 0;
+    this.warmRepoMapCache();
     this.gitContextStale = true;
   }
 
@@ -359,27 +359,42 @@ export class ContextManager {
     this.mentionedFiles.clear();
 
     this.conversationTokens = 0;
-    this.repoMapCache = null;
+    if (this.repoMapCache) this.repoMapCache.at = 0;
+    this.warmRepoMapCache();
   }
 
-  /** Render repo map with full tracked context (cached within TTL) */
+  private repoMapRefreshing = false;
+
+  /** Render repo map with full tracked context (returns cached, refreshes in background) */
   renderRepoMap(): string {
     if (!this.isRepoMapReady()) return "";
     const now = Date.now();
-    if (this.repoMapCache && now - this.repoMapCache.at < ContextManager.REPO_MAP_TTL) {
+    if (this.repoMapCache) {
+      if (now - this.repoMapCache.at >= ContextManager.REPO_MAP_TTL) {
+        this.warmRepoMapCache();
+      }
       return this.repoMapCache.content;
     }
-    const content = this.repoMap.render({
-      editorFile: this.editorFile,
-      editedFiles: [...this.editedFiles],
-      mentionedFiles: [...this.mentionedFiles],
-      conversationTokens: this.conversationTokens,
-    });
-    this.repoMapCache = { content, at: now };
-    return content;
+    this.warmRepoMapCache();
+    return "";
   }
 
-  getRepoMap(): RepoMap {
+  private async warmRepoMapCache(): Promise<void> {
+    if (this.repoMapRefreshing) return;
+    this.repoMapRefreshing = true;
+    try {
+      const content = await this.repoMap.render({
+        editorFile: this.editorFile,
+        editedFiles: [...this.editedFiles],
+        mentionedFiles: [...this.mentionedFiles],
+        conversationTokens: this.conversationTokens,
+      });
+      this.repoMapCache = { content, at: Date.now() };
+    } catch {}
+    this.repoMapRefreshing = false;
+  }
+
+  getRepoMap(): IntelligenceClient {
     return this.repoMap;
   }
 
@@ -389,12 +404,12 @@ export class ContextManager {
 
   isRepoMapReady(): boolean {
     if (!this.repoMapEnabled) return false;
-    if (this.isChild) return this.repoMap.getStats().files > 0;
+    if (this.isChild) return this.repoMap.getStatsCached().files > 0;
     return this.repoMapReady;
   }
 
   getRepoMapGeneration(): number {
-    if (this.isChild) return this.repoMap.getStats().files;
+    if (this.isChild) return this.repoMap.getStatsCached().files;
     return this.repoMapGeneration;
   }
 
@@ -427,9 +442,9 @@ export class ContextManager {
     this.repoMapCache = null;
   }
 
-  setSemanticSummaries(
+  async setSemanticSummaries(
     modeOrBool: "off" | "ast" | "synthetic" | "llm" | "full" | "on" | boolean,
-  ): void {
+  ): Promise<void> {
     const mode =
       modeOrBool === true
         ? "synthetic"
@@ -455,36 +470,31 @@ export class ContextManager {
       return;
     }
 
-    // AST extraction (free) — runs for all non-off modes
     store.setSemanticStatus("generating");
-    store.setSemanticProgress("extracting docstrings...");
-    this.repoMap.generateAstSummaries();
-
-    // Synthetic generation (free, instant) — runs for synthetic/full modes
+    store.setSemanticProgress("generating summaries...");
+    const genTasks: Promise<unknown>[] = [this.repoMap.generateAstSummaries()];
     if (mode === "synthetic" || mode === "full") {
-      store.setSemanticProgress("generating synthetic summaries...");
-      this.repoMap.generateSyntheticSummaries();
+      genTasks.push(this.repoMap.generateSyntheticSummaries());
     }
+    await Promise.all(genTasks);
 
-    // Update stats from actual DB state
-    const bd = this.repoMap.getSummaryBreakdown();
+    const bd = await this.repoMap.getSummaryBreakdown();
     store.setSemanticCount(bd.total);
 
     if (mode === "llm" || mode === "full") {
-      // Auto-trigger LLM generation in background if model available
       const modelId = this.getSemanticModelId(this.lastActiveModel);
       if (modelId && modelId !== "none") {
         const genId = ++this.semanticGenId;
         store.setSemanticModel(modelId);
-        store.setSemanticStatus("generating"); // never "ready" before LLM finishes
+        store.setSemanticStatus("generating");
         store.setSemanticProgress(
           bd.total > 0
             ? `${this.formatBreakdown(bd)} (generating LLM...)`
             : "generating LLM summaries...",
         );
-        this.generateSemanticSummaries(modelId).catch(() => {
+        this.generateSemanticSummaries(modelId).catch(async () => {
           if (this.semanticGenId !== genId) return;
-          const current = this.repoMap.getSummaryBreakdown();
+          const current = await this.repoMap.getSummaryBreakdown();
           store.setSemanticCount(current.total);
           store.setSemanticStatus(current.total > 0 ? "ready" : "off");
           store.setSemanticProgress(
@@ -501,10 +511,9 @@ export class ContextManager {
     }
   }
 
-  /** Clear only free summaries (ast/synthetic). LLM summaries are preserved. */
-  clearFreeSummaries(): void {
+  async clearFreeSummaries(): Promise<void> {
     this.repoMap.clearFreeSummaries();
-    const bd = this.repoMap.getSummaryBreakdown();
+    const bd = await this.repoMap.getSummaryBreakdown();
     const store = useRepoMapStore.getState();
     store.setSemanticCount(bd.total);
     store.setSemanticProgress(bd.total > 0 ? this.formatBreakdown(bd) : "");
@@ -654,9 +663,8 @@ export class ContextManager {
 
     try {
       const count = await this.repoMap.generateSemanticSummaries(this.semanticSummaryLimit);
-      // Only update store if this is still the active generation (not superseded)
       if (this.semanticGenId === myGenId) {
-        const bd = this.repoMap.getSummaryBreakdown();
+        const bd = await this.repoMap.getSummaryBreakdown();
         store.setSemanticCount(bd.total);
         store.setSemanticStatus(bd.total > 0 ? "ready" : "off");
         store.setSemanticProgress(bd.total > 0 ? this.formatBreakdown(bd) : "");
@@ -669,7 +677,7 @@ export class ContextManager {
         store.setSemanticProgress(msg.slice(0, 80));
         store.setSemanticModel("");
         store.resetSemanticTokens();
-        const fallbackStats = this.repoMap.getStats();
+        const fallbackStats = this.repoMap.getStatsCached();
         store.setSemanticCount(fallbackStats.summaries);
       }
       throw err;
@@ -684,6 +692,9 @@ export class ContextManager {
     if (!this.isChild) {
       this.repoMap.close().catch(() => {});
       this.memoryManager.close();
+      import("../workers/io-client.js")
+        .then(({ disposeIOClient }) => disposeIOClient())
+        .catch(() => {});
     }
   }
 
@@ -695,8 +706,8 @@ export class ContextManager {
     await this.repoMap.scan().catch((err: unknown) => this.handleScanError(err));
   }
 
-  clearRepoMap(): void {
-    this.repoMap.clear();
+  async clearRepoMap(): Promise<void> {
+    await this.repoMap.clear();
     this.repoMapReady = false;
     this.syncRepoMapStore("off");
   }
@@ -846,7 +857,7 @@ export class ContextManager {
       modelId: modelIdOverride || this.lastActiveModel,
       cwd: this.cwd,
       hasRepoMap: this.isRepoMapReady(),
-      hasSymbols: this.isRepoMapReady() && this.repoMap.getStats().symbols > 0,
+      hasSymbols: this.isRepoMapReady() && this.repoMap.getStatsCached().symbols > 0,
       forgeMode: this.forgeMode,
       // contextPercent: this.getContextPercent(),
       // isMinimalContext: this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD,
@@ -944,13 +955,7 @@ export class ContextManager {
 
     const lines = ["<soul_map_update>"];
     for (const file of changed.slice(0, 15)) {
-      const dependents = this.repoMap.getFileDependents(file);
-      if (dependents.length > 0) {
-        const top = dependents.slice(0, 3).map((d) => d.path);
-        lines.push(`  ${file} → affects: ${top.join(", ")}`);
-      } else {
-        lines.push(`  ${file}`);
-      }
+      lines.push(`  ${file}`);
     }
     if (changed.length > 15) lines.push(`  (+${String(changed.length - 15)} more)`);
     lines.push("</soul_map_update>");
@@ -1113,17 +1118,35 @@ export class ContextManager {
     return detectToolchain(this.cwd);
   }
 
-  /** Generate a simple file tree (cached with 30s TTL) */
+  private fileTreeRefreshing = false;
+
+  /** Generate a simple file tree (returns cached, refreshes via IO worker in background) */
   private getFileTree(maxDepth: number): string {
     const now = Date.now();
-    if (this.fileTreeCache && now - this.fileTreeCache.at < ContextManager.FILE_TREE_TTL) {
+    if (this.fileTreeCache) {
+      if (now - this.fileTreeCache.at >= ContextManager.FILE_TREE_TTL) {
+        this.warmFileTreeCache(maxDepth);
+      }
       return this.fileTreeCache.tree;
     }
     const lines: string[] = [];
     walkDir(this.cwd, "", maxDepth, lines);
     const tree = lines.slice(0, 50).join("\n");
     this.fileTreeCache = { tree, at: now };
+    this.warmFileTreeCache(maxDepth);
     return tree;
+  }
+
+  private async warmFileTreeCache(maxDepth: number): Promise<void> {
+    if (this.fileTreeRefreshing) return;
+    this.fileTreeRefreshing = true;
+    try {
+      const { getIOClient } = await import("../workers/io-client.js");
+      const lines = await getIOClient().walkDir(this.cwd, "", maxDepth);
+      const tree = lines.slice(0, 50).join("\n");
+      this.fileTreeCache = { tree, at: Date.now() };
+    } catch {}
+    this.fileTreeRefreshing = false;
   }
 }
 

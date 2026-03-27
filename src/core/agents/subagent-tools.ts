@@ -5,10 +5,10 @@ import { z } from "zod";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AgentFeatures } from "../../types/index.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import { getModelContextWindow } from "../llm/models.js";
 // detectModelFamily removed — subagent pruning is now always disabled
 import { getActiveTaskTab } from "../tools/task-list.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { AgentBus, type AgentTask, normalizePath, type SharedCache } from "./agent-bus.js";
 import { cleanupDispatchDir, type DispatchOutput, type DoneToolResult } from "./agent-results.js";
 import {
@@ -41,7 +41,7 @@ export interface SubagentModels {
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
   readOnly?: boolean;
-  repoMap?: RepoMap;
+  repoMap?: IntelligenceClient;
   sharedCacheRef?: SharedCacheRef;
   agentFeatures?: AgentFeatures;
   skills?: Array<{ name: string; content: string }>;
@@ -367,7 +367,10 @@ export function buildSubagentTools(models: SubagentModels) {
             const verified: string[] = [];
             const hallucinated: string[] = [];
             const onDiskOnly: string[] = [];
-            const symbolCache = new Map<string, ReturnType<RepoMap["getFileSymbolRanges"]>>();
+            const symbolCache = new Map<
+              string,
+              Awaited<ReturnType<IntelligenceClient["getFileSymbolRanges"]>>
+            >();
             const cwd = process.cwd();
 
             for (const file of contract.filesNeeded) {
@@ -376,7 +379,7 @@ export function buildSubagentTools(models: SubagentModels) {
 
               // Tier 1: Soul Map (most reliable — has symbols, line ranges)
               if (repoMap) {
-                const symbols = repoMap.getFileSymbolRanges(norm);
+                const symbols = await repoMap.getFileSymbolRanges(norm);
                 symbolCache.set(norm, symbols);
                 if (symbols.length > 0) {
                   verified.push(norm);
@@ -436,7 +439,7 @@ export function buildSubagentTools(models: SubagentModels) {
                 const missingDeps: string[] = [];
                 for (const f of codeFiles) {
                   if (!verified.includes(f)) continue;
-                  const importers = repoMap.getFileDependents(f);
+                  const importers = await repoMap.getFileDependents(f);
                   for (const imp of importers.slice(0, 5)) {
                     if (!contractSet.has(imp.path) && !codeFiles.includes(imp.path)) {
                       missingDeps.push(`\`${imp.path}\` imports \`${f}\``);
@@ -457,11 +460,14 @@ export function buildSubagentTools(models: SubagentModels) {
               const fileList: string[] = [];
               for (const f of verified) {
                 if (repoMap) {
-                  const symbols = symbolCache.get(f) ?? repoMap.getFileSymbolRanges(f);
+                  const symbols = symbolCache.get(f) ?? (await repoMap.getFileSymbolRanges(f));
                   if (symbols.length > 0) {
                     const top = symbols
                       .slice(0, 5)
-                      .map((s) => `${s.name} (${s.kind}, L${String(s.line)})`)
+                      .map(
+                        (s: { name: string; kind: string; line: number }) =>
+                          `${s.name} (${s.kind}, L${String(s.line)})`,
+                      )
                       .join(", ");
                     fileList.push(`  \`${f}\` → ${top}`);
                     continue;
@@ -796,77 +802,88 @@ export function buildSubagentTools(models: SubagentModels) {
           }
           args = { ...args, tasks: expandedTasks };
 
-          const tasks: AgentTask[] = args.tasks.map((t, i) => {
-            const isWebTask =
-              t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER;
-            let fileHint = "";
-            if (!isWebTask) {
-              const enriched = t.targetFiles.map((f) => {
-                if (!models.repoMap) return f;
-                const ranges = models.repoMap.getFileSymbolRanges(f);
-                if (ranges.length === 0) return f;
-                const rangeStr = ranges
-                  .map((r) => {
-                    const end = r.endLine ? `-${String(r.endLine)}` : "";
-                    return `  ${r.name} (${r.kind}, lines ${String(r.line)}${end})`;
-                  })
-                  .join("\n");
-                return `${f}\n${rangeStr}`;
-              });
-              fileHint = `\nTarget files:\n${enriched.join("\n")}`;
-            }
-            let skillHint = "";
-            if (models.skills && models.skills.length > 0) {
-              const matched = matchSkillsToTask(models.skills, t.task);
-              for (const s of matched) {
-                const truncated =
-                  s.content.length > SKILL_MAX_INJECT_CHARS
-                    ? `${s.content.slice(0, SKILL_MAX_INJECT_CHARS)}\n[...]`
-                    : s.content;
-                skillHint += `\n\n--- Relevant skill: ${s.name} ---\n${truncated}`;
+          const tasks: AgentTask[] = await Promise.all(
+            args.tasks.map(async (t, i) => {
+              const isWebTask =
+                t.targetFiles.length === 1 && t.targetFiles[0]?.toLowerCase() === WEB_MARKER;
+              let fileHint = "";
+              if (!isWebTask) {
+                const enriched = await Promise.all(
+                  t.targetFiles.map(async (f: string) => {
+                    if (!models.repoMap) return f;
+                    const ranges = await models.repoMap.getFileSymbolRanges(f);
+                    if (ranges.length === 0) return f;
+                    const rangeStr = ranges
+                      .map(
+                        (r: {
+                          name: string;
+                          kind: string;
+                          line: number;
+                          endLine: number | null;
+                        }) => {
+                          const end = r.endLine ? `-${String(r.endLine)}` : "";
+                          return `  ${r.name} (${r.kind}, lines ${String(r.line)}${end})`;
+                        },
+                      )
+                      .join("\n");
+                    return `${f}\n${rangeStr}`;
+                  }),
+                );
+                fileHint = `\nTarget files:\n${enriched.join("\n")}`;
               }
-            }
+              let skillHint = "";
+              if (models.skills && models.skills.length > 0) {
+                const matched = matchSkillsToTask(models.skills, t.task);
+                for (const s of matched) {
+                  const truncated =
+                    s.content.length > SKILL_MAX_INJECT_CHARS
+                      ? `${s.content.slice(0, SKILL_MAX_INJECT_CHARS)}\n[...]`
+                      : s.content;
+                  skillHint += `\n\n--- Relevant skill: ${s.name} ---\n${truncated}`;
+                }
+              }
 
-            // Inject cross-tab claims so subagents know about other tabs' edits
-            let crossTabHint = "";
-            if (!isWebTask && t.role === "code") {
-              const tabId = getActiveTaskTab();
-              if (tabId) {
-                const wc = getWorkspaceCoordinator();
-                const editors = wc.getActiveEditors();
-                const otherEdits: string[] = [];
-                for (const [tid] of editors) {
-                  if (tid === tabId) continue;
-                  const tc = wc.getClaimsForTab(tid);
-                  if (tc.size === 0) continue;
-                  let label = "Unknown";
-                  const paths: string[] = [];
-                  for (const [p, c] of tc) {
-                    label = c.tabLabel;
-                    paths.push(p);
+              // Inject cross-tab claims so subagents know about other tabs' edits
+              let crossTabHint = "";
+              if (!isWebTask && t.role === "code") {
+                const tabId = getActiveTaskTab();
+                if (tabId) {
+                  const wc = getWorkspaceCoordinator();
+                  const editors = wc.getActiveEditors();
+                  const otherEdits: string[] = [];
+                  for (const [tid] of editors) {
+                    if (tid === tabId) continue;
+                    const tc = wc.getClaimsForTab(tid);
+                    if (tc.size === 0) continue;
+                    let label = "Unknown";
+                    const paths: string[] = [];
+                    for (const [p, c] of tc) {
+                      label = c.tabLabel;
+                      paths.push(p);
+                    }
+                    otherEdits.push(
+                      `Tab "${label}": ${paths.slice(0, 5).join(", ")}${paths.length > 5 ? ` (+${String(paths.length - 5)} more)` : ""}`,
+                    );
                   }
-                  otherEdits.push(
-                    `Tab "${label}": ${paths.slice(0, 5).join(", ")}${paths.length > 5 ? ` (+${String(paths.length - 5)} more)` : ""}`,
-                  );
-                }
-                if (otherEdits.length > 0) {
-                  crossTabHint = `\n\nOther tabs editing files:\n${otherEdits.join("\n")}\nAvoid these files. If you must edit one, your edit will still apply but may conflict.`;
+                  if (otherEdits.length > 0) {
+                    crossTabHint = `\n\nOther tabs editing files:\n${otherEdits.join("\n")}\nAvoid these files. If you must edit one, your edit will still apply but may conflict.`;
+                  }
                 }
               }
-            }
 
-            return {
-              agentId: t.id ?? `agent-${String(i + 1)}`,
-              role: t.role ?? "explore",
-              task: `${t.task}${fileHint}${skillHint}${crossTabHint}`,
-              returnFormat: t.returnFormat,
-              dependsOn: t.dependsOn,
-              taskId: t.taskId,
-              tabId: getActiveTaskTab() ?? undefined,
-              targetFileCount: isWebTask ? 0 : t.targetFiles.length,
-              targetFiles: isWebTask ? [] : t.targetFiles,
-            };
-          });
+              return {
+                agentId: t.id ?? `agent-${String(i + 1)}`,
+                role: t.role ?? "explore",
+                task: `${t.task}${fileHint}${skillHint}${crossTabHint}`,
+                returnFormat: t.returnFormat,
+                dependsOn: t.dependsOn,
+                taskId: t.taskId,
+                tabId: getActiveTaskTab() ?? undefined,
+                targetFileCount: isWebTask ? 0 : t.targetFiles.length,
+                targetFiles: isWebTask ? [] : t.targetFiles,
+              };
+            }),
+          );
 
           // Auto-serialize code agents that target the same file —
           // concurrent edits to the same file cause old_string mismatch failures.

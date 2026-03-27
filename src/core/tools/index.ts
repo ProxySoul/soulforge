@@ -9,7 +9,6 @@ import {
   prependWarning,
 } from "../coordination/tool-wrapper.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
   describeDestructiveCommand,
@@ -17,6 +16,7 @@ import {
   isSensitiveFile,
 } from "../security/approval-gates.js";
 import { needsOutsideConfirm } from "../security/outside-cwd.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { analyzeTool } from "./analyze.js";
 import {
   CORE_TOOL_NAMES,
@@ -279,7 +279,7 @@ export function buildTools(
     contextManager?: import("../context/manager.js").ContextManager;
     agentSkills?: boolean;
     webSearchModel?: import("ai").LanguageModel;
-    repoMap?: RepoMap;
+    repoMap?: IntelligenceClient;
     onApproveFetchPage?: (url: string) => Promise<boolean>;
     onApproveOutsideCwd?: (toolName: string, path: string) => Promise<boolean>;
     onApproveDestructive?: (description: string) => Promise<boolean>;
@@ -463,8 +463,8 @@ export function buildTools(
           const rel = args.path.startsWith("/")
             ? args.path.slice(effectiveCwd.length + 1)
             : args.path;
-          const blast = opts.repoMap.getFileBlastRadius(rel);
-          const cochanges = opts.repoMap.getFileCoChanges(rel);
+          const blast = await opts.repoMap.getFileBlastRadius(rel);
+          const cochanges = await opts.repoMap.getFileCoChanges(rel);
           if (blast > 0 || cochanges.length > 0) {
             const parts: string[] = [];
             if (blast > 0) parts.push(`${String(blast)} files depend on this`);
@@ -472,7 +472,7 @@ export function buildTools(
               parts.push(
                 `cochanges: ${cochanges
                   .slice(0, 3)
-                  .map((c) => c.path)
+                  .map((c: { path: string; count: number }) => c.path)
                   .join(", ")}${cochanges.length > 3 ? ` +${String(cochanges.length - 3)}` : ""}`,
               );
             result.output += `\n[impact: ${parts.join(" · ")}]`;
@@ -543,8 +543,8 @@ export function buildTools(
           const rel = args.path.startsWith("/")
             ? args.path.slice(effectiveCwd.length + 1)
             : args.path;
-          const blast = opts.repoMap.getFileBlastRadius(rel);
-          const cochanges = opts.repoMap.getFileCoChanges(rel);
+          const blast = await opts.repoMap.getFileBlastRadius(rel);
+          const cochanges = await opts.repoMap.getFileCoChanges(rel);
           if (blast > 0 || cochanges.length > 0) {
             const impactParts: string[] = [];
             if (blast > 0) impactParts.push(`${String(blast)} files depend on this`);
@@ -552,7 +552,7 @@ export function buildTools(
               impactParts.push(
                 `cochanges: ${cochanges
                   .slice(0, 3)
-                  .map((c) => c.path)
+                  .map((c: { path: string; count: number }) => c.path)
                   .join(", ")}${cochanges.length > 3 ? ` +${String(cochanges.length - 3)}` : ""}`,
               );
             result.output += `\n[impact: ${impactParts.join(" · ")}]`;
@@ -776,11 +776,11 @@ export function buildTools(
       ...TEXT_OUTPUT,
       description: grepTool.description,
       inputSchema: SCHEMAS.grep.extend({ fresh: freshField() }),
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         resetReadCounter();
         if (!args.force) {
-          const hit = tryInterceptGrep(args, opts?.repoMap, effectiveCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptGrep(args, opts?.repoMap, effectiveCwd);
+          if (hit) return hit;
         }
         return grepTool.execute(args);
       }),
@@ -790,11 +790,11 @@ export function buildTools(
       ...TEXT_OUTPUT,
       description: globTool.description,
       inputSchema: SCHEMAS.glob.extend({ fresh: freshField() }),
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         resetReadCounter();
         if (!args.force) {
-          const hit = tryInterceptGlob(args, opts?.repoMap, effectiveCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptGlob(args, opts?.repoMap, effectiveCwd);
+          if (hit) return hit;
         }
         return globTool.execute(args);
       }),
@@ -1018,11 +1018,11 @@ export function buildTools(
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
       }),
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         resetReadCounter();
         if (!args.force) {
-          const hit = tryInterceptNavigate(args, opts?.repoMap, effectiveCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptNavigate(args, opts?.repoMap, effectiveCwd);
+          if (hit) return hit;
         }
         return navigateTool.execute(args, opts?.repoMap);
       }),
@@ -1241,10 +1241,10 @@ export function buildTools(
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
       }),
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         if (!args.force) {
-          const hit = tryInterceptDiscoverPattern(args, opts?.repoMap, effectiveCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptDiscoverPattern(args, opts?.repoMap, effectiveCwd);
+          if (hit) return hit;
         }
         return discoverPatternTool.execute(args);
       }),
@@ -1532,7 +1532,7 @@ export function buildSubagentExploreTools(opts?: {
   webSearchModel?: import("ai").LanguageModel;
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
-  repoMap?: RepoMap;
+  repoMap?: IntelligenceClient;
   tabId?: string;
 }) {
   const subagentCwd = process.cwd();
@@ -1555,7 +1555,7 @@ export function buildSubagentExploreTools(opts?: {
       inputSchema: SCHEMAS.grep,
       execute: deferExecute(async (args) => {
         if (!args.force) {
-          const hit = tryInterceptGrep(args, opts?.repoMap, subagentCwd);
+          const hit = await tryInterceptGrep(args, opts?.repoMap, subagentCwd);
           if (hit) return hit;
         }
         const result = await grepTool.execute({ ...args, maxCount: 10 });
@@ -1568,10 +1568,10 @@ export function buildSubagentExploreTools(opts?: {
       ...TEXT_OUTPUT,
       description: globTool.description,
       inputSchema: SCHEMAS.glob,
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         if (!args.force) {
-          const hit = tryInterceptGlob(args, opts?.repoMap, subagentCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptGlob(args, opts?.repoMap, subagentCwd);
+          if (hit) return hit;
         }
         return globTool.execute(args);
       }),
@@ -1633,10 +1633,10 @@ export function buildSubagentExploreTools(opts?: {
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
       }),
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         if (!args.force) {
-          const hit = tryInterceptNavigate(args, opts?.repoMap, subagentCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptNavigate(args, opts?.repoMap, subagentCwd);
+          if (hit) return hit;
         }
         return navigateTool.execute(args, opts?.repoMap);
       }),
@@ -1718,10 +1718,10 @@ export function buildSubagentExploreTools(opts?: {
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
       }),
-      execute: deferExecute((args) => {
+      execute: deferExecute(async (args) => {
         if (!args.force) {
-          const hit = tryInterceptDiscoverPattern(args, opts?.repoMap, subagentCwd);
-          if (hit) return Promise.resolve(hit);
+          const hit = await tryInterceptDiscoverPattern(args, opts?.repoMap, subagentCwd);
+          if (hit) return hit;
         }
         return discoverPatternTool.execute(args);
       }),
@@ -1899,7 +1899,7 @@ export function buildSubagentCodeTools(opts?: {
   webSearchModel?: import("ai").LanguageModel;
   onApproveWebSearch?: (query: string) => Promise<boolean>;
   onApproveFetchPage?: (url: string) => Promise<boolean>;
-  repoMap?: RepoMap;
+  repoMap?: IntelligenceClient;
   tabId?: string;
   tabLabel?: string;
 }) {

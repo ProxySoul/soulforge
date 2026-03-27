@@ -205,7 +205,13 @@ export async function getGitLog(cwd: string, count = 10): Promise<GitLogEntry[]>
     cwd,
   );
   if (!ok) return [];
-  return stdout.trim().split("\n").filter(Boolean).map(parseGitLogLine);
+  const lines = stdout.trim().split("\n").filter(Boolean);
+  try {
+    const { getIOClient } = await import("../workers/io-client.js");
+    return await getIOClient().parseGitLogBatch(lines);
+  } catch {
+    return lines.map(parseGitLogLine);
+  }
 }
 
 export async function gitInit(cwd: string): Promise<boolean> {

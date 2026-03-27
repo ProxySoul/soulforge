@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { relative, resolve } from "node:path";
 import type { ToolResult } from "../../types";
-import type { RepoMap } from "../intelligence/repo-map.js";
 import { isForbidden } from "../security/forbidden.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
 interface SoulFindArgs {
   query: string;
@@ -14,16 +14,18 @@ export const soulFindTool = {
   name: "soul_find",
   description: "Fuzzy file and symbol search ranked by importance. Supports multi-word queries.",
 
-  createExecute: (repoMap?: RepoMap) => {
+  createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulFindArgs): Promise<ToolResult> => {
       const { query } = args;
       const limit = args.limit ?? 20;
       const cwd = process.cwd();
 
-      const repoMapResults = repoMap?.isReady ? searchRepoMap(repoMap, query, cwd, limit) : null;
+      const repoMapResults = repoMap?.isReady
+        ? await searchIntelligenceClient(repoMap, query, cwd, limit)
+        : null;
 
       if (repoMapResults && repoMapResults.length > 0) {
-        const symbolDetails = buildSymbolDetails(repoMap, repoMapResults);
+        const symbolDetails = await buildSymbolDetails(repoMap, repoMapResults);
         return { success: true, output: symbolDetails };
       }
 
@@ -33,8 +35,8 @@ export const soulFindTool = {
       }
 
       const enriched = repoMap?.isReady
-        ? enrichWithSymbols(repoMap, fileResults, cwd)
-        : fileResults.map((f) => `  ${relative(cwd, resolve(f))}`).join("\n");
+        ? await enrichWithSymbols(repoMap, fileResults, cwd)
+        : fileResults.map((f: string) => `  ${relative(cwd, resolve(f))}`).join("\n");
 
       return {
         success: true,
@@ -52,25 +54,30 @@ interface RankedFile {
   symbols: Array<{ name: string; kind: string }>;
 }
 
-function searchRepoMap(repoMap: RepoMap, query: string, cwd: string, limit: number): RankedFile[] {
+async function searchIntelligenceClient(
+  repoMap: IntelligenceClient,
+  query: string,
+  cwd: string,
+  limit: number,
+): Promise<RankedFile[]> {
   const fileMap = new Map<string, RankedFile>();
-  const words = query.split(/\s+/).filter((w) => w.length >= 2);
+  const words = query.split(/\s+/).filter((w: string) => w.length >= 2);
   const primaryWord = words[0] ?? query;
 
-  const exactSymbols = repoMap.findSymbols(primaryWord);
+  const exactSymbols = await repoMap.findSymbols(primaryWord);
   for (const sym of exactSymbols) {
     const rel = relative(cwd, sym.path);
     upsertFile(fileMap, rel, sym.path, sym.pagerank + 10, { name: primaryWord, kind: sym.kind });
   }
 
-  const substringSymbols = repoMap.searchSymbolsSubstring(primaryWord, 30);
+  const substringSymbols = await repoMap.searchSymbolsSubstring(primaryWord, 30);
   for (const sym of substringSymbols) {
     const rel = relative(cwd, sym.path);
     upsertFile(fileMap, rel, sym.path, sym.pagerank + 3, { name: sym.name, kind: sym.kind });
   }
 
   for (const word of words.slice(1)) {
-    const extra = repoMap.searchSymbolsSubstring(word, 15);
+    const extra = await repoMap.searchSymbolsSubstring(word, 15);
     for (const sym of extra) {
       const rel = relative(cwd, sym.path);
       const existing = fileMap.get(rel);
@@ -84,7 +91,7 @@ function searchRepoMap(repoMap: RepoMap, query: string, cwd: string, limit: numb
   }
 
   const safeQuery = query.replace(/%/g, "\\%").replace(/_/g, "\\_");
-  const fileMatches = repoMap.matchFiles(`%${safeQuery}%`, 30);
+  const fileMatches = await repoMap.matchFiles(`%${safeQuery}%`, 30);
   for (const absPath of fileMatches) {
     const rel = relative(cwd, absPath);
     const nameScore = fuzzyScoreMultiWord(words, rel);
@@ -106,7 +113,7 @@ function searchRepoMap(repoMap: RepoMap, query: string, cwd: string, limit: numb
   if (words.length > 1) {
     for (const word of words) {
       const wordSafe = word.replace(/%/g, "\\%").replace(/_/g, "\\_");
-      const wordFiles = repoMap.matchFiles(`%${wordSafe}%`, 15);
+      const wordFiles = await repoMap.matchFiles(`%${wordSafe}%`, 15);
       for (const absPath of wordFiles) {
         const rel = relative(cwd, absPath);
         if (!fileMap.has(rel)) {
@@ -123,12 +130,12 @@ function searchRepoMap(repoMap: RepoMap, query: string, cwd: string, limit: numb
   }
 
   const topFiles = [...fileMap.values()]
-    .filter((f) => f.score > 0)
-    .sort((a, b) => b.score - a.score)
+    .filter((f: RankedFile) => f.score > 0)
+    .sort((a: RankedFile, b: RankedFile) => b.score - a.score)
     .slice(0, 5);
 
   for (const top of topFiles) {
-    const cochanges = repoMap.getFileCoChanges(top.relPath);
+    const cochanges = await repoMap.getFileCoChanges(top.relPath);
     for (const co of cochanges) {
       if (isForbidden(co.path) !== null) continue;
       const existing = fileMap.get(co.path);
@@ -147,8 +154,8 @@ function searchRepoMap(repoMap: RepoMap, query: string, cwd: string, limit: numb
   }
 
   return [...fileMap.values()]
-    .filter((f) => isForbidden(f.relPath) === null && isForbidden(f.path) === null)
-    .sort((a, b) => b.score - a.score)
+    .filter((f: RankedFile) => isForbidden(f.relPath) === null && isForbidden(f.path) === null)
+    .sort((a: RankedFile, b: RankedFile) => b.score - a.score)
     .slice(0, limit);
 }
 
@@ -177,25 +184,31 @@ function upsertFile(
   }
 }
 
-function buildSymbolDetails(repoMap: RepoMap | undefined, results: RankedFile[]): string {
+async function buildSymbolDetails(
+  repoMap: IntelligenceClient | undefined,
+  results: RankedFile[],
+): Promise<string> {
   const lines: string[] = [`${String(results.length)} results:\n`];
 
   for (const r of results) {
     lines.push(`  ${r.relPath}`);
 
     if (repoMap) {
-      const matchedNames = new Set(r.symbols.map((s) => s.name));
+      const matchedNames = new Set(r.symbols.map((s: { name: string; kind: string }) => s.name));
       for (const sym of r.symbols.slice(0, 4)) {
-        const sigs = repoMap.getSymbolSignature(sym.name);
-        const sig = sigs.find((s) => s.path === r.relPath || s.path.endsWith(`/${r.relPath}`));
+        const sigs = await repoMap.getSymbolSignature(sym.name);
+        const sig = sigs.find(
+          (s: { path: string; signature: string | null }) =>
+            s.path === r.relPath || s.path.endsWith(`/${r.relPath}`),
+        );
         lines.push(`    ${sig?.signature ?? `${sym.kind} ${sym.name}`}`);
       }
-      const extra = repoMap
-        .getFileSymbols(r.relPath)
-        .filter((fs) => !matchedNames.has(fs.name))
+      const allFileSymbols = await repoMap.getFileSymbols(r.relPath);
+      const extra = allFileSymbols
+        .filter((fs: { name: string }) => !matchedNames.has(fs.name))
         .slice(0, 3);
       if (extra.length > 0) {
-        lines.push(`    also: ${extra.map((s) => s.name).join(", ")}`);
+        lines.push(`    also: ${extra.map((s: { name: string }) => s.name).join(", ")}`);
       }
     } else {
       for (const sym of r.symbols.slice(0, 4)) {
@@ -345,19 +358,23 @@ function fallbackFind(typeFilter: string | undefined): Promise<string[]> {
   });
 }
 
-function enrichWithSymbols(repoMap: RepoMap, files: string[], cwd: string): string {
-  return files
-    .map((f) => {
-      const rel = relative(cwd, resolve(f));
-      const syms = repoMap.getFileSymbols(rel);
-      const symStr =
-        syms.length > 0
-          ? `\n    ${syms
-              .slice(0, 5)
-              .map((s) => `${s.kind} ${s.name}`)
-              .join(", ")}`
-          : "";
-      return `  ${rel}${symStr}`;
-    })
-    .join("\n");
+async function enrichWithSymbols(
+  repoMap: IntelligenceClient,
+  files: string[],
+  cwd: string,
+): Promise<string> {
+  const results: string[] = [];
+  for (const f of files) {
+    const rel = relative(cwd, resolve(f));
+    const syms = await repoMap.getFileSymbols(rel);
+    const symStr =
+      syms.length > 0
+        ? `\n    ${syms
+            .slice(0, 5)
+            .map((s: { kind: string; name: string }) => `${s.kind} ${s.name}`)
+            .join(", ")}`
+        : "";
+    results.push(`  ${rel}${symStr}`);
+  }
+  return results.join("\n");
 }

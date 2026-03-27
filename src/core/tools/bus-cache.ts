@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type AgentBus, normalizePath } from "../agents/agent-bus.js";
-import type { RepoMap } from "../intelligence/repo-map.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
 interface WrappableTool {
   description?: string;
@@ -13,13 +13,13 @@ export function wrapWithBusCache(
   tools: Record<string, WrappableTool>,
   bus: AgentBus,
   agentId: string,
-  repoMap?: RepoMap,
+  repoMap?: IntelligenceClient,
 ): Record<string, WrappableTool> {
   const wrapped = { ...tools };
 
   const CACHE_HIT_LINES_THRESHOLD = 80;
 
-  function tagCacheHit(result: unknown, path: string): unknown {
+  async function tagCacheHit(result: unknown, path: string): Promise<unknown> {
     const text =
       typeof result === "string"
         ? result
@@ -30,7 +30,11 @@ export function wrapWithBusCache(
     let symbols: Array<{ name: string; kind: string; line: number }> = [];
     if (repoMap) {
       try {
-        symbols = repoMap.getFileSymbolRanges(path);
+        symbols = (await repoMap.getFileSymbolRanges(path)).map((s) => ({
+          name: s.name,
+          kind: s.kind,
+          line: s.line,
+        }));
       } catch {}
     }
 

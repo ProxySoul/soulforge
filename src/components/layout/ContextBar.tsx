@@ -1,7 +1,9 @@
 import { fg as fgStyle, StyledText, type TextRenderable } from "@opentui/core";
 import { useCallback, useEffect, useRef } from "react";
 import type { ContextManager } from "../../core/context/manager.js";
+import { icon } from "../../core/icons.js";
 import { useStatusBarStore } from "../../stores/statusbar.js";
+import { useWorkerStore, type WorkerStatus } from "../../stores/workers.js";
 
 const BAR_WIDTH = 8;
 const CHARS_PER_TOKEN = 4;
@@ -57,6 +59,11 @@ interface CompactState {
   v2Slots: number;
 }
 
+interface WorkerIndicator {
+  intel: WorkerStatus;
+  io: WorkerStatus;
+}
+
 function buildContent(
   pct: number,
   tokensK: string,
@@ -64,6 +71,7 @@ function buildContent(
   live: boolean,
   flash: boolean,
   compact?: CompactState,
+  workers?: WorkerIndicator,
 ): StyledText {
   const filled = Math.round((pct / 100) * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
@@ -89,6 +97,33 @@ function buildContent(
   } else if (compact?.strategy === "v2") {
     chunks.push(fgStyle("#336")(` v2:${String(compact.v2Slots)}`));
   }
+  if (workers) {
+    const worst =
+      workers.intel === "crashed" || workers.io === "crashed"
+        ? "crashed"
+        : workers.intel === "restarting" || workers.io === "restarting"
+          ? "restarting"
+          : workers.intel === "busy" || workers.io === "busy"
+            ? "busy"
+            : "ok";
+    const wColor =
+      worst === "crashed"
+        ? "#f44"
+        : worst === "restarting"
+          ? "#FF8C00"
+          : worst === "busy"
+            ? "#5af"
+            : "#333";
+    const wGlyph =
+      worst === "crashed"
+        ? icon("worker_crash")
+        : worst === "restarting"
+          ? icon("worker_restart")
+          : worst === "busy"
+            ? icon("worker_busy")
+            : icon("worker");
+    chunks.push(fgStyle(wColor)(` ${wGlyph}`));
+  }
   return new StyledText(chunks);
 }
 
@@ -107,6 +142,7 @@ export function ContextBar({ contextManager }: Props) {
   const currentTokensRef = useRef(0);
   const compactFrameRef = useRef(0);
   const prevV2SlotsRef = useRef(0);
+  const workerRef = useRef<WorkerIndicator>({ intel: "idle", io: "idle" });
   const renderedContentRef = useRef(buildContent(0, "0.0", formatWindow(200_000), false, false));
 
   const computeTarget = useCallback(
@@ -150,7 +186,12 @@ export function ContextBar({ contextManager }: Props) {
     return useStatusBarStore.subscribe(computeTarget);
   }, [computeTarget]);
 
-  // Cleanup flash timer on unmount
+  useEffect(() => {
+    return useWorkerStore.subscribe((state) => {
+      workerRef.current = { intel: state.intelligence.status, io: state.io.status };
+    });
+  }, []);
+
   useEffect(() => {
     return () => {
       if (flashTimerRef.current) {
@@ -171,12 +212,15 @@ export function ContextBar({ contextManager }: Props) {
       const tok = approach(currentTokensRef.current, target.tokensX10);
       const slotsChanged = store.v2Slots !== prevV2SlotsRef.current;
       prevV2SlotsRef.current = store.v2Slots;
+      const wk = workerRef.current;
+      const wkChanged = wk.intel === "crashed" || wk.intel === "busy" || wk.io === "crashed";
       if (
         pct === currentPctRef.current &&
         tok === currentTokensRef.current &&
         !target.flash &&
         !isCompacting &&
-        !slotsChanged
+        !slotsChanged &&
+        !wkChanged
       )
         return;
       currentPctRef.current = pct;
@@ -194,6 +238,7 @@ export function ContextBar({ contextManager }: Props) {
             strategy: store.compactionStrategy,
             v2Slots: store.v2Slots,
           },
+          wk,
         );
         renderedContentRef.current = content;
         if (textRef.current) {

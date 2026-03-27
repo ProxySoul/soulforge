@@ -1,5 +1,5 @@
 import { relative } from "node:path";
-import type { RepoMap } from "../intelligence/repo-map.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
 interface InterceptResult {
   intercepted: true;
@@ -100,20 +100,20 @@ function globToLike(pattern: string): string | null {
   return like;
 }
 
-export function tryInterceptGlob(
+export async function tryInterceptGlob(
   args: GlobArgs,
-  repoMap: RepoMap | undefined,
+  repoMap: IntelligenceClient | undefined,
   cwd: string,
-): InterceptResult | null {
+): Promise<InterceptResult | null> {
   if (!repoMap || !repoMap.isReady) return null;
 
   const like = globToLike(args.pattern);
   if (!like) return null;
 
-  const matches = repoMap.matchFiles(like);
+  const matches = await repoMap.matchFiles(like);
   if (matches.length === 0) return null;
 
-  const fileList = matches.map((p) => `  ${relative(cwd, p)}`).join("\n");
+  const fileList = matches.map((p: string) => `  ${relative(cwd, p)}`).join("\n");
   const output =
     `SOUL MAP — ${String(matches.length)} indexed file${matches.length === 1 ? "" : "s"} match "${args.pattern}":\n${fileList}\n` +
     `Use read_file on these paths directly — dispatch is not needed. Glob was skipped.`;
@@ -134,11 +134,11 @@ function formatSubstringMatches(
     .join("\n");
 }
 
-export function tryInterceptDiscoverPattern(
+export async function tryInterceptDiscoverPattern(
   args: { query: string; file?: string },
-  repoMap: RepoMap | undefined,
+  repoMap: IntelligenceClient | undefined,
   cwd: string,
-): InterceptResult | null {
+): Promise<InterceptResult | null> {
   if (!repoMap || !repoMap.isReady) return null;
   if (args.file) return null;
 
@@ -146,13 +146,14 @@ export function tryInterceptDiscoverPattern(
   const safeQuery = escapeLike(query);
 
   // Exact symbol match first
-  const exactMatches = repoMap.findSymbols(query);
+  const exactMatches = await repoMap.findSymbols(query);
 
   // Substring symbol match (e.g. "provider" → "createOpenAIProvider", "ProviderConfig")
-  const substringMatches = exactMatches.length === 0 ? repoMap.searchSymbolsSubstring(query) : [];
+  const substringMatches =
+    exactMatches.length === 0 ? await repoMap.searchSymbolsSubstring(query) : [];
 
   // File path match
-  const fileMatches = repoMap.matchFiles(`%${safeQuery}%`, 10);
+  const fileMatches = await repoMap.matchFiles(`%${safeQuery}%`, 10);
 
   if (exactMatches.length === 0 && substringMatches.length === 0 && fileMatches.length === 0)
     return null;
@@ -171,7 +172,7 @@ export function tryInterceptDiscoverPattern(
 
   if (fileMatches.length > 0) {
     parts.push(`\nFiles matching "${query}" (${String(fileMatches.length)}):`);
-    parts.push(fileMatches.map((p) => `  ${relative(cwd, p)}`).join("\n"));
+    parts.push(fileMatches.map((p: string) => `  ${relative(cwd, p)}`).join("\n"));
   }
 
   parts.push(
@@ -186,11 +187,11 @@ export function tryInterceptDiscoverPattern(
   };
 }
 
-export function tryInterceptGrep(
+export async function tryInterceptGrep(
   args: GrepArgs,
-  repoMap: RepoMap | undefined,
+  repoMap: IntelligenceClient | undefined,
   cwd: string,
-): InterceptResult | null {
+): Promise<InterceptResult | null> {
   if (!repoMap || !repoMap.isReady) return null;
 
   // Skip when scoped searches — those are legitimate usage lookups
@@ -207,7 +208,7 @@ export function tryInterceptGrep(
   if (!symbolName) return null;
 
   // Try exact match first
-  const exactMatches = repoMap.findSymbols(symbolName);
+  const exactMatches = await repoMap.findSymbols(symbolName);
   if (exactMatches.length > 0) {
     const matchList = formatMatches(exactMatches, cwd);
     const bestMatch = exactMatches[0] as { path: string; kind: string };
@@ -230,7 +231,7 @@ export function tryInterceptGrep(
   }
 
   // Fall back to substring match — "provider" finds "createOpenAIProvider", "ProviderConfig", etc.
-  const substringMatches = repoMap.searchSymbolsSubstring(symbolName);
+  const substringMatches = await repoMap.searchSymbolsSubstring(symbolName);
   if (substringMatches.length > 0) {
     const matchList = formatSubstringMatches(substringMatches, cwd);
     const output =
@@ -243,11 +244,11 @@ export function tryInterceptGrep(
   return null;
 }
 
-export function tryInterceptNavigate(
+export async function tryInterceptNavigate(
   args: NavigateArgs,
-  repoMap: RepoMap | undefined,
+  repoMap: IntelligenceClient | undefined,
   cwd: string,
-): InterceptResult | null {
+): Promise<InterceptResult | null> {
   if (!repoMap || !repoMap.isReady) return null;
 
   if (!INTERCEPTABLE_NAVIGATE_ACTIONS.has(args.action)) return null;
@@ -259,7 +260,7 @@ export function tryInterceptNavigate(
   if (!symbolName) return null;
 
   // Exact match
-  const exactMatches = repoMap.findSymbols(symbolName);
+  const exactMatches = await repoMap.findSymbols(symbolName);
   if (exactMatches.length > 0) {
     const matchList = formatMatches(exactMatches, cwd);
     const bestMatch = exactMatches[0] as { path: string; kind: string };
@@ -281,7 +282,7 @@ export function tryInterceptNavigate(
   }
 
   // Substring match
-  const substringMatches = repoMap.searchSymbolsSubstring(symbolName);
+  const substringMatches = await repoMap.searchSymbolsSubstring(symbolName);
   if (substringMatches.length > 0) {
     const matchList = formatSubstringMatches(substringMatches, cwd);
     const output =

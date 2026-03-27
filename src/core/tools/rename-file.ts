@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, rename, stat as statAsync, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceRouter } from "../intelligence/index.js";
@@ -20,11 +20,18 @@ export const renameFileTool = {
     const to = resolve(args.to);
     const cwd = process.cwd();
 
-    if (!existsSync(from)) {
+    try {
+      await statAsync(from);
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const msg =
+        code === "EACCES" || code === "EPERM"
+          ? `Permission denied: ${relative(cwd, from)}`
+          : `File not found: ${relative(cwd, from)}`;
       return {
         success: false,
-        output: `File not found: ${relative(cwd, from)}`,
-        error: "not found",
+        output: msg,
+        error: code === "EACCES" || code === "EPERM" ? "permission denied" : "not found",
       };
     }
 
@@ -49,13 +56,14 @@ export const renameFileTool = {
       return { success: false, output: "Source and destination are the same", error: "same path" };
     }
 
-    if (existsSync(to)) {
+    try {
+      await statAsync(to);
       return {
         success: false,
         output: `Destination already exists: ${relative(cwd, to)}`,
         error: "exists",
       };
-    }
+    } catch {}
 
     const router = getIntelligenceRouter(cwd);
     const language = router.detectLanguage(from);
@@ -80,7 +88,7 @@ export const renameFileTool = {
         const forbidden = isForbidden(edit.file);
         if (forbidden) continue;
         pushEdit(edit.file, edit.oldContent);
-        writeFileSync(edit.file, edit.newContent, "utf-8");
+        await writeFile(edit.file, edit.newContent, "utf-8");
         emitFileEdited(edit.file, edit.newContent);
         router.fileCache.invalidate(edit.file);
         appliedFiles.push(edit.file);
@@ -91,13 +99,13 @@ export const renameFileTool = {
 
     // 3. Move the file
     const toDir = dirname(to);
-    if (!existsSync(toDir)) mkdirSync(toDir, { recursive: true });
+    await mkdir(toDir, { recursive: true });
 
-    const originalContent = readFileSync(from, "utf-8");
+    const originalContent = await readFile(from, "utf-8");
     pushEdit(from, originalContent);
 
     try {
-      renameSync(from, to);
+      await rename(from, to);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, output: `Failed to move file: ${msg}`, error: "move failed" };

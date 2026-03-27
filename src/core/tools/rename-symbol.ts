@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceRouter } from "../intelligence/index.js";
@@ -7,12 +8,12 @@ import { isForbidden } from "../security/forbidden.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
 
-function applyEdits(edits: FileEdit[]): void {
+async function applyEdits(edits: FileEdit[]): Promise<void> {
   for (const edit of edits) {
     const blocked = isForbidden(edit.file);
     if (blocked) throw new Error(`Cannot edit forbidden file: ${edit.file} (${blocked})`);
     pushEdit(edit.file, edit.oldContent);
-    writeFileSync(edit.file, edit.newContent, "utf-8");
+    await writeFile(edit.file, edit.newContent, "utf-8");
     emitFileEdited(edit.file, edit.newContent);
   }
 }
@@ -485,7 +486,7 @@ export const renameSymbolTool = {
       }
 
       if (tracked) {
-        applyEdits(tracked.value.edits);
+        await applyEdits(tracked.value.edits);
       }
 
       // Always grep for remaining references — catches LSP misses AND handles the
@@ -496,13 +497,13 @@ export const renameSymbolTool = {
         const escaped = args.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         for (const ref of remaining) {
           try {
-            const content = readFileSync(ref, "utf-8");
+            const content = await readFile(ref, "utf-8");
             const refBlocked = isForbidden(ref);
             if (refBlocked) continue;
             const updated = replaceInCode(content, escaped, args.newName, ref);
             if (updated !== content) {
               pushEdit(ref, content);
-              writeFileSync(ref, updated, "utf-8");
+              await writeFile(ref, updated, "utf-8");
               emitFileEdited(ref, updated);
               textFixed.push(ref);
             }

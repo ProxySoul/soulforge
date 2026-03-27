@@ -259,9 +259,118 @@ function formatSymbolHint(symbols: Array<{ name: string; kind: string }>): strin
   return `exports: ${display.join(", ")}`;
 }
 
+function semanticPrune(messages: ModelMessage[], pathMap?: Map<string, string>): ModelMessage[] {
+  const firstEditIdx = new Map<string, number>();
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg || msg.role !== "assistant" || typeof msg.content === "string") continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (const part of msg.content) {
+      if (part.type !== "tool-call") continue;
+      if (!EDIT_TOOLS.has(part.toolName)) continue;
+      const input = part.input as Record<string, unknown>;
+      const path = input.path ?? input.file ?? input.filePath;
+      if (typeof path === "string" && !firstEditIdx.has(path)) firstEditIdx.set(path, i);
+      if (Array.isArray(input.edits)) {
+        for (const e of input.edits as Record<string, unknown>[]) {
+          const ep = e.file ?? e.path;
+          if (typeof ep === "string" && !firstEditIdx.has(ep)) firstEditIdx.set(ep, i);
+        }
+      }
+    }
+  }
+
+  if (firstEditIdx.size === 0 && !messages.some((m) => m.role === "tool")) return messages;
+
+  return messages.map((msg, idx) => {
+    if (msg.role !== "tool" || typeof msg.content === "string") return msg;
+    if (!Array.isArray(msg.content)) return msg;
+
+    let changed = false;
+    const newContent = msg.content.map((part) => {
+      if (part.type !== "tool-result") return part;
+
+      if (part.toolName === "read_file") {
+        const filePath = pathMap?.get(part.toolCallId);
+        if (filePath) {
+          const editIdx = firstEditIdx.get(filePath);
+          if (editIdx !== undefined && idx < editIdx) {
+            const text = extractText(part.output);
+            if (text.length > 200) {
+              changed = true;
+              return {
+                ...part,
+                output: {
+                  type: "text" as const,
+                  value: "← file was edited later in this conversation",
+                },
+              };
+            }
+          }
+        }
+      }
+
+      if (part.toolName === "plan") {
+        const text = extractText(part.output);
+        if (text.includes("canceled") || text.includes("cancelled")) {
+          changed = true;
+          const titleMatch = text.match(/plan "([^"]+)"|^# (.+)/m);
+          const title = titleMatch?.[1] ?? titleMatch?.[2] ?? "plan";
+          return {
+            ...part,
+            output: { type: "text" as const, value: `← plan "${title}" — canceled` },
+          };
+        }
+      }
+
+      return part;
+    });
+
+    return changed ? { ...msg, content: newContent } : msg;
+  }) as ModelMessage[];
+}
+
+function stripOldEditArgs(messages: ModelMessage[], cutoff: number): ModelMessage[] {
+  if (cutoff <= 0) return messages;
+  return messages.map((msg, idx) => {
+    if (idx >= cutoff) return msg;
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) return msg;
+
+    let argsChanged = false;
+    const prunedContent = msg.content.map((part) => {
+      if (part.type !== "tool-call") return part;
+      if (!EDIT_TOOLS.has(part.toolName) && part.toolName !== "editor") return part;
+      const input = part.input as Record<string, unknown>;
+      if (!input.old_string && !input.new_string && !input.replacement) return part;
+      argsChanged = true;
+      const slim: Record<string, unknown> = { ...input };
+      if (typeof slim.old_string === "string") {
+        slim.old_string = `[${String((slim.old_string as string).length)} chars]`;
+      }
+      if (typeof slim.new_string === "string") {
+        slim.new_string = `[${String((slim.new_string as string).length)} chars]`;
+      }
+      if (typeof slim.replacement === "string") {
+        slim.replacement = `[${String((slim.replacement as string).length)} chars]`;
+      }
+      if (Array.isArray(slim.edits)) {
+        slim.edits = (slim.edits as Record<string, unknown>[]).map((e) => {
+          const s: Record<string, unknown> = { ...e };
+          if (typeof s.oldString === "string")
+            s.oldString = `[${String((s.oldString as string).length)} chars]`;
+          if (typeof s.newString === "string")
+            s.newString = `[${String((s.newString as string).length)} chars]`;
+          return s;
+        });
+      }
+      return { ...part, input: slim };
+    });
+    return argsChanged ? { ...msg, content: prunedContent } : msg;
+  }) as ModelMessage[];
+}
+
 /** Compact old tool results beyond KEEP_RECENT_MESSAGES into one-line summaries.
- *  Keeps edit tool results intact (needed for conversation coherence).
- *  Runs on every step from step 1+ via buildPrepareStep. */
+ *  Keeps edit tool results intact (needed for conversation coherence). */
 function compactOldToolResults(
   messages: ModelMessage[],
   symbolLookup?: SymbolLookup,
@@ -292,16 +401,32 @@ function compactOldToolResults(
     }
   }
 
-  return messages.map((msg, idx) => {
-    if (idx >= cutoff) return msg;
-    if (msg.role !== "tool" || typeof msg.content === "string") return msg;
-    if (!Array.isArray(msg.content)) return msg;
+  const result: ModelMessage[] = [];
+  for (const [idx, msg] of messages.entries()) {
+    if (idx >= cutoff) {
+      result.push(msg);
+      continue;
+    }
+    if (msg.role !== "tool" || typeof msg.content === "string") {
+      result.push(msg);
+      continue;
+    }
+    if (!Array.isArray(msg.content)) {
+      result.push(msg);
+      continue;
+    }
 
     let changed = false;
-    const newContent = msg.content.map((part) => {
-      if (part.type !== "tool-result") return part;
-      if (EDIT_TOOLS.has(part.toolName)) return part;
-      if (!SUMMARIZABLE_TOOLS.has(part.toolName)) return part;
+    const newContent = [];
+    for (const part of msg.content) {
+      if (
+        part.type !== "tool-result" ||
+        EDIT_TOOLS.has(part.toolName) ||
+        !SUMMARIZABLE_TOOLS.has(part.toolName)
+      ) {
+        newContent.push(part);
+        continue;
+      }
       const text = extractText(part.output);
 
       let symbolHint: string | undefined;
@@ -318,13 +443,17 @@ function compactOldToolResults(
         symbolHint,
         args: argsMap.get(part.toolCallId),
       });
-      if (!summary) return part;
+      if (!summary) {
+        newContent.push(part);
+        continue;
+      }
       changed = true;
-      return { ...part, output: { type: "text" as const, value: summary } };
-    });
+      newContent.push({ ...part, output: { type: "text" as const, value: summary } });
+    }
 
-    return changed ? { ...msg, content: newContent } : msg;
-  }) as ModelMessage[];
+    result.push(changed ? { ...msg, content: newContent } : msg);
+  }
+  return result as ModelMessage[];
 }
 
 /** Token-budget pruning: walk backward through tool results, protect last
@@ -442,6 +571,14 @@ export function buildPrepareStep({
 
     if (stepNumber === 0) {
       result.toolChoice = "required";
+    }
+
+    // Semantic pruning: stale reads + canceled plans + edit arg stripping
+    if (stepNumber >= 1 && !disablePruning) {
+      const src = result.messages ?? messages;
+      let msgs = semanticPrune(src, buildToolCallPathMap(src));
+      msgs = stripOldEditArgs(msgs, msgs.length - KEEP_RECENT_MESSAGES);
+      if (msgs !== src) result.messages = msgs;
     }
 
     // Tool result pruning: compact old results into summaries to save tokens.
@@ -692,7 +829,9 @@ export function buildPrepareStep({
 export function buildSymbolLookup(repoMap?: {
   isReady: boolean;
   getCwd(): string;
-  getFileSymbols(relPath: string): Array<{ name: string; kind: string; isExported: boolean }>;
+  getFileSymbols(
+    relPath: string,
+  ): Array<{ name: string; kind: string; isExported: boolean }> | Promise<Array<{ name: string; kind: string; isExported: boolean }>>;
 }): SymbolLookup | undefined {
   if (!repoMap) return undefined;
   return (absPath: string) => {
@@ -706,7 +845,9 @@ export function buildSymbolLookup(repoMap?: {
     } else {
       rel = absPath;
     }
-    return repoMap.getFileSymbols(rel);
+    const result = repoMap.getFileSymbols(rel);
+    if (Array.isArray(result)) return result;
+    return [];
   };
 }
 

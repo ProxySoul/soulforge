@@ -36,6 +36,7 @@ import { emitCacheReset, onFileEdited } from "../core/tools/file-events.js";
 import { planFileName } from "../core/tools/index.js";
 import { setShellCoAuthorEnabled } from "../core/tools/shell.js";
 import { completeInProgressTasks, resetInProgressTasks } from "../core/tools/task-list.js";
+import { getIOClient } from "../core/workers/io-client.js";
 import { logCompaction } from "../stores/compaction-logs.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { useStatusBarStore } from "../stores/statusbar.js";
@@ -822,6 +823,10 @@ export function useChat({
               })),
             );
           }
+          let ioClient: import("../core/workers/io-client.js").IOClient | undefined;
+          try {
+            ioClient = getIOClient();
+          } catch {}
           summary = await buildV2Summary({
             wsm,
             olderMessages,
@@ -830,6 +835,7 @@ export function useChat({
             headers,
             skipLlm: compactionCfg?.llmExtraction === false,
             abortSignal: compactAbort.signal,
+            ioClient,
           });
           wsm.reset();
         } else {

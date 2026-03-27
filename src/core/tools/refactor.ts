@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { type CodeIntelligenceRouter, getIntelligenceRouter } from "../intelligence/index.js";
@@ -40,10 +40,10 @@ interface RefactorArgs {
   apply?: boolean;
 }
 
-function applyEdits(edits: FileEdit[]): void {
+async function applyEdits(edits: FileEdit[]): Promise<void> {
   for (const edit of edits) {
     pushEdit(edit.file, edit.oldContent);
-    writeFileSync(edit.file, edit.newContent, "utf-8");
+    await writeFile(edit.file, edit.newContent, "utf-8");
     emitFileEdited(edit.file, edit.newContent);
   }
 }
@@ -62,7 +62,7 @@ async function applyAndDiagnose(
     if (diags) beforeMap.set(edit.file, diags);
   }
 
-  applyEdits(edits);
+  await applyEdits(edits);
 
   // Run diagnostic diff on each file
   try {
@@ -291,7 +291,7 @@ export const refactorTool = {
             };
           }
 
-          if (shouldApply) applyFormatEdits(tracked.value);
+          if (shouldApply) await applyFormatEdits(tracked.value);
           return {
             success: true,
             output: `Formatted ${file} (${String(tracked.value.edits.length)} edit(s))${shouldApply ? " — applied" : " — pass apply: true to apply"}`,
@@ -329,7 +329,7 @@ export const refactorTool = {
             };
           }
 
-          if (shouldApply) applyFormatEdits(tracked.value);
+          if (shouldApply) await applyFormatEdits(tracked.value);
           return {
             success: true,
             output: `Formatted ${file} lines ${String(startLine)}-${String(endLine)} (${String(tracked.value.edits.length)} edit(s))${shouldApply ? " — applied" : ""}`,
@@ -383,8 +383,8 @@ export const refactorTool = {
   },
 };
 
-function applyFormatEdits(formatEdit: FormatEdit): void {
-  const content = readFileSync(formatEdit.file, "utf-8");
+async function applyFormatEdits(formatEdit: FormatEdit): Promise<void> {
+  const content = await readFile(formatEdit.file, "utf-8");
 
   // Pre-compute line start offsets (1-indexed: lineStarts[1] = offset of line 1)
   // Handles both \n and \r\n line endings correctly
@@ -408,6 +408,6 @@ function applyFormatEdits(formatEdit: FormatEdit): void {
   }
 
   pushEdit(formatEdit.file, content);
-  writeFileSync(formatEdit.file, result, "utf-8");
+  await writeFile(formatEdit.file, result, "utf-8");
   emitFileEdited(formatEdit.file, result);
 }

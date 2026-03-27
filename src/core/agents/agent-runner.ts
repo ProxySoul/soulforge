@@ -477,26 +477,23 @@ export async function runAgentTask(
         const editedFiles = bus.getEditedFiles(task.agentId);
         if (editedFiles.size > 0) {
           const noopEdits: string[] = [];
-          for (const [editedPath] of editedFiles) {
-            const cachedContent = bus.getFileContent(editedPath);
-            if (cachedContent == null) continue;
-            // Read current file from disk to compare
-            try {
-              const { readFileSync } = require("node:fs") as typeof import("node:fs");
-              const { resolve: resolvePath, isAbsolute } =
-                require("node:path") as typeof import("node:path");
-              const abs = isAbsolute(editedPath)
-                ? editedPath
-                : resolvePath(process.cwd(), editedPath);
-              const diskContent = readFileSync(abs, "utf-8");
-              // If cache and disk are identical, the "edit" was a no-op
-              if (cachedContent === diskContent) {
-                noopEdits.push(editedPath);
-              }
-            } catch {
-              // File doesn't exist or can't be read — skip verification
-            }
-          }
+          const { readFile } = await import("node:fs/promises");
+          const { resolve: resolvePath, isAbsolute } = await import("node:path");
+          await Promise.all(
+            [...editedFiles.keys()].map(async (editedPath) => {
+              const cachedContent = bus.getFileContent(editedPath);
+              if (cachedContent == null) return;
+              try {
+                const abs = isAbsolute(editedPath)
+                  ? editedPath
+                  : resolvePath(process.cwd(), editedPath);
+                const diskContent = await readFile(abs, "utf-8");
+                if (cachedContent === diskContent) {
+                  noopEdits.push(editedPath);
+                }
+              } catch {}
+            }),
+          );
           if (noopEdits.length > 0) {
             editVerificationWarning = `Post-edit verification: ${String(noopEdits.length)} file(s) marked as edited but content unchanged: ${noopEdits.join(", ")}`;
           }
