@@ -810,7 +810,7 @@ describe("buildSymbolLookup", () => {
 		const lookup = buildSymbolLookup({
 			isReady: false,
 			getCwd: () => "/project",
-			getFileSymbols: () => [
+			getFileSymbolsCached: () => [
 				{ name: "X", kind: "class", isExported: true },
 			],
 		});
@@ -822,7 +822,7 @@ describe("buildSymbolLookup", () => {
 		const lookup = buildSymbolLookup({
 			isReady: true,
 			getCwd: () => "/project",
-			getFileSymbols: (rel: string) => {
+			getFileSymbolsCached: (rel: string) => {
 				calledWith = rel;
 				return [];
 			},
@@ -836,7 +836,7 @@ describe("buildSymbolLookup", () => {
 		const lookup = buildSymbolLookup({
 			isReady: true,
 			getCwd: () => "/project",
-			getFileSymbols: (rel: string) => {
+			getFileSymbolsCached: (rel: string) => {
 				calledWith = rel;
 				return [];
 			},

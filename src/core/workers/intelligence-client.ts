@@ -30,6 +30,7 @@ export class IntelligenceClient extends WorkerClient {
   private _stats: RepoMapStats = { files: 0, symbols: 0, edges: 0, summaries: 0, calls: 0 };
   private _dbSize = 0;
   private _semanticMode: "off" | "ast" | "synthetic" | "llm" | "full" | "on" = "off";
+  private _symbolCache = new Map<string, Array<{ name: string; kind: string; isExported: boolean }>>();
 
   onProgress: ((indexed: number, total: number) => void) | null = null;
   onScanComplete: ((success: boolean) => void) | null = null;
@@ -204,6 +205,8 @@ export class IntelligenceClient extends WorkerClient {
   // ── File Monitoring ────────────────────────────────────────────────
 
   onFileChanged(absPath: string): void {
+    const rel = absPath.startsWith(`${this._cwd}/`) ? absPath.slice(this._cwd.length + 1) : absPath;
+    this._symbolCache.delete(rel);
     this.fire("onFileChanged", absPath);
   }
 
@@ -241,7 +244,15 @@ export class IntelligenceClient extends WorkerClient {
   async getFileSymbols(
     relPath: string,
   ): Promise<Array<{ name: string; kind: string; isExported: boolean }>> {
-    return this.call("getFileSymbols", relPath);
+    const symbols = await this.call<Array<{ name: string; kind: string; isExported: boolean }>>("getFileSymbols", relPath);
+    this._symbolCache.set(relPath, symbols);
+    return symbols;
+  }
+
+  getFileSymbolsCached(
+    relPath: string,
+  ): Array<{ name: string; kind: string; isExported: boolean }> {
+    return this._symbolCache.get(relPath) ?? [];
   }
 
   async getFileSymbolRanges(
