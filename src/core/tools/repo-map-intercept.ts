@@ -105,7 +105,7 @@ export async function tryInterceptGlob(
   repoMap: IntelligenceClient | undefined,
   cwd: string,
 ): Promise<InterceptResult | null> {
-  if (!repoMap || !repoMap.isReady) return null;
+  if (!repoMap?.isReady) return null;
 
   const like = globToLike(args.pattern);
   if (!like) return null;
@@ -139,7 +139,7 @@ export async function tryInterceptDiscoverPattern(
   repoMap: IntelligenceClient | undefined,
   cwd: string,
 ): Promise<InterceptResult | null> {
-  if (!repoMap || !repoMap.isReady) return null;
+  if (!repoMap?.isReady) return null;
   if (args.file) return null;
 
   const query = args.query.toLowerCase();
@@ -192,7 +192,7 @@ export async function tryInterceptGrep(
   repoMap: IntelligenceClient | undefined,
   cwd: string,
 ): Promise<InterceptResult | null> {
-  if (!repoMap || !repoMap.isReady) return null;
+  if (!repoMap?.isReady) return null;
 
   // Skip when scoped searches — those are legitimate usage lookups
   if (args.glob || args.path) return null;
@@ -249,7 +249,7 @@ export async function tryInterceptNavigate(
   repoMap: IntelligenceClient | undefined,
   cwd: string,
 ): Promise<InterceptResult | null> {
-  if (!repoMap || !repoMap.isReady) return null;
+  if (!repoMap?.isReady) return null;
 
   if (!INTERCEPTABLE_NAVIGATE_ACTIONS.has(args.action)) return null;
 

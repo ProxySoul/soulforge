@@ -36,6 +36,7 @@ interface CodeAgentOptions {
   repoMap?: import("../workers/intelligence-client.js").IntelligenceClient;
   contextWindow?: number;
   disablePruning?: boolean;
+  tabId?: string;
 }
 
 export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions) {
@@ -68,6 +69,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
     symbolLookup: buildSymbolLookup(options?.repoMap),
     contextWindow: options?.contextWindow,
     disablePruning: options?.disablePruning,
+    tabId: options?.tabId,
   });
 
   return new ToolLoopAgent({

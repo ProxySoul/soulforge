@@ -1,5 +1,12 @@
 import { type ChildProcess, execSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
@@ -30,6 +37,23 @@ function setState(state: ProxyState, error: string | null = null): void {
 
 function getProxyState(): { state: ProxyState; error: string | null } {
   return { state: currentState, error: lastError };
+}
+
+const VERSION_FILE = join(PROXY_CONFIG_DIR, "version");
+
+function getInstalledProxyVersion(): string {
+  try {
+    if (existsSync(VERSION_FILE)) {
+      const v = readFileSync(VERSION_FILE, "utf-8").trim();
+      if (v) return v;
+    }
+  } catch {}
+  return PROXY_VERSION;
+}
+
+function saveInstalledProxyVersion(version: string): void {
+  mkdirSync(PROXY_CONFIG_DIR, { recursive: true });
+  writeFileSync(VERSION_FILE, version);
 }
 
 function ensureConfig(): void {
@@ -103,6 +127,7 @@ export async function ensureProxy(): Promise<{ ok: boolean; error?: string }> {
   if (!binary) {
     try {
       binary = await installProxy();
+      saveInstalledProxyVersion(PROXY_VERSION);
     } catch (err) {
       const msg = toErrorMessage(err);
       setState("error", `Failed to install CLIProxyAPI: ${msg}`);
@@ -301,7 +326,7 @@ let cachedLatest: { version: string; checkedAt: number } | null = null;
 const VERSION_CACHE_TTL = 10 * 60 * 1000; // 10 min
 
 export async function checkForProxyUpdate(): Promise<ProxyVersionInfo> {
-  const installed = PROXY_VERSION;
+  const installed = getInstalledProxyVersion();
   const now = Date.now();
 
   if (cachedLatest && now - cachedLatest.checkedAt < VERSION_CACHE_TTL) {
@@ -352,6 +377,7 @@ export async function upgradeProxy(
   onStatus(`Downloading CLIProxyAPI v${vinfo.latest}…`);
   try {
     await installProxy(vinfo.latest);
+    saveInstalledProxyVersion(vinfo.latest);
   } catch (err) {
     const msg = toErrorMessage(err);
     onStatus(`Upgrade failed: ${msg}`);

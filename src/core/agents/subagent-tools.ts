@@ -46,6 +46,7 @@ export interface SubagentModels {
   agentFeatures?: AgentFeatures;
   skills?: Array<{ name: string; content: string }>;
   disablePruning?: boolean;
+  tabId?: string;
 }
 
 function formatToolArgs(toolCall: { toolName: string; input?: unknown }): string {
@@ -202,6 +203,7 @@ export function createAgent(
     contextWindow,
     disablePruning: models.disablePruning,
     role: task.role === "investigate" ? ("investigate" as const) : ("explore" as const),
+    tabId: models.tabId,
   };
   const agent = useExplore ? createExploreAgent(model, opts) : createCodeAgent(model, opts);
   return { agent, modelId, tier };

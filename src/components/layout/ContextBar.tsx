@@ -37,26 +37,12 @@ function getFlashColor(pct: number): string {
   return "#b0002e";
 }
 
-function formatWindow(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}k`;
-  return String(tokens);
-}
+const COMPACT_FRAMES = ["◐", "◓", "◑", "◒"];
 
 interface BarTarget {
   pct: number;
-  tokensX10: number;
   live: boolean;
   flash: boolean;
-}
-
-const COMPACT_FRAMES = ["◐", "◓", "◑", "◒"];
-
-interface CompactState {
-  active: boolean;
-  frame: number;
-  strategy: import("../../core/compaction/types.js").CompactionStrategy;
-  v2Slots: number;
 }
 
 interface WorkerIndicator {
@@ -66,11 +52,9 @@ interface WorkerIndicator {
 
 function buildContent(
   pct: number,
-  tokensK: string,
-  windowLabel: string,
   live: boolean,
   flash: boolean,
-  compact?: CompactState,
+  compacting?: { active: boolean; frame: number },
   workers?: WorkerIndicator,
 ): StyledText {
   const filled = Math.round((pct / 100) * BAR_WIDTH);
@@ -81,21 +65,15 @@ function buildContent(
   const pctColor = flash ? getFlashColor(pct) : getPctColor(pct);
   const chunks = [
     fgStyle(live ? "#1a6" : "#444")("● "),
-    fgStyle("#444")("ctx"),
     fgStyle("#333")("["),
     fgStyle(pulse ? "#b0002e" : barColor)("▰".repeat(filled)),
     fgStyle("#222")("▱".repeat(empty)),
     fgStyle("#333")("]"),
     fgStyle(pctColor)(live ? `${String(pct)}%` : `~${String(pct)}%`),
-    fgStyle("#444")(` ${tokensK}k/${windowLabel}`),
   ];
-  if (compact?.active) {
-    const spinner = COMPACT_FRAMES[compact.frame % COMPACT_FRAMES.length] ?? "◐";
+  if (compacting?.active) {
+    const spinner = COMPACT_FRAMES[compacting.frame % COMPACT_FRAMES.length] ?? "◐";
     chunks.push(fgStyle("#5af")(` ${spinner} compacting`));
-  } else if (compact?.strategy === "disabled") {
-    chunks.push(fgStyle("#633")(" compact:off"));
-  } else if (compact?.strategy === "v2") {
-    chunks.push(fgStyle("#336")(` v2:${String(compact.v2Slots)}`));
   }
   if (workers) {
     const worst =
@@ -103,26 +81,12 @@ function buildContent(
         ? "crashed"
         : workers.intel === "restarting" || workers.io === "restarting"
           ? "restarting"
-          : workers.intel === "busy" || workers.io === "busy"
-            ? "busy"
-            : "ok";
-    const wColor =
-      worst === "crashed"
-        ? "#f44"
-        : worst === "restarting"
-          ? "#FF8C00"
-          : worst === "busy"
-            ? "#5af"
-            : "#333";
-    const wGlyph =
-      worst === "crashed"
-        ? icon("worker_crash")
-        : worst === "restarting"
-          ? icon("worker_restart")
-          : worst === "busy"
-            ? icon("worker_busy")
-            : icon("worker");
-    chunks.push(fgStyle(wColor)(` ${wGlyph}`));
+          : null;
+    if (worst) {
+      const wColor = worst === "crashed" ? "#f44" : "#FF8C00";
+      const wGlyph = worst === "crashed" ? icon("worker_crash") : icon("worker_restart");
+      chunks.push(fgStyle(wColor)(` ${wGlyph}`));
+    }
   }
   return new StyledText(chunks);
 }
@@ -135,15 +99,13 @@ interface Props {
 export function ContextBar({ contextManager }: Props) {
   const textRef = useRef<TextRenderable>(null);
 
-  const targetRef = useRef<BarTarget>({ pct: 0, tokensX10: 0, live: false, flash: false });
+  const targetRef = useRef<BarTarget>({ pct: 0, live: false, flash: false });
   const prevTotalRef = useRef(0);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentPctRef = useRef(0);
-  const currentTokensRef = useRef(0);
   const compactFrameRef = useRef(0);
-  const prevV2SlotsRef = useRef(0);
   const workerRef = useRef<WorkerIndicator>({ intel: "idle", io: "idle" });
-  const renderedContentRef = useRef(buildContent(0, "0.0", formatWindow(200_000), false, false));
+  const renderedContentRef = useRef(buildContent(0, false, false));
 
   const computeTarget = useCallback(
     (state: {
@@ -162,7 +124,6 @@ export function ContextBar({ contextManager }: Props) {
         : charEstimate;
       const rawPct = (totalTokens / ctxWindow) * 100;
       const pct = totalTokens > 0 ? Math.min(100, Math.max(1, Math.round(rawPct))) : 0;
-      const tokensX10 = Math.round(totalTokens / 100);
 
       let flash = targetRef.current.flash;
       if (totalTokens > prevTotalRef.current + 50) {
@@ -173,7 +134,7 @@ export function ContextBar({ contextManager }: Props) {
         }, 500);
       }
       prevTotalRef.current = totalTokens;
-      targetRef.current = { pct, tokensX10, live: isApi, flash };
+      targetRef.current = { pct, live: isApi, flash };
     },
     [contextManager],
   );
@@ -182,7 +143,6 @@ export function ContextBar({ contextManager }: Props) {
     const state = useStatusBarStore.getState();
     computeTarget(state);
     currentPctRef.current = targetRef.current.pct;
-    currentTokensRef.current = targetRef.current.tokensX10;
     return useStatusBarStore.subscribe(computeTarget);
   }, [computeTarget]);
 
@@ -205,39 +165,23 @@ export function ContextBar({ contextManager }: Props) {
     const timer = setInterval(() => {
       const target = targetRef.current;
       const store = useStatusBarStore.getState();
-      const winLabel = formatWindow(store.contextWindow || 200_000);
       const isCompacting = store.compacting;
       if (isCompacting) compactFrameRef.current++;
       const pct = approach(currentPctRef.current, target.pct);
-      const tok = approach(currentTokensRef.current, target.tokensX10);
-      const slotsChanged = store.v2Slots !== prevV2SlotsRef.current;
-      prevV2SlotsRef.current = store.v2Slots;
       const wk = workerRef.current;
-      const wkChanged = wk.intel === "crashed" || wk.intel === "busy" || wk.io === "crashed";
-      if (
-        pct === currentPctRef.current &&
-        tok === currentTokensRef.current &&
-        !target.flash &&
-        !isCompacting &&
-        !slotsChanged &&
-        !wkChanged
-      )
-        return;
+      const wkChanged =
+        wk.intel === "crashed" ||
+        wk.intel === "restarting" ||
+        wk.io === "crashed" ||
+        wk.io === "restarting";
+      if (pct === currentPctRef.current && !target.flash && !isCompacting && !wkChanged) return;
       currentPctRef.current = pct;
-      currentTokensRef.current = tok;
       try {
         const content = buildContent(
           pct,
-          (tok / 10).toFixed(1),
-          winLabel,
           target.live,
           target.flash,
-          {
-            active: isCompacting,
-            frame: compactFrameRef.current,
-            strategy: store.compactionStrategy,
-            v2Slots: store.v2Slots,
-          },
+          isCompacting ? { active: true, frame: compactFrameRef.current } : undefined,
           wk,
         );
         renderedContentRef.current = content;

@@ -111,6 +111,7 @@ function buildForgePrepareStep(
     commitSoulMapDiff(): void;
     buildSkillsBlock(): string | null;
   },
+  tabId?: string,
 ) {
   // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
   return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): any => {
@@ -240,7 +241,7 @@ function buildForgePrepareStep(
     }
 
     // [8] Task list injection
-    const taskBlock = renderTaskList();
+    const taskBlock = renderTaskList(tabId);
     if (taskBlock) hints.push(taskBlock);
 
     // [7] Cross-tab claims
@@ -504,6 +505,7 @@ export function createForgeAgent({
           agentFeatures,
           skills,
           disablePruning,
+          tabId: tabId ?? contextManager.getTabId() ?? undefined,
         }).dispatch,
       }
     : buildSubagentTools({
@@ -523,6 +525,7 @@ export function createForgeAgent({
         agentFeatures,
         skills,
         disablePruning,
+        tabId: tabId ?? contextManager.getTabId() ?? undefined,
       });
 
   const cachedReadFile =
@@ -557,7 +560,7 @@ export function createForgeAgent({
     id: "forge",
     model,
     temperature: 0,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 16384,
     tools: allTools,
     stopWhen: () => false,
     instructions: {
@@ -575,7 +578,7 @@ export function createForgeAgent({
         ...(activeTools ? { activeTools } : {}),
       };
     },
-    prepareStep: buildForgePrepareStep(forgeMode === "plan", drainSteering, contextManager),
+    prepareStep: buildForgePrepareStep(forgeMode === "plan", drainSteering, contextManager, tabId),
     experimental_repairToolCall: repairToolCall,
     providerOptions: {
       ...providerOptions,

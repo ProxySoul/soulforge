@@ -119,7 +119,7 @@ export function ToolsPopup({
     }
     if (evt.name === "return" || evt.name === " ") {
       if (cursor < items.length) {
-        onToggleTool(items[cursor]!.name);
+        onToggleTool(items[cursor]?.name);
       } else {
         onToggleAgentManaged();
       }

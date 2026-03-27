@@ -28,22 +28,21 @@ const SOUL_MAP_USAGE = `This map answers most structural questions directly:
 For deeper questions, feed symbol names from the map into navigate() or analyze().
 The map gives you the names, LSP gives you the details.`;
 
-const LEGEND = "+ = exported. (→N) = blast radius. [NEW] = new since last render.\n";
+const LEGEND = "+ = exported. (→N) = blast radius. [NEW] = modified in last 48h.\n";
 const DIR_TREE_DEPTH = 2;
-const DIR_TREE_LIMIT = 60;
 
 /**
  * Build a shallow directory tree (2 levels deep) for project structure overview.
  * Complements the Soul Map's file-level detail with directory-level context.
  */
-export function buildDirectoryTree(cwd: string): string | null {
+export function buildDirectoryTree(cwd: string, limit = 60): string | null {
   const lines: string[] = [];
   walkDir(cwd, "", DIR_TREE_DEPTH, lines);
   if (lines.length === 0) return null;
-  const trimmed = lines.length > DIR_TREE_LIMIT ? lines.slice(0, DIR_TREE_LIMIT) : lines;
+  const trimmed = lines.length > limit ? lines.slice(0, limit) : lines;
   return (
     trimmed.join("\n") +
-    (lines.length > DIR_TREE_LIMIT ? `\n... (${String(lines.length - DIR_TREE_LIMIT)} more)` : "")
+    (lines.length > limit ? `\n... (${String(lines.length - limit)} more)` : "")
   );
 }
 

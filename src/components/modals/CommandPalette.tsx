@@ -201,6 +201,12 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
       return;
     }
 
+    if (evt.name === "space") {
+      setQuery((q) => `${q} `);
+      resetScroll();
+      return;
+    }
+
     if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
       setQuery((q) => q + evt.name);
       resetScroll();

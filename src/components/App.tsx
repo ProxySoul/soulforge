@@ -39,6 +39,7 @@ import { useTabs } from "../hooks/useTabs.js";
 import { cleanupAndExit, restart, setExitSessionId } from "../index.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { startMemoryPoll } from "../stores/statusbar.js";
+import { useToolsStore } from "../stores/tools.js";
 import { type ModalName, selectIsAnyModalOpen, useUIStore } from "../stores/ui.js";
 import type { AppConfig, ChatMessage, EditorIntegration, TaskRouter } from "../types/index.js";
 import { BrandTag } from "./layout/BrandTag.js";
@@ -66,7 +67,6 @@ import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { RouterSettings } from "./settings/RouterSettings.js";
 import { SkillSearch } from "./settings/SkillSearch.js";
 import { ToolsPopup } from "./settings/ToolsPopup.js";
-import { useToolsStore } from "../stores/tools.js";
 
 startMemoryPoll();
 
@@ -927,11 +927,17 @@ export function App({
               </span>
             )}
             <span fg="#666">{providerIcon(displayProvider)} </span>
-            <span fg="#888">{truncate(displayModel, isProxy || isGateway ? 24 : 32)}</span>
+            {displayProvider !== displayModel && (
+              <>
+                <span fg="#555">{displayProvider}</span>
+                <span fg="#444">›</span>
+              </>
+            )}
+            <span fg="#888">{truncate(displayModel, isProxy || isGateway ? 20 : 28)}</span>
           </text>
           {git.isRepo && (
             <>
-              <text fg="#333">·</text>
+              <text fg="#333">│</text>
               <text fg={git.isDirty ? "#b87333" : "#4a7"} truncate>
                 {UI_ICONS.git} {truncate(git.branch ?? "HEAD", termWidth >= 120 ? 30 : 15)}
                 {git.isDirty ? "*" : ""}
@@ -940,7 +946,7 @@ export function App({
           )}
           {tabMgr.tabCount <= 1 && forgeMode !== "default" && (
             <>
-              <text fg="#333">·</text>
+              <text fg="#333">│</text>
               <text fg={modeColor} attributes={TextAttributes.BOLD}>
                 [{modeLabel}]
               </text>
@@ -948,7 +954,7 @@ export function App({
           )}
           <text fg="#333">│</text>
           <ContextBar contextManager={contextManager} modelId={activeModelForHeader} />
-          <text fg="#222">·</text>
+          <text fg="#333">│</text>
           <TokenDisplay />
         </box>
         {termWidth >= 80 && <BrandTag />}
@@ -1207,6 +1213,7 @@ export function App({
         }
         currentLimit={effectiveConfig.semanticSummaryLimit ?? 300}
         currentAutoRegen={effectiveConfig.semanticAutoRegen ?? false}
+        currentTokenBudget={effectiveConfig.repoMapTokenBudget}
         currentScope={detectScope("semanticSummaries")}
         onToggle={(enabled, scope) => {
           contextManager.setRepoMapEnabled(enabled);
@@ -1229,7 +1236,7 @@ export function App({
         onClearSummaries={() => {
           contextManager.clearSemanticSummaries();
         }}
-        onApply={(mode, limit, autoRegen, scope) => {
+        onApply={(mode, limit, autoRegen, scope, tokenBudget) => {
           const typedMode = mode as "off" | "ast" | "synthetic" | "llm" | "full";
           contextManager.setActiveModel(activeModelForHeader);
           saveToScope(
@@ -1237,11 +1244,13 @@ export function App({
               semanticSummaries: typedMode,
               semanticSummaryLimit: limit,
               semanticAutoRegen: autoRegen,
+              repoMapTokenBudget: tokenBudget,
             },
             scope,
           );
           contextManager.setSemanticSummaryLimit(limit);
           contextManager.setSemanticAutoRegen(autoRegen);
+          contextManager.setRepoMapTokenBudget(tokenBudget);
           contextManager.setSemanticSummaries(typedMode);
         }}
       />

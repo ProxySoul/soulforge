@@ -52,6 +52,7 @@ interface ExploreAgentOptions {
   contextWindow?: number;
   disablePruning?: boolean;
   role?: "explore" | "investigate";
+  tabId?: string;
 }
 
 export function createExploreAgent(model: LanguageModel, options?: ExploreAgentOptions) {
@@ -84,6 +85,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
     symbolLookup: buildSymbolLookup(options?.repoMap),
     contextWindow: options?.contextWindow,
     disablePruning: options?.disablePruning,
+    tabId: options?.tabId,
   });
 
   return new ToolLoopAgent({

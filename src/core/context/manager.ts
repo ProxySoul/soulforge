@@ -16,7 +16,7 @@ import {
   getModeInstructions,
   type PromptBuilderOptions,
 } from "../prompts/index.js";
-import { buildForbiddenContext, isForbidden } from "../security/forbidden.js";
+import { buildForbiddenContext } from "../security/forbidden.js";
 import { emitFileEdited, onFileEdited, onFileRead } from "../tools/file-events.js";
 import { IntelligenceClient } from "../workers/intelligence-client.js";
 // extractConversationTerms removed — FTS boosting was noisy
@@ -53,10 +53,6 @@ export class ContextManager {
   private forgeMode: ForgeMode = "default";
   private editorFile: string | null = null;
   private editorOpen = false;
-  private editorVimMode: string | null = null;
-  private editorCursorLine = 1;
-  private editorCursorCol = 0;
-  private editorVisualSelection: string | null = null;
   private editorIntegration: EditorIntegration | null = null;
   private fileTreeCache: { tree: string; at: number } | null = null;
   private projectInfoCache: { info: string | null; at: number } | null = null;
@@ -74,8 +70,11 @@ export class ContextManager {
   private taskRouter: TaskRouter | undefined;
   private semanticSummaryLimit = 300;
   private semanticAutoRegen = false;
+  private repoMapTokenBudget: number | undefined = undefined;
   private lastActiveModel = "";
   private semanticGenId = 0;
+  /** True when user explicitly set mode to "off" — prevents auto-enable in onScanComplete */
+  private semanticModeExplicit = false;
   private isChild = false;
   private projectInstructions = "";
   private static readonly REPO_MAP_TTL = 5_000; // 5s — covers getContextBreakdown + buildSystemPrompt in same prompt
@@ -202,14 +201,20 @@ export class ContextManager {
         this.syncRepoMapStore("ready");
         useRepoMapStore.getState().setScanError("");
         const current = this.repoMap.getSemanticMode();
-        const semanticTask =
-          current === "off"
-            ? this.repoMap
-                .detectPersistedSemanticMode()
-                .then((persisted) =>
-                  this.setSemanticSummaries(persisted === "off" ? "synthetic" : persisted),
-                )
-            : this.setSemanticSummaries(current);
+        let semanticTask: Promise<unknown>;
+        if (current !== "off") {
+          semanticTask = this.setSemanticSummaries(current);
+        } else if (this.semanticModeExplicit) {
+          // User explicitly set "off" — don't auto-enable
+          semanticTask = Promise.resolve();
+        } else {
+          // First scan or mode never configured — auto-enable based on existing data
+          semanticTask = this.repoMap
+            .detectPersistedSemanticMode()
+            .then((persisted) =>
+              this.setSemanticSummaries(persisted === "off" ? "synthetic" : persisted),
+            );
+        }
         await Promise.all([semanticTask, this.warmRepoMapCache()]);
       } else {
         this.repoMapReady = false;
@@ -388,6 +393,7 @@ export class ContextManager {
         editedFiles: [...this.editedFiles],
         mentionedFiles: [...this.mentionedFiles],
         conversationTokens: this.conversationTokens,
+        tokenBudget: this.repoMapTokenBudget,
       });
       this.repoMapCache = { content, at: Date.now() };
     } catch {}
@@ -440,6 +446,19 @@ export class ContextManager {
     if (this.repoMapEnabled === enabled) return;
     this.repoMapEnabled = enabled;
     this.repoMapCache = null;
+
+    if (!enabled) {
+      // Disconnect callbacks so any in-flight scan can't touch the UI or ready state
+      this.repoMap.onProgress = null;
+      this.repoMap.onScanComplete = null;
+      this.repoMap.onStaleSymbols = null;
+      this.repoMapReady = false;
+      this.syncRepoMapStore("off");
+    } else {
+      // Re-wire and kick off a scan if one hasn't run yet or was interrupted
+      this.wireRepoMapCallbacks();
+      if (!this.repoMapReady) this.startRepoMapScan();
+    }
   }
 
   async setSemanticSummaries(
@@ -454,6 +473,7 @@ export class ContextManager {
             ? "full"
             : modeOrBool;
     this.repoMap.setSemanticMode(mode);
+    this.semanticModeExplicit = mode === "off";
     const store = useRepoMapStore.getState();
     if (mode === "off") {
       store.setSemanticStatus("off");
@@ -523,6 +543,7 @@ export class ContextManager {
   clearSemanticSummaries(): void {
     ++this.semanticGenId;
     this.repoMap.clearSemanticSummaries();
+    this.repoMapCache = null;
     const store = useRepoMapStore.getState();
     store.setSemanticCount(0);
     store.setSemanticProgress("");
@@ -545,6 +566,11 @@ export class ContextManager {
 
   setSemanticAutoRegen(enabled: boolean | undefined): void {
     this.semanticAutoRegen = enabled ?? false;
+  }
+
+  setRepoMapTokenBudget(budget: number | undefined): void {
+    this.repoMapTokenBudget = budget;
+    this.repoMapCache = null;
   }
 
   setTaskRouter(router: TaskRouter | undefined): void {
@@ -709,7 +735,20 @@ export class ContextManager {
   async clearRepoMap(): Promise<void> {
     await this.repoMap.clear();
     this.repoMapReady = false;
-    this.syncRepoMapStore("off");
+    this.repoMapCache = null;
+    // Zero all counters immediately — worker stats cache is stale after clear
+    const store = useRepoMapStore.getState();
+    store.setStats(0, 0, 0, 0);
+    store.setScanProgress("");
+    store.setScanError("");
+    store.setSemanticCount(0);
+    store.setSemanticProgress("");
+    store.setSemanticStatus("off");
+    if (this.repoMapEnabled) {
+      this.startRepoMapScan();
+    } else {
+      store.setStatus("off");
+    }
   }
 
   /** Pre-fetch git context (call before buildSystemPrompt) */
@@ -871,38 +910,6 @@ export class ContextManager {
     return buildPrompt(opts);
   }
 
-  /** Build editor context lines for the system prompt. */
-  // @ts-expect-error temporarily unused while testing cache stability
-  private buildEditorContextSection(): string[] {
-    const lines = [...this.buildEditorToolsSection()];
-    const showEditorContext = this.editorIntegration?.editorContext !== false;
-    if (this.editorOpen && this.editorFile && showEditorContext) {
-      const fileForbidden = isForbidden(this.editorFile);
-      if (fileForbidden) {
-        lines.push(
-          `Editor: "${this.editorFile}" — FORBIDDEN (pattern: "${fileForbidden}"). Do NOT read or reference its contents.`,
-        );
-      } else {
-        lines.push(
-          `Editor: "${this.editorFile}" | mode: ${this.editorVimMode ?? "?"} | L${String(this.editorCursorLine)}:${String(this.editorCursorCol)}`,
-        );
-        if (this.editorVisualSelection) {
-          const truncated =
-            this.editorVisualSelection.length > 500
-              ? `${this.editorVisualSelection.slice(0, 500)}...`
-              : this.editorVisualSelection;
-          lines.push("Selection:", "```", truncated, "```");
-        }
-        lines.push(
-          "'the file'/'this file'/'what's open' = this file. `edit_file` for disk. `editor(action: read)` for buffer.",
-        );
-      }
-    } else if (this.editorOpen) {
-      lines.push("Editor: panel open, no file loaded.");
-    }
-    return lines;
-  }
-
   /**
    * Build skills as a user→assistant message pair.
    * Keeps the system prompt stable when skills are loaded/unloaded.
@@ -940,7 +947,8 @@ export class ContextManager {
     const rendered = this.renderRepoMap();
     if (!rendered) return null;
     const isMinimal = this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD;
-    const dirTree = buildDirectoryTree(this.cwd);
+    const treeLimit = this.repoMapTokenBudget ? Math.ceil(this.repoMapTokenBudget / 100) : 60;
+    const dirTree = buildDirectoryTree(this.cwd, treeLimit);
     if (clearDiffTracker) this.soulMapDiffChangedFiles.clear();
     return buildSoulMapContent(rendered, isMinimal, dirTree);
   }
@@ -983,39 +991,6 @@ export class ContextManager {
       `${skillBlocks}\n` +
       `</loaded_skills>`
     );
-  }
-
-  /** Build the editor tools section for the system prompt */
-  private buildEditorToolsSection(): string[] {
-    const ei = this.editorIntegration;
-    const lines: string[] = [];
-
-    if (!this.editorOpen) {
-      lines.push("Editor panel is closed. The editor tool will fail. Suggest Ctrl+E to open.");
-      return lines;
-    }
-
-    lines.push(
-      "Editor panel is open. Use the editor tool with actions: read (buffer), edit (buffer lines), navigate (open/jump).",
-    );
-
-    const lspActions: string[] = [];
-    if (!ei || ei.diagnostics) lspActions.push("diagnostics");
-    if (!ei || ei.symbols) lspActions.push("symbols");
-    if (!ei || ei.hover) lspActions.push("hover");
-    if (!ei || ei.references) lspActions.push("references");
-    if (!ei || ei.definition) lspActions.push("definition");
-    if (!ei || ei.codeActions) lspActions.push("actions");
-    if (!ei || ei.rename) lspActions.push("rename");
-    if (!ei || ei.lspStatus) lspActions.push("lsp_status");
-    if (!ei || ei.format) lspActions.push("format");
-    if (lspActions.length > 0) lines.push(`LSP actions: ${lspActions.join(", ")}.`);
-
-    lines.push(
-      "edit_file for disk writes. editor(action: edit) for buffer only. Check diagnostics after changes.",
-    );
-
-    return lines;
   }
 
   /**

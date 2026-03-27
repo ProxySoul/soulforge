@@ -185,9 +185,11 @@ export const InputBox = memo(function InputBox({
     if (focused) refreshHistoryCache();
   }, [focused]);
 
+  // Use only the first word for command matching so autocomplete stays visible
+  // when the user types arguments (e.g. "/proxy login" still matches "/proxy").
+  const commandToken = (value.split(" ")[0] ?? value).toLowerCase();
   const showAutocomplete =
     value.startsWith("/") && focused && !fuzzyMode && historyIdx.current === -1;
-  const query = value.toLowerCase();
   const matches = useMemo(() => {
     if (!showAutocomplete) return [];
     const cmds = getCommands();
@@ -199,16 +201,19 @@ export const InputBox = memo(function InputBox({
       indices: number[];
     }> = [];
     for (const c of cmds) {
-      const m = fuzzyMatch(query, c.cmd);
+      const m = fuzzyMatch(commandToken, c.cmd);
       if (m) results.push({ ...c, score: m.score, indices: m.indices });
     }
     results.sort((a, b) => b.score - a.score);
     return results;
-  }, [showAutocomplete, query]);
+  }, [showAutocomplete, commandToken]);
   const hasMatches = matches.length > 0;
+  // Keyboard/submit navigation only active when no args typed yet.
+  // hasMatches stays true for visual dropdown; hasMatchesForNav drives behavior.
+  const hasMatchesForNav = hasMatches && !value.includes(" ");
 
   const ghost =
-    hasMatches && matches[selectedIdx]?.cmd.startsWith(query)
+    hasMatches && !value.includes(" ") && matches[selectedIdx]?.cmd.startsWith(commandToken)
       ? matches[selectedIdx].cmd.slice(value.length)
       : "";
 
@@ -268,8 +273,7 @@ export const InputBox = memo(function InputBox({
 
   const handleSubmit = useCallback(
     (input: string) => {
-      // Autocomplete match — complete or submit the command
-      if (hasMatches && matches[selectedIdx]) {
+      if (hasMatches && matches[selectedIdx] && !input.includes(" ")) {
         const completed = matches[selectedIdx].cmd;
         if (completed === "/open" || completed === "/branch") {
           const withSpace = `${completed} `;
@@ -381,7 +385,7 @@ export const InputBox = memo(function InputBox({
   }, [isFocused, renderer]);
 
   useKeyboard((evt) => {
-    if (hasMatches) {
+    if (hasMatchesForNav) {
       if (evt.name === "down") {
         setSelectedIdx((prev) => (prev + 1) % matches.length);
         evt.preventDefault();
@@ -471,7 +475,7 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    if (!focused || hasMatches || fuzzyMode) return;
+    if (!focused || hasMatchesForNav || fuzzyMode) return;
 
     // Up arrow — history: only when cursor is on the first visual row (works for both normal + history)
     if (evt.name === "up" && preKeyVisualRow.current === 0) {

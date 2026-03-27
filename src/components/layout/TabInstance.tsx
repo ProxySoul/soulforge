@@ -174,10 +174,12 @@ export const TabInstance = memo(function TabInstance({
       contextManager.setSemanticSummaries(effectiveConfig.semanticSummaries);
     contextManager.setSemanticSummaryLimit(effectiveConfig.semanticSummaryLimit);
     contextManager.setSemanticAutoRegen(effectiveConfig.semanticAutoRegen);
+    contextManager.setRepoMapTokenBudget(effectiveConfig.repoMapTokenBudget);
   }, [
     effectiveConfig.semanticSummaries,
     effectiveConfig.semanticSummaryLimit,
     effectiveConfig.semanticAutoRegen,
+    effectiveConfig.repoMapTokenBudget,
     contextManager,
   ]);
 

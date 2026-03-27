@@ -115,13 +115,13 @@ describe("buildSystemPrompt assembly", () => {
   test("includes tool guidance when repo map is ready", () => {
     const prompt = buildSystemPrompt(baseOpts({ hasRepoMap: true }));
     expect(prompt).toContain("Soul Map");
-    expect(prompt).toContain("Tool priority");
+    expect(prompt).toContain("minimize the number of steps");
   });
 
   test("includes no-map guidance when repo map not ready", () => {
     const prompt = buildSystemPrompt(baseOpts({ hasRepoMap: false }));
-    expect(prompt).toContain("Tool priority");
-    expect(prompt).not.toContain("already in context, zero cost");
+    expect(prompt).toContain("minimize the number of steps");
+    expect(prompt).not.toContain("Soul Map");
   });
 
   test("skips tool guidance for minimal context windows", () => {

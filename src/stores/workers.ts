@@ -11,6 +11,8 @@ interface WorkerInfo {
   totalErrors: number;
   uptimeMs: number;
   startedAt: number;
+  heapMB: number;
+  rssMB: number;
 }
 
 const EMPTY_WORKER: WorkerInfo = {
@@ -22,6 +24,8 @@ const EMPTY_WORKER: WorkerInfo = {
   totalErrors: 0,
   uptimeMs: 0,
   startedAt: 0,
+  heapMB: 0,
+  rssMB: 0,
 };
 
 interface WorkerStoreState {
@@ -35,6 +39,7 @@ interface WorkerStoreState {
   incrementCalls: (worker: "intelligence" | "io") => void;
   incrementErrors: (worker: "intelligence" | "io") => void;
   markStarted: (worker: "intelligence" | "io") => void;
+  setWorkerMemory: (worker: "intelligence" | "io", heapMB: number, rssMB: number) => void;
 }
 
 export const useWorkerStore = create<WorkerStoreState>()((set) => ({
@@ -88,5 +93,10 @@ export const useWorkerStore = create<WorkerStoreState>()((set) => ({
         startedAt: Date.now(),
         uptimeMs: 0,
       },
+    })),
+
+  setWorkerMemory: (worker, heapMB, rssMB) =>
+    set((state) => ({
+      [worker]: { ...state[worker], heapMB, rssMB },
     })),
 }));

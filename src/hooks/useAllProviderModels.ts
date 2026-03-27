@@ -60,7 +60,17 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
     if (!active) return;
 
     const init: Record<string, ProviderModelsState> = {};
-    for (const c of PROVIDER_CONFIGS) init[c.id] = { items: [], loading: true };
+    for (const cfg of PROVIDER_CONFIGS) {
+      if (cfg.grouped) {
+        const cached = getCachedGroupedModels(cfg.id);
+        init[cfg.id] = cached
+          ? { items: flattenGrouped(cached), loading: false }
+          : { items: [], loading: true };
+      } else {
+        const cached = getCachedModels(cfg.id);
+        init[cfg.id] = cached ? { items: cached, loading: false } : { items: [], loading: true };
+      }
+    }
     setProviderData(init);
 
     let dead = false;
@@ -75,26 +85,17 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       .catch(() => {});
 
     for (const cfg of PROVIDER_CONFIGS) {
+      if (!init[cfg.id]?.loading) continue;
       const set = (items: ProviderModelInfo[]) => {
         if (!dead) setProviderData((p) => ({ ...p, [cfg.id]: { items, loading: false } }));
       };
       const fail = () => set([]);
 
       if (cfg.grouped) {
-        const cached = getCachedGroupedModels(cfg.id);
-        if (cached) {
-          set(flattenGrouped(cached));
-          continue;
-        }
         fetchGroupedModels(cfg.id)
           .then((r) => set(flattenGrouped(r)))
           .catch(fail);
       } else {
-        const cached = getCachedModels(cfg.id);
-        if (cached) {
-          set(cached);
-          continue;
-        }
         fetchProviderModels(cfg.id)
           .then((r) => set(r.models))
           .catch(fail);

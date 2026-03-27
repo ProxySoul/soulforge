@@ -279,6 +279,8 @@ export interface AppConfig {
   semanticSummaryLimit?: number;
   /** Auto-regenerate LLM summaries when files change. Default: false (only ast/synthetic auto-regen). */
   semanticAutoRegen?: boolean;
+  /** Token budget for soul map rendering. Undefined = auto (scales with conversation length). */
+  repoMapTokenBudget?: number;
   /** LSP servers to disable (by Mason package name). Scoped: project overrides global. */
   disabledLspServers?: string[];
   agentFeatures?: AgentFeatures;

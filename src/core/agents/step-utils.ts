@@ -25,6 +25,7 @@ export interface PrepareStepOptions {
   symbolLookup?: SymbolLookup;
   contextWindow?: number;
   disablePruning?: boolean;
+  tabId?: string;
 }
 
 // Context-proportional thresholds (fraction of model's context window).
@@ -259,7 +260,6 @@ function formatSymbolHint(symbols: Array<{ name: string; kind: string }>): strin
   return `exports: ${display.join(", ")}`;
 }
 
-
 /** Compact old tool results beyond KEEP_RECENT_MESSAGES into one-line summaries.
  *  Keeps edit tool results intact (needed for conversation coherence). */
 function compactOldToolResults(
@@ -419,6 +419,7 @@ export function buildPrepareStep({
   symbolLookup,
   contextWindow: ctxWindow,
   disablePruning,
+  tabId,
 }: PrepareStepOptions): PrepareStepResult {
   const cw = Math.min(ctxWindow ?? DEFAULT_CONTEXT_WINDOW, MAX_SUBAGENT_CONTEXT);
   const nudgeThreshold = Math.floor(cw * OUTPUT_NUDGE_PCT);
@@ -584,7 +585,7 @@ export function buildPrepareStep({
     }
 
     // Inject task list so it survives compaction
-    const taskBlock = renderTaskList();
+    const taskBlock = renderTaskList(tabId);
     if (taskBlock) {
       result.system = `${result.system ?? ""}\n\n${taskBlock}`.trim();
     }

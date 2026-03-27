@@ -24,7 +24,7 @@ function handleLspInstall(_input: string, ctx: CommandContext): void {
 }
 
 async function handleLspRestart(input: string, ctx: CommandContext): Promise<void> {
-  const filter = input.replace(/^\/lsp-restart\s*/, "").trim() || undefined;
+  const filter = input.replace(/^\/lsp[\s-]restart\s*/, "").trim() || undefined;
   const { restartLspServers } = await import("../intelligence/index.js");
   const label = filter ?? "all";
   sysMsg(ctx, `Restarting LSP servers (${label})…`);
@@ -42,5 +42,7 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/setup", handleSetup);
   map.set("/lsp", handleLsp);
   map.set("/lsp-install", handleLspInstall);
+  map.set("/lsp install", handleLspInstall);
   map.set("/lsp-restart", handleLspRestart);
+  map.set("/lsp restart", handleLspRestart);
 }

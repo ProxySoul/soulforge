@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { CompactionStrategy } from "../core/compaction/types.js";
+import { getNvimPid } from "../core/editor/instance.js";
 import { getIntelligenceChildPids } from "../core/intelligence/index.js";
 import { getProxyPid } from "../core/proxy/lifecycle.js";
 
@@ -83,6 +84,15 @@ const ZERO_USAGE: TokenUsage = {
   lastStepCacheRead: 0,
 };
 
+export interface ProcessRss {
+  mainMB: number;
+  nvimMB: number;
+  proxyMB: number;
+  lspMB: number;
+}
+
+const ZERO_PROCESS_RSS: ProcessRss = { mainMB: 0, nvimMB: 0, proxyMB: 0, lspMB: 0 };
+
 interface StatusBarState {
   tokenUsage: TokenUsage;
   activeModel: string;
@@ -91,6 +101,7 @@ interface StatusBarState {
   chatChars: number;
   subagentChars: number;
   rssMB: number;
+  processRss: ProcessRss;
   compacting: boolean;
   compactElapsed: number;
   compactionStrategy: CompactionStrategy;
@@ -102,6 +113,7 @@ interface StatusBarState {
   setContextWindow: (tokens: number) => void;
   setSubagentChars: (chars: number) => void;
   setRssMB: (mb: number) => void;
+  setProcessRss: (rss: ProcessRss) => void;
   setCompacting: (v: boolean) => void;
   setCompactElapsed: (s: number) => void;
   setCompactionStrategy: (s: CompactionStrategy) => void;
@@ -117,6 +129,10 @@ export const useStatusBarStore = create<StatusBarState>()(
     chatChars: 0,
     subagentChars: 0,
     rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    processRss: {
+      ...ZERO_PROCESS_RSS,
+      mainMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    },
     compacting: false,
     compactElapsed: 0,
     compactionStrategy: "v2",
@@ -129,6 +145,11 @@ export const useStatusBarStore = create<StatusBarState>()(
     setContextWindow: (tokens) => set({ contextWindow: tokens }),
     setSubagentChars: (chars) => set({ subagentChars: chars }),
     setRssMB: (mb) => set({ rssMB: mb }),
+    setProcessRss: (rss) =>
+      set({
+        processRss: rss,
+        rssMB: Math.round(rss.mainMB + rss.nvimMB + rss.proxyMB + rss.lspMB),
+      }),
     setCompacting: (v) => set({ compacting: v, compactElapsed: 0 }),
     setCompactElapsed: (s) => set({ compactElapsed: s }),
     setCompactionStrategy: (s) => set({ compactionStrategy: s }),
@@ -150,6 +171,10 @@ export function resetStatusBarStore(): void {
     chatChars: 0,
     subagentChars: 0,
     rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    processRss: {
+      ...ZERO_PROCESS_RSS,
+      mainMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    },
     compacting: false,
     compactElapsed: 0,
     compactionStrategy: "v2",
@@ -157,16 +182,23 @@ export function resetStatusBarStore(): void {
   });
 }
 
-function collectChildPids(): number[] {
-  const pids: number[] = [];
-  const proxyPid = getProxyPid();
-  if (proxyPid != null) pids.push(proxyPid);
-  pids.push(...getIntelligenceChildPids());
-  return pids;
+interface PidGroup {
+  nvim: number | null;
+  proxy: number | null;
+  lsp: number[];
 }
 
-function getChildRssKB(pids: number[]): Promise<number> {
-  if (pids.length === 0) return Promise.resolve(0);
+function collectPidGroups(): PidGroup {
+  return {
+    nvim: getNvimPid(),
+    proxy: getProxyPid(),
+    lsp: getIntelligenceChildPids(),
+  };
+}
+
+function getPerPidRssKB(pids: number[]): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
+  if (pids.length === 0) return Promise.resolve(result);
   if (process.platform === "win32") {
     return new Promise((resolve) => {
       execFile(
@@ -176,35 +208,52 @@ function getChildRssKB(pids: number[]): Promise<number> {
           "where",
           `(${pids.map((p) => `ProcessId=${String(p)}`).join(" or ")})`,
           "get",
-          "WorkingSetSize",
+          "ProcessId,WorkingSetSize",
+          "/format:csv",
         ],
         (err, stdout) => {
           if (err) {
-            resolve(0);
+            resolve(result);
             return;
           }
-          let total = 0;
           for (const line of stdout.split("\n")) {
-            const bytes = Number.parseInt(line.trim(), 10);
-            if (!Number.isNaN(bytes)) total += bytes / 1024;
+            const parts = line.trim().split(",");
+            const pidStr = parts[1];
+            const bytesStr = parts[2];
+            if (pidStr && bytesStr) {
+              const pid = Number.parseInt(pidStr, 10);
+              const bytes = Number.parseInt(bytesStr, 10);
+              if (!Number.isNaN(pid) && !Number.isNaN(bytes)) {
+                result.set(pid, bytes / 1024);
+              }
+            }
           }
-          resolve(total);
+          resolve(result);
         },
       );
     });
   }
   return new Promise((resolve) => {
-    execFile("ps", ["-p", pids.join(","), "-o", "rss="], (err, stdout) => {
+    execFile("ps", ["-p", pids.join(","), "-o", "pid=,rss="], (err, stdout) => {
       if (err) {
-        resolve(0);
+        resolve(result);
         return;
       }
-      let total = 0;
       for (const line of stdout.split("\n")) {
-        const kb = Number.parseInt(line.trim(), 10);
-        if (!Number.isNaN(kb)) total += kb;
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split(/\s+/);
+        const pidStr = parts[0];
+        const kbStr = parts[1];
+        if (pidStr && kbStr) {
+          const pid = Number.parseInt(pidStr, 10);
+          const kb = Number.parseInt(kbStr, 10);
+          if (!Number.isNaN(pid) && !Number.isNaN(kb)) {
+            result.set(pid, kb);
+          }
+        }
       }
-      resolve(total);
+      resolve(result);
     });
   });
 }
@@ -215,15 +264,30 @@ export function startMemoryPoll(intervalMs = 2000) {
   if (memPollStarted) return;
   memPollStarted = true;
   memPollTimer = setInterval(() => {
-    const mainMB = process.memoryUsage().rss / 1024 / 1024;
-    const childPids = collectChildPids();
-    if (childPids.length === 0) {
-      useStatusBarStore.getState().setRssMB(Math.round(mainMB));
+    const mainMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    const groups = collectPidGroups();
+    const allPids: number[] = [];
+    if (groups.nvim != null) allPids.push(groups.nvim);
+    if (groups.proxy != null) allPids.push(groups.proxy);
+    allPids.push(...groups.lsp);
+
+    if (allPids.length === 0) {
+      useStatusBarStore.getState().setProcessRss({ mainMB, nvimMB: 0, proxyMB: 0, lspMB: 0 });
       return;
     }
-    getChildRssKB(childPids).then((childKB) => {
-      const totalMB = mainMB + childKB / 1024;
-      useStatusBarStore.getState().setRssMB(Math.round(totalMB));
+    getPerPidRssKB(allPids).then((rssMap) => {
+      const kbToMB = (pid: number | null) =>
+        pid != null ? Math.round((rssMap.get(pid) ?? 0) / 1024) : 0;
+      let lspMB = 0;
+      for (const pid of groups.lsp) {
+        lspMB += Math.round((rssMap.get(pid) ?? 0) / 1024);
+      }
+      useStatusBarStore.getState().setProcessRss({
+        mainMB,
+        nvimMB: kbToMB(groups.nvim),
+        proxyMB: kbToMB(groups.proxy),
+        lspMB,
+      });
     });
   }, intervalMs);
 }

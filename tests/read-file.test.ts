@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { initForbidden } from "../src/core/security/forbidden.js";
 import { readFileTool } from "../src/core/tools/read-file.js";
 
 const TEST_DIR = join(import.meta.dir, ".tmp-read-file-test");
@@ -9,6 +10,7 @@ describe("readFileTool", () => {
 	beforeEach(() => {
 		if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
 		mkdirSync(TEST_DIR, { recursive: true });
+		initForbidden(TEST_DIR);
 	});
 
 	afterEach(() => {
@@ -50,7 +52,7 @@ describe("readFileTool", () => {
 		expect(result.output).toContain("line 800");
 	});
 
-	it("returns outline-only for large code files", async () => {
+	it("reads large code files with line numbers", async () => {
 		const filePath = join(TEST_DIR, "big.ts");
 		const fnLines = Array.from(
 			{ length: 400 },
@@ -60,9 +62,8 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
-		expect(result.outlineOnly).toBe(true);
-		expect(result.output).toContain("400 lines");
-		expect(result.output).toContain("Pass fresh=true to force full read");
+		expect(result.output).toContain("fn0");
+		expect(result.output).toContain("fn399");
 	}, 30_000);
 
 	it("returns full content for large code file with startLine=1", async () => {
@@ -92,7 +93,7 @@ describe("readFileTool", () => {
 		expect(result.error).toContain("directory");
 	});
 
-	it("truncates files >50MB with helpful message", async () => {
+	it("rejects files >250KB with helpful message", async () => {
 		const filePath = join(TEST_DIR, "huge.txt");
 		const lineContent = "x".repeat(1000);
 		const lineCount = 60_000;
@@ -102,25 +103,9 @@ describe("readFileTool", () => {
 		writeFileSync(filePath, lines);
 
 		const result = await readFileTool.execute({ path: filePath });
-		expect(result.success).toBe(true);
-		expect(result.output).toContain("[file is");
-		expect(result.output).toContain("MB");
+		expect(result.success).toBe(false);
+		expect(result.output).toContain("too large");
 		expect(result.output).toContain("startLine/endLine");
-	});
-
-	it("allows startLine/endLine on large files (bypasses truncation)", async () => {
-		const filePath = join(TEST_DIR, "huge-range.txt");
-		const lineContent = "x".repeat(1000);
-		const lineCount = 60_000;
-		const lines = Array.from({ length: lineCount }, (_, i) => `${i}: ${lineContent}`).join(
-			"\n",
-		);
-		writeFileSync(filePath, lines);
-
-		const result = await readFileTool.execute({ path: filePath, startLine: 1, endLine: 10 });
-		expect(result.success).toBe(true);
-		expect(result.output).not.toContain("[file is");
-		expect(result.output).toContain("0:");
 	});
 
 	it("reads empty file without error", async () => {
@@ -129,9 +114,10 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
+		expect(result.output).toBeDefined();
 	});
 
-	it("code file at exactly 300 lines returns full content (not outline)", async () => {
+	it("code file at 300 lines returns full content", async () => {
 		const filePath = join(TEST_DIR, "boundary.ts");
 		const fnLines = Array.from(
 			{ length: 300 },
@@ -141,12 +127,11 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
-		expect(result.outlineOnly).toBeUndefined();
 		expect(result.output).toContain("fn0");
 		expect(result.output).toContain("fn299");
 	});
 
-	it("code file at 301 lines returns outline-only", async () => {
+	it("code file at 301 lines returns full content", async () => {
 		const filePath = join(TEST_DIR, "boundary301.ts");
 		const fnLines = Array.from(
 			{ length: 301 },
@@ -156,11 +141,11 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
-		expect(result.outlineOnly).toBe(true);
-		expect(result.output).toContain("301 lines");
-	}, 90_000);
+		expect(result.output).toContain("fn0");
+		expect(result.output).toContain("fn300");
+	});
 
-	it("range read on large code file returns content (not outline)", async () => {
+	it("range read on large code file returns content", async () => {
 		const filePath = join(TEST_DIR, "range-large.ts");
 		const fnLines = Array.from(
 			{ length: 400 },
@@ -170,13 +155,12 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath, startLine: 50, endLine: 100 });
 		expect(result.success).toBe(true);
-		expect(result.outlineOnly).toBeUndefined();
 		expect(result.output).toContain("fn49");
 		expect(result.output).toContain("fn99");
 		expect(result.output).not.toContain("fn0()");
 	}, 30_000);
 
-	it("non-code file over 300 lines returns full content (no outline)", async () => {
+	it("non-code file over 300 lines returns full content", async () => {
 		const filePath = join(TEST_DIR, "big-config.json");
 		const obj: Record<string, number> = {};
 		for (let i = 0; i < 400; i++) obj[`key${String(i)}`] = i;
@@ -184,7 +168,6 @@ describe("readFileTool", () => {
 
 		const result = await readFileTool.execute({ path: filePath });
 		expect(result.success).toBe(true);
-		expect(result.outlineOnly).toBeUndefined();
 		expect(result.output).toContain("key0");
 		expect(result.output).toContain("key399");
 	});

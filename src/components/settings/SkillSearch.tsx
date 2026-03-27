@@ -245,6 +245,12 @@ export const SkillSearch = memo(function SkillSearch({
       return;
     }
 
+    if (evt.name === "space") {
+      setQuery((prev) => `${prev} `);
+      resetScroll();
+      return;
+    }
+
     if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
       setQuery((prev) => prev + evt.name);
       resetScroll();

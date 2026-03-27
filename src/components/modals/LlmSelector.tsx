@@ -50,8 +50,8 @@ export const LlmSelector = memo(function LlmSelector({
   const { width: termCols, height: termRows } = useTerminalDimensions();
   const pw = Math.min(MAX_W, Math.floor(termCols * 0.85));
   const iw = pw - 2;
-  // Chrome: title(1) + sep(1) + search(1) + sep(1) + spacer(1) + sep(1) + footer(1) = 7
-  const maxVis = Math.max(6, termRows - 4 - 7);
+  // Chrome: title(1) + sep(1) + search(1) + hint(1) + sep(1) + spacer(1) + sep(1) + footer(1) = 8
+  const maxVis = Math.max(6, termRows - 4 - 8);
 
   const { providerData: provData, availability, anyLoading } = useAllProviderModels(visible);
 
@@ -59,13 +59,20 @@ export const LlmSelector = memo(function LlmSelector({
   const [cursor, setCursor] = useState(0);
   const [scrollOff, setScrollOff] = useState(0);
   const [spinFrame, setSpinFrame] = useState(0);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!visible) return;
     setQuery("");
     setCursor(0);
     setScrollOff(0);
-  }, [visible]);
+    const activeProvider = activeModel.split("/")[0] ?? "";
+    const init: Record<string, boolean> = {};
+    for (const cfg of PROVIDER_CONFIGS) {
+      init[cfg.id] = cfg.id !== activeProvider;
+    }
+    setCollapsed(init);
+  }, [visible, activeModel]);
 
   useEffect(() => {
     if (!anyLoading || !visible) return;
@@ -75,7 +82,6 @@ export const LlmSelector = memo(function LlmSelector({
     return () => clearInterval(timer);
   }, [anyLoading, visible]);
 
-  // Parse "provider/model" scoped search
   const { providerFilter, modelFilter } = useMemo(() => {
     const raw = query.toLowerCase().trim();
     const slashIdx = raw.indexOf("/");
@@ -85,7 +91,7 @@ export const LlmSelector = memo(function LlmSelector({
     return { providerFilter: "", modelFilter: raw };
   }, [query]);
 
-  // Build flat entry list
+  // Full entry list (before collapse filtering)
   const entries = useMemo(() => {
     const out: Entry[] = [];
 
@@ -145,72 +151,105 @@ export const LlmSelector = memo(function LlmSelector({
     return out;
   }, [provData, providerFilter, modelFilter, availability]);
 
+  // Visible entries: hide models under collapsed providers (unless searching)
+  const displayEntries = useMemo(() => {
+    if (query) return entries;
+    return entries.filter((e) => {
+      if (e.kind === "header") return true;
+      return !collapsed[e.providerId];
+    });
+  }, [entries, collapsed, query]);
+
   const eH = useCallback((e: Entry): number => (e.kind === "model" && e.hasDesc ? 2 : 1), []);
 
-  // Visual row count (models with descriptions take 2 rows)
   const visualRowCount = useMemo(() => {
     let count = 0;
-    for (const e of entries) count += eH(e);
+    for (const e of displayEntries) count += eH(e);
     return count;
-  }, [entries, eH]);
+  }, [displayEntries, eH]);
 
-  // Reset cursor when entries change
-  const prevEntries = useRef(entries);
-  useEffect(() => {
-    if (entries !== prevEntries.current) {
-      prevEntries.current = entries;
-      const first = entries.findIndex((e) => e.kind === "model");
-      if (first >= 0) {
-        setCursor(first);
-        setScrollOff(
-          Math.max(0, first > 0 && entries[first - 1]?.kind === "header" ? first - 1 : 0),
-        );
-      } else {
-        setCursor(0);
-        setScrollOff(0);
-      }
-    }
-  }, [entries]);
-
-  // Refs for keyboard handler
-  const scrollRef = useRef(scrollOff);
-  scrollRef.current = scrollOff;
-  const entriesRef = useRef(entries);
-  entriesRef.current = entries;
+  // Track cursor across displayEntries changes
+  const prevDisplayRef = useRef(displayEntries);
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const scrollRef = useRef(scrollOff);
+  scrollRef.current = scrollOff;
+  const displayRef = useRef(displayEntries);
+  displayRef.current = displayEntries;
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
 
-  const ensureVisible = (idx: number) => {
-    const ents = entriesRef.current;
-    let top = idx;
-    if (idx > 0 && ents[idx - 1]?.kind === "header") top = idx - 1;
-    const so = scrollRef.current;
-    if (top < so) {
-      setScrollOff(top);
-      scrollRef.current = top;
-    } else {
-      let rowsNeeded = 0;
-      for (let i = so; i <= idx && i < ents.length; i++) {
-        const e = ents[i];
-        if (e) rowsNeeded += eH(e);
-      }
-      if (rowsNeeded > maxVis) {
-        let newOff = so;
-        while (newOff < idx) {
-          const e = ents[newOff];
-          if (e) rowsNeeded -= eH(e);
-          newOff++;
-          if (rowsNeeded <= maxVis) break;
+  const ensureVisible = useCallback(
+    (idx: number) => {
+      const ents = displayRef.current;
+      const so = scrollRef.current;
+      if (idx < so) {
+        setScrollOff(idx);
+        scrollRef.current = idx;
+      } else {
+        let rowsNeeded = 0;
+        for (let i = so; i <= idx && i < ents.length; i++) {
+          const e = ents[i];
+          if (e) rowsNeeded += eH(e);
         }
-        setScrollOff(newOff);
-        scrollRef.current = newOff;
+        if (rowsNeeded > maxVis) {
+          let newOff = so;
+          while (newOff < idx) {
+            const e = ents[newOff];
+            if (e) rowsNeeded -= eH(e);
+            newOff++;
+            if (rowsNeeded <= maxVis) break;
+          }
+          setScrollOff(newOff);
+          scrollRef.current = newOff;
+        }
       }
+    },
+    [eH, maxVis],
+  );
+
+  useEffect(() => {
+    if (displayEntries !== prevDisplayRef.current) {
+      const prev = prevDisplayRef.current;
+      prevDisplayRef.current = displayEntries;
+      const prevEntry = prev[cursorRef.current];
+      if (prevEntry) {
+        const newIdx = displayEntries.findIndex((e) => {
+          if (e.kind === "header" && prevEntry.kind === "header") return e.id === prevEntry.id;
+          if (e.kind === "model" && prevEntry.kind === "model")
+            return e.fullId === prevEntry.fullId;
+          return false;
+        });
+        if (newIdx >= 0) {
+          setCursor(newIdx);
+          cursorRef.current = newIdx;
+          ensureVisible(newIdx);
+          return;
+        }
+      }
+      if (query) {
+        const first = displayEntries.findIndex((e) => e.kind === "model");
+        if (first >= 0) {
+          setCursor(first);
+          cursorRef.current = first;
+          ensureVisible(first);
+          return;
+        }
+      }
+      setCursor(0);
+      cursorRef.current = 0;
+      setScrollOff(0);
+      scrollRef.current = 0;
     }
-  };
+  }, [displayEntries, query, ensureVisible]);
+
+  const toggleCollapse = useCallback((providerId: string) => {
+    setCollapsed((prev) => ({ ...prev, [providerId]: !prev[providerId] }));
+  }, []);
 
   useKeyboard((evt) => {
     if (!visible) return;
-    const ents = entriesRef.current;
+    const ents = displayRef.current;
 
     if (evt.name === "escape") {
       if (query) {
@@ -223,9 +262,35 @@ export const LlmSelector = memo(function LlmSelector({
 
     if (evt.name === "return") {
       const e = ents[cursorRef.current];
-      if (e?.kind === "model") {
+      if (e?.kind === "header") {
+        toggleCollapse(e.id);
+      } else if (e?.kind === "model") {
         onSelect(e.fullId);
         onClose();
+      }
+      return;
+    }
+
+    if (evt.name === "left") {
+      const e = ents[cursorRef.current];
+      if (e?.kind === "model") {
+        let i = cursorRef.current - 1;
+        while (i >= 0 && ents[i]?.kind !== "header") i--;
+        if (i >= 0) {
+          setCursor(i);
+          cursorRef.current = i;
+          ensureVisible(i);
+        }
+      } else if (e?.kind === "header" && !collapsedRef.current[e.id]) {
+        toggleCollapse(e.id);
+      }
+      return;
+    }
+
+    if (evt.name === "right") {
+      const e = ents[cursorRef.current];
+      if (e?.kind === "header" && collapsedRef.current[e.id]) {
+        toggleCollapse(e.id);
       }
       return;
     }
@@ -235,13 +300,6 @@ export const LlmSelector = memo(function LlmSelector({
       let next = cursorRef.current + dir;
       if (next < 0) next = ents.length - 1;
       if (next >= ents.length) next = 0;
-      const start = next;
-      while (ents[next]?.kind !== "model") {
-        next += dir;
-        if (next < 0) next = ents.length - 1;
-        if (next >= ents.length) next = 0;
-        if (next === start) return;
-      }
       setCursor(next);
       cursorRef.current = next;
       ensureVisible(next);
@@ -259,10 +317,8 @@ export const LlmSelector = memo(function LlmSelector({
     if (evt.name === "tab") {
       let i = cursorRef.current + 1;
       while (i < ents.length && ents[i]?.kind !== "header") i++;
-      if (i < ents.length) i++;
-      while (i < ents.length && ents[i]?.kind !== "model") i++;
       if (i >= ents.length) {
-        i = ents.findIndex((e) => e.kind === "model");
+        i = ents.findIndex((e) => e.kind === "header");
         if (i < 0) return;
       }
       setCursor(i);
@@ -276,6 +332,11 @@ export const LlmSelector = memo(function LlmSelector({
       return;
     }
 
+    if (evt.name === "space") {
+      setQuery((q) => `${q} `);
+      return;
+    }
+
     if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
       setQuery((q) => q + evt.name);
     }
@@ -283,11 +344,10 @@ export const LlmSelector = memo(function LlmSelector({
 
   if (!visible) return null;
 
-  // Build visible slice accounting for variable-height entries
   const visEntries: Entry[] = [];
   let visRows = 0;
-  for (let i = scrollOff; i < entries.length && visRows < maxVis; i++) {
-    const e = entries[i];
+  for (let i = scrollOff; i < displayEntries.length && visRows < maxVis; i++) {
+    const e = displayEntries[i];
     if (!e) break;
     const h = eH(e);
     if (visRows + h > maxVis && visRows > 0) break;
@@ -296,14 +356,12 @@ export const LlmSelector = memo(function LlmSelector({
   }
 
   const totalModels = entries.filter((e) => e.kind === "model").length;
-  const cursorModelIdx = entries.slice(0, cursor + 1).filter((e) => e.kind === "model").length;
   const canScrollUp = scrollOff > 0;
-  const canScrollDown = scrollOff + visEntries.length < entries.length;
+  const canScrollDown = scrollOff + visEntries.length < displayEntries.length;
 
   return (
     <Overlay>
       <box flexDirection="column" borderStyle="rounded" border borderColor="#8B5CF6" width={pw}>
-        {/* Title — match CommandPicker style */}
         <PopupRow w={iw}>
           <text fg="#9B30FF" bg={POPUP_BG}>
             {icon("model")}{" "}
@@ -319,7 +377,6 @@ export const LlmSelector = memo(function LlmSelector({
           </text>
         </PopupRow>
 
-        {/* Search */}
         <PopupRow w={iw}>
           <text fg="#555" bg={POPUP_BG}>
             {icon("search")}{" "}
@@ -332,9 +389,15 @@ export const LlmSelector = memo(function LlmSelector({
           </text>
           {!query && (
             <text fg="#333" bg={POPUP_BG}>
-              {" search… (provider/model to scope)"}
+              {" search…"}
             </text>
           )}
+        </PopupRow>
+
+        <PopupRow w={iw}>
+          <text fg="#333" bg={POPUP_BG}>
+            {"<provider>/<model>"}
+          </text>
         </PopupRow>
 
         <PopupRow w={iw}>
@@ -343,13 +406,11 @@ export const LlmSelector = memo(function LlmSelector({
           </text>
         </PopupRow>
 
-        {/* Spacer */}
         <PopupRow w={iw}>
           <text>{""}</text>
         </PopupRow>
 
-        {/* List */}
-        {entries.length === 0 ? (
+        {displayEntries.length === 0 ? (
           <PopupRow w={iw}>
             <text fg="#555" bg={POPUP_BG}>
               {query ? "no matching models" : "no providers available"}
@@ -358,30 +419,42 @@ export const LlmSelector = memo(function LlmSelector({
         ) : (
           <box flexDirection="column" height={Math.min(visualRowCount, maxVis)} overflow="hidden">
             {visEntries.map((entry) => {
+              const entryIdx = displayEntries.indexOf(entry);
+              const active = entryIdx === cursor;
+
               if (entry.kind === "header") {
+                const isCol = !query && (collapsed[entry.id] ?? false);
+                const isActiveProvider = activeModel.startsWith(`${entry.id}/`);
+                const bg = active ? POPUP_HL : POPUP_BG;
+                const fg = !entry.avail
+                  ? "#444"
+                  : isActiveProvider
+                    ? "#00FF00"
+                    : active
+                      ? "white"
+                      : "#8B5CF6";
                 return (
-                  <PopupRow key={`h-${entry.id}`} w={iw}>
-                    <text
-                      fg={entry.avail ? "#8B5CF6" : "#333"}
-                      attributes={TextAttributes.BOLD}
-                      bg={POPUP_BG}
-                    >
+                  <PopupRow key={`h-${entry.id}`} bg={bg} w={iw}>
+                    <text fg={fg} bg={bg}>
+                      {isCol ? "▸ " : "▾ "}
+                    </text>
+                    <text fg={fg} attributes={TextAttributes.BOLD} bg={bg}>
                       {providerIcon(entry.id)} {entry.name.toUpperCase()}
                     </text>
                     {entry.loading && (
-                      <text fg="#555" bg={POPUP_BG}>
+                      <text fg="#555" bg={bg}>
                         {" "}
                         {SPINNER_FRAMES[spinFrame]}
                       </text>
                     )}
                     {!entry.loading && entry.count > 0 && (
-                      <text fg="#333" bg={POPUP_BG}>
+                      <text fg="#555" bg={bg}>
                         {" "}
                         {String(entry.count)}
                       </text>
                     )}
                     {!entry.avail && !entry.loading && (
-                      <text fg="#333" bg={POPUP_BG}>
+                      <text fg="#444" bg={bg}>
                         {" · no key"}
                       </text>
                     )}
@@ -389,24 +462,26 @@ export const LlmSelector = memo(function LlmSelector({
                 );
               }
 
-              const entryIdx = entries.indexOf(entry);
-              const active = entryIdx === cursor;
+              const nextEntry = displayEntries[entryIdx + 1];
+              const isLast = !nextEntry || nextEntry.kind === "header";
+              const connector = isLast ? " └ " : " ├ ";
+              const cont = isLast ? "   " : " │ ";
               const isCur = entry.fullId === activeModel;
               const bg = active ? POPUP_HL : POPUP_BG;
               const ctxStr = fmtCtx(entry.ctx);
               const checkW = isCur ? 2 : 0;
-              const avail = iw - 6 - ctxStr.length - checkW;
+              const avail = iw - 5 - ctxStr.length - checkW;
               const nm =
                 entry.name.length > avail
                   ? `${entry.name.slice(0, Math.max(0, avail - 1))}…`
                   : entry.name;
-              const pad = Math.max(1, iw - 4 - nm.length - ctxStr.length - checkW);
+              const pad = Math.max(1, iw - 5 - nm.length - ctxStr.length - checkW);
 
               return (
                 <box key={`m-${entry.fullId}`} flexDirection="column">
                   <PopupRow bg={bg} w={iw}>
-                    <text fg={active ? "#FF0040" : "#555"} bg={bg}>
-                      {active ? "› " : "  "}
+                    <text fg={active ? "#8B5CF6" : "#555"} bg={bg}>
+                      {connector}
                     </text>
                     <text
                       fg={active ? "#FF0040" : isCur ? "#00FF00" : "#aaa"}
@@ -430,8 +505,8 @@ export const LlmSelector = memo(function LlmSelector({
                   {entry.hasDesc && (
                     <PopupRow bg={bg} w={iw}>
                       <text fg={active ? "#888" : "#555"} bg={bg} truncate>
-                        {"    "}
-                        {entry.id.length > iw - 10 ? `${entry.id.slice(0, iw - 13)}…` : entry.id}
+                        {cont}
+                        {entry.id.length > iw - 9 ? `${entry.id.slice(0, iw - 12)}…` : entry.id}
                       </text>
                     </PopupRow>
                   )}
@@ -441,21 +516,19 @@ export const LlmSelector = memo(function LlmSelector({
           </box>
         )}
 
-        {/* Spacer */}
         <PopupRow w={iw}>
           <text>{""}</text>
         </PopupRow>
 
-        {/* Footer */}
         <PopupRow w={iw}>
           <text fg="#555" bg={POPUP_BG}>
-            {"↑↓"} navigate | {"⏎"} select | tab next | esc {query ? "clear" : "close"}
+            {"↑↓"} navigate {"←→"} fold {"⏎"} select {"⇥"} next {"⎋"} {query ? "clear" : "close"}
           </text>
           {totalModels > 0 && (
             <text fg="#444" bg={POPUP_BG}>
-              {"  "}
+              {" "}
               {canScrollUp ? "↑" : " "}
-              {String(cursorModelIdx)}/{String(totalModels)}
+              {String(totalModels)}
               {canScrollDown ? "↓" : " "}
             </text>
           )}

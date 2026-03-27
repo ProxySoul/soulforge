@@ -1562,7 +1562,8 @@ export function useChat({
               {
                 id: crypto.randomUUID(),
                 role: "assistant",
-                content: "Soul Map still indexing — proceeding without it. It will be available on the next message.",
+                content:
+                  "Soul Map still indexing — proceeding without it. It will be available on the next message.",
                 timestamp: Date.now(),
               },
             ]);

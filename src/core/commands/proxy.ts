@@ -97,6 +97,9 @@ async function handleProxyStatus(_input: string, ctx: CommandContext): Promise<v
       { type: "separator" },
       { type: "spacer" },
       { type: "header", label: "Commands" },
+      { type: "entry", label: "/proxy start", desc: "start the proxy" },
+      { type: "entry", label: "/proxy stop", desc: "stop the proxy" },
+      { type: "entry", label: "/proxy restart", desc: "restart the proxy" },
       { type: "entry", label: "/proxy login", desc: "add a provider account" },
       { type: "entry", label: "/proxy logout", desc: "remove a provider account" },
       { type: "entry", label: "/proxy install", desc: "reinstall CLIProxyAPI" },
@@ -295,9 +298,34 @@ async function handleProxyUpgrade(_input: string, ctx: CommandContext): Promise<
   updatePopup();
 }
 
+async function handleProxyStart(_input: string, ctx: CommandContext): Promise<void> {
+  const { ensureProxy } = await import("../proxy/lifecycle.js");
+  sysMsg(ctx, "Starting proxy…");
+  const result = await ensureProxy();
+  sysMsg(ctx, result.ok ? "Proxy started." : `Failed: ${result.error ?? "unknown"}`);
+}
+
+async function handleProxyStop(_input: string, ctx: CommandContext): Promise<void> {
+  const { stopProxy } = await import("../proxy/lifecycle.js");
+  stopProxy();
+  sysMsg(ctx, "Proxy stopped.");
+}
+
+async function handleProxyRestart(_input: string, ctx: CommandContext): Promise<void> {
+  const { stopProxy, ensureProxy } = await import("../proxy/lifecycle.js");
+  sysMsg(ctx, "Restarting proxy…");
+  stopProxy();
+  await new Promise((r) => setTimeout(r, 500));
+  const result = await ensureProxy();
+  sysMsg(ctx, result.ok ? "Proxy restarted." : `Failed: ${result.error ?? "unknown"}`);
+}
+
 export function register(map: Map<string, CommandHandler>): void {
   map.set("/proxy", handleProxyStatus);
   map.set("/proxy status", handleProxyStatus);
+  map.set("/proxy start", handleProxyStart);
+  map.set("/proxy stop", handleProxyStop);
+  map.set("/proxy restart", handleProxyRestart);
   map.set("/proxy login", handleProxyLogin);
   map.set("/proxy logout", handleProxyLogout);
   map.set("/proxy install", handleProxyInstall);

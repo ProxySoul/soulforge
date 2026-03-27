@@ -97,7 +97,7 @@ export class RepoMap {
   private pendingReindex = new Map<string, { relPath: string; language: Language }>();
   private reindexTimer: ReturnType<typeof setTimeout> | null = null;
   private hasGit: boolean | null = null;
-  private seenPaths = new Set<string>();
+
   private entryPointsCache: string[] | null = null;
   private semanticMode: "off" | "ast" | "synthetic" | "llm" | "full" | "on" = "off";
   private summaryGenerator: SummaryGenerator | null = null;
@@ -323,7 +323,7 @@ export class RepoMap {
       const sql = this.db
         .query<{ sql: string }, [string]>("SELECT sql FROM sqlite_master WHERE name = ?")
         .get("semantic_summaries");
-      if (!sql?.sql || !sql.sql.includes("ON DELETE CASCADE")) return;
+      if (!sql?.sql?.includes("ON DELETE CASCADE")) return;
 
       // Stash all existing data
       const rows = this.db
@@ -2227,15 +2227,16 @@ export class RepoMap {
     const pv = this.buildPersonalization(opts);
     if (pv.size > 0) this.computePageRankSync(pv);
 
-    const budget = this.computeBudget(opts.conversationTokens);
+    const budget = opts.tokenBudget ?? this.computeBudget(opts.conversationTokens);
     const ranked = this.rankFiles(opts);
     if (ranked.length === 0) return "";
 
-    const candidateIds = ranked.slice(0, 100).map((f) => f.id);
+    const candidateCount = Math.min(ranked.length, Math.max(100, Math.ceil(budget / 40)));
+    const candidateIds = ranked.slice(0, candidateCount).map((f) => f.id);
     const placeholders = candidateIds.map(() => "?").join(",");
     const allSymbols = this.db
       .query<SymbolRow, number[]>(
-        `SELECT id, file_id, name, kind, line, end_line, is_exported, signature FROM symbols WHERE file_id IN (${placeholders}) AND kind != 'variable' AND kind != 'constant' ORDER BY file_id, line`,
+        `SELECT id, file_id, name, kind, line, end_line, is_exported, signature FROM symbols WHERE file_id IN (${placeholders}) AND is_exported = 1 AND kind != 'variable' AND kind != 'constant' ORDER BY file_id, line`,
       )
       .all(...candidateIds);
 
@@ -2249,14 +2250,38 @@ export class RepoMap {
       arr.push(sym);
     }
 
+    // Fallback for constant-only files (e.g. headless/constants.ts): include exported
+    // variables/constants for files that would otherwise render with zero symbols.
+    const emptyFileIds = candidateIds.filter((id) => !symbolsByFile.has(id));
+    if (emptyFileIds.length > 0) {
+      const ph2 = emptyFileIds.map(() => "?").join(",");
+      const constSymbols = this.db
+        .query<SymbolRow, number[]>(
+          `SELECT id, file_id, name, kind, line, end_line, is_exported, signature FROM symbols WHERE file_id IN (${ph2}) AND is_exported = 1 AND (kind = 'variable' OR kind = 'constant') ORDER BY file_id, line`,
+        )
+        .all(...emptyFileIds);
+      for (const sym of constSymbols) {
+        let arr = symbolsByFile.get(sym.file_id);
+        if (!arr) {
+          arr = [];
+          symbolsByFile.set(sym.file_id, arr);
+        }
+        arr.push(sym);
+      }
+    }
+
     // Blast radius: how many files depend on each candidate
     const blastRadius = this.getBlastRadius(candidateIds);
 
-    // Semantic summaries: load cached summaries for all candidate symbols
-    const semanticMap = this.getSemanticSummaries(allSymbols.map((s) => s.id));
+    // Semantic summaries: collect all symbol IDs (including constant fallback) before lookup
+    const allSymbolIds: number[] = [];
+    for (const syms of symbolsByFile.values()) {
+      for (const s of syms) allSymbolIds.push(s.id);
+    }
+    const semanticMap = this.getSemanticSummaries(allSymbolIds);
 
-    // Diff-aware: [NEW] marks files the agent has never seen in any render
-    const prevPathSet = this.seenPaths;
+    // [NEW] marks files modified within the last 48h — recency signal, not session memory
+    const recentCutoff = Date.now() - 48 * 60 * 60 * 1000;
 
     // Re-export detection: find line-1 symbols that are re-exports from other files
     const reexportSources = new Map<number, Map<string, number>>(); // file_id → source_path → count
@@ -2293,7 +2318,7 @@ export class RepoMap {
     for (const file of ranked) {
       const radius = blastRadius.get(file.id);
       const radiusTag = radius && radius >= 2 ? ` (→${String(radius)})` : "";
-      const newTag = prevPathSet.size > 0 && !prevPathSet.has(file.path) ? " [NEW]" : "";
+      const newTag = file.mtime_ms >= recentCutoff ? " [NEW]" : "";
       const fileLine = `${file.path}:${radiusTag}${newTag}`;
       const symbols = symbolsByFile.get(file.id) ?? [];
       const sources = reexportSources.get(file.id);
@@ -2313,9 +2338,14 @@ export class RepoMap {
         if (sym.line === 1 && sym.is_exported && sources && sources.size > 0) continue;
         const exported = sym.is_exported ? "+" : " ";
         const semantic = semanticMap.get(sym.id);
+        const rawSig = sym.signature
+          ? sym.kind === "variable" || sym.kind === "constant"
+            ? sym.signature.replace(/^export\s+(const|let|var)\s+/, "")
+            : sym.signature
+          : null;
         const display = semantic
           ? `${sym.name} — ${semantic}`
-          : (sym.signature ?? `${kindTag(sym.kind as SymbolKind)}${sym.name}`);
+          : (rawSig ?? `${kindTag(sym.kind as SymbolKind)}${sym.name}`);
         symbolLines += `  ${exported}${display}\n`;
       }
       const blockTokens = estimateTokens(fileLine) + estimateTokens(symbolLines);
@@ -2406,8 +2436,6 @@ export class RepoMap {
       if (block.symbolLines) lines.push(block.symbolLines.trimEnd());
       currentPaths.push(block.path);
     }
-
-    for (const p of currentPaths) this.seenPaths.add(p);
 
     // Lazy regen: after render, check for stale LLM summaries and notify
     if (
@@ -3592,7 +3620,6 @@ export class RepoMap {
     this.rebuildFts();
     this.ready = false;
     this.scanPromise = null;
-    this.seenPaths.clear();
   }
 
   private rebuildFts(): void {

@@ -69,6 +69,9 @@ export function createWorkerHandler(
   onDispose?: () => void | Promise<void>,
 ): WorkerHandlerContext {
   let callbackIdCounter = 0;
+  let initDone = false;
+  let initReceived = false;
+  let initQueue: WorkerInbound[] = [];
   const pendingCallbacks = new Map<
     number,
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
@@ -101,32 +104,48 @@ export function createWorkerHandler(
     },
   };
 
+  const allHandlers: Record<string, HandlerFn> = {
+    ...handlers,
+    __memoryUsage: () => {
+      const usage = process.memoryUsage();
+      return { heapUsed: usage.heapUsed, rss: usage.rss };
+    },
+  };
+
+  async function handleCall(msg: WorkerInbound & { type: "call" }) {
+    const fn = allHandlers[msg.method];
+    if (!fn) {
+      postMessage({
+        type: "error",
+        id: msg.id,
+        message: `Unknown method: ${msg.method}`,
+      } satisfies ErrorMessage);
+      return;
+    }
+    try {
+      const result = await fn(...msg.args);
+      postMessage({ type: "result", id: msg.id, data: result } satisfies ResultMessage);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      postMessage({
+        type: "error",
+        id: msg.id,
+        message: error.message,
+        stack: error.stack,
+      } satisfies ErrorMessage);
+    }
+  }
+
   self.onmessage = async (e: MessageEvent<WorkerInbound>) => {
     const msg = e.data;
 
     switch (msg.type) {
       case "call": {
-        const fn = handlers[msg.method];
-        if (!fn) {
-          postMessage({
-            type: "error",
-            id: msg.id,
-            message: `Unknown method: ${msg.method}`,
-          } satisfies ErrorMessage);
+        if (initReceived && !initDone) {
+          initQueue.push(msg);
           return;
         }
-        try {
-          const result = await fn(...msg.args);
-          postMessage({ type: "result", id: msg.id, data: result } satisfies ResultMessage);
-        } catch (err: unknown) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          postMessage({
-            type: "error",
-            id: msg.id,
-            message: error.message,
-            stack: error.stack,
-          } satisfies ErrorMessage);
-        }
+        await handleCall(msg);
         break;
       }
 
@@ -144,11 +163,18 @@ export function createWorkerHandler(
       }
 
       case "init": {
+        initReceived = true;
         try {
           await onInit?.(msg.config, ctx);
         } catch (err: unknown) {
           const error = err instanceof Error ? err : new Error(String(err));
           ctx.emit("init-error", { message: error.message, stack: error.stack });
+        }
+        initDone = true;
+        const queued = initQueue;
+        initQueue = [];
+        for (const m of queued) {
+          await handleCall(m as WorkerInbound & { type: "call" });
         }
         break;
       }
@@ -265,6 +291,10 @@ export class WorkerClient {
         },
       });
     });
+  }
+
+  queryMemory(): Promise<{ heapUsed: number; rss: number }> {
+    return this.call<{ heapUsed: number; rss: number }>("__memoryUsage");
   }
 
   protected fire(method: string, ...args: unknown[]): void {

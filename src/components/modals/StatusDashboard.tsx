@@ -1,11 +1,12 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ContextManager } from "../../core/context/manager.js";
 import { getNvimInstance } from "../../core/editor/instance.js";
 import { icon } from "../../core/icons.js";
 import { getIntelligenceStatus } from "../../core/intelligence/index.js";
 import { getModelContextInfo, getShortModelLabel } from "../../core/llm/models.js";
+import { getProxyPid } from "../../core/proxy/lifecycle.js";
 import type { ChatInstance } from "../../hooks/useChat.js";
 import type { UseTabsReturn } from "../../hooks/useTabs.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
@@ -83,17 +84,19 @@ function EntryRow({
   labelColor,
   valueColor,
   innerW,
+  labelW = 14,
 }: {
   label: string;
   value: string;
   labelColor?: string;
   valueColor?: string;
   innerW: number;
+  labelW?: number;
 }) {
   return (
     <PopupRow w={innerW}>
       <text fg={labelColor ?? "#888"} bg={POPUP_BG}>
-        {label.padEnd(18)}
+        {label.padEnd(labelW)}
       </text>
       <text fg={valueColor ?? "#ccc"} bg={POPUP_BG}>
         {value}
@@ -166,6 +169,42 @@ export function StatusDashboard({
       setScrollOffset(0);
     }
   }, [visible, initialTab]);
+
+  const pollWorkerMemory = useCallback(async () => {
+    const store = useWorkerStore.getState();
+    try {
+      const intel = contextManager.getRepoMap();
+      const res = await intel.queryMemory();
+      store.setWorkerMemory(
+        "intelligence",
+        Math.round(res.heapUsed / 1024 / 1024),
+        Math.round(res.rss / 1024 / 1024),
+      );
+    } catch {}
+    try {
+      const { getIOClient } = await import("../../core/workers/io-client.js");
+      const res = await getIOClient().queryMemory();
+      store.setWorkerMemory(
+        "io",
+        Math.round(res.heapUsed / 1024 / 1024),
+        Math.round(res.rss / 1024 / 1024),
+      );
+    } catch {}
+  }, [contextManager]);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (visible && tab === "System") {
+      pollWorkerMemory();
+      pollRef.current = setInterval(pollWorkerMemory, 5_000);
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [visible, tab, pollWorkerMemory]);
 
   const modelId = chat?.activeModel ?? "none";
   const tu = sb.tokenUsage;
@@ -417,7 +456,6 @@ export function StatusDashboard({
 
     const lines: React.ReactNode[] = [];
 
-    lines.push(<SectionHeader key="h-map" label="Soul Map" innerW={innerW} />);
     const rmStatusColor =
       rm.status === "ready"
         ? "#4a7"
@@ -426,46 +464,25 @@ export function StatusDashboard({
           : rm.status === "error"
             ? "#f44"
             : "#666";
+    const semLabel =
+      rm.semanticStatus !== "off"
+        ? ` · sem: ${rm.semanticStatus} (${String(rm.semanticCount)})`
+        : "";
+
+    lines.push(<SectionHeader key="h-map" label="Soul Map" innerW={innerW} />);
     lines.push(
-      <EntryRow
-        key="rm-st"
-        label="  Status"
-        value={rm.status}
-        valueColor={rmStatusColor}
-        innerW={innerW}
-      />,
+      <PopupRow key="rm-status" w={innerW}>
+        <text fg={rmStatusColor} bg={POPUP_BG}>
+          {"  "}
+          {rm.status}
+        </text>
+        <text fg="#666" bg={POPUP_BG}>
+          {` · ${String(rm.files)} files · ${String(rm.symbols)} symbols · ${String(rm.edges)} edges · ${fmtBytes(rm.dbSizeBytes)}${semLabel}`}
+        </text>
+      </PopupRow>,
     );
-    lines.push(
-      <EntryRow key="rm-files" label="  Files" value={String(rm.files)} innerW={innerW} />,
-    );
-    lines.push(
-      <EntryRow key="rm-sym" label="  Symbols" value={String(rm.symbols)} innerW={innerW} />,
-    );
-    lines.push(<EntryRow key="rm-edge" label="  Edges" value={String(rm.edges)} innerW={innerW} />);
-    lines.push(
-      <EntryRow key="rm-db" label="  DB Size" value={fmtBytes(rm.dbSizeBytes)} innerW={innerW} />,
-    );
-    if (rm.semanticStatus !== "off") {
-      lines.push(
-        <EntryRow
-          key="rm-sem"
-          label="  Semantics"
-          value={`${rm.semanticStatus} (${String(rm.semanticCount)})`}
-          valueColor={rm.semanticStatus === "ready" ? "#4a7" : "#b87333"}
-          innerW={innerW}
-        />,
-      );
-    }
     lines.push(<Spacer key="s3" innerW={innerW} />);
 
-    lines.push(
-      <SectionHeader
-        key="h-wk"
-        label={`${icon("worker")} Workers`}
-        color="#2dd4bf"
-        innerW={innerW}
-      />,
-    );
     const wkIcon = (s: string) =>
       s === "busy"
         ? icon("worker_busy")
@@ -482,91 +499,168 @@ export function StatusDashboard({
           : s === "crashed"
             ? "#f44"
             : "#666";
+
+    const totalWorkerHeap = wk.intelligence.heapMB + wk.io.heapMB;
+    const pr = sb.processRss;
+    const hasNvim = getNvimInstance() != null;
+    const hasProxy = getProxyPid() != null;
+
+    // Workers are threads inside main — nest them under main.
+    const workers: Array<{ key: string; label: string; color: string; detail: string }> = [];
+
     const intelStatus =
       wk.intelligence.status === "busy"
         ? `busy (${String(wk.intelligence.rpcInFlight)} rpc)`
         : wk.intelligence.status;
-    lines.push(
-      <EntryRow
-        key="wk-intel"
-        label={`  ${wkIcon(wk.intelligence.status)} Intelligence`}
-        value={
-          wk.intelligence.restarts > 0
-            ? `${intelStatus} (${String(wk.intelligence.restarts)} ${icon("worker_restart")})`
-            : intelStatus
-        }
-        valueColor={wkColor(wk.intelligence.status)}
-        innerW={innerW}
-      />,
-    );
-    if (wk.intelligence.totalCalls > 0) {
-      lines.push(
-        <EntryRow
-          key="wk-intel-stats"
-          label="    Calls"
-          value={`${String(wk.intelligence.totalCalls)} total${wk.intelligence.totalErrors > 0 ? `, ${String(wk.intelligence.totalErrors)} ${icon("error")}` : ""}`}
-          valueColor="#666"
-          innerW={innerW}
-        />,
-      );
-    }
+    const intelCalls =
+      wk.intelligence.totalCalls > 0 ? ` · ${String(wk.intelligence.totalCalls)} calls` : "";
+    const intelErrors =
+      wk.intelligence.totalErrors > 0 ? ` · ${String(wk.intelligence.totalErrors)} err` : "";
+    const intelMem = wk.intelligence.heapMB > 0 ? ` · ${fmtMem(wk.intelligence.heapMB)} heap` : "";
+    const intelRestarts =
+      wk.intelligence.restarts > 0 ? ` · ${String(wk.intelligence.restarts)} restart` : "";
+    workers.push({
+      key: "wk-intel",
+      label: `${wkIcon(wk.intelligence.status)} intelligence  ${intelStatus}`,
+      color: wkColor(wk.intelligence.status),
+      detail: `${intelCalls}${intelErrors}${intelRestarts}${intelMem}`,
+    });
+
     const ioStatus =
       wk.io.status === "busy" ? `busy (${String(wk.io.rpcInFlight)} rpc)` : wk.io.status;
+    const ioCalls = wk.io.totalCalls > 0 ? ` · ${String(wk.io.totalCalls)} calls` : "";
+    const ioMem = wk.io.heapMB > 0 ? ` · ${fmtMem(wk.io.heapMB)} heap` : "";
+    const ioRestarts = wk.io.restarts > 0 ? ` · ${String(wk.io.restarts)} restart` : "";
+    workers.push({
+      key: "wk-io",
+      label: `${wkIcon(wk.io.status)} io (smol)  ${ioStatus}`,
+      color: wkColor(wk.io.status),
+      detail: `${ioCalls}${ioRestarts}${ioMem}`,
+    });
+
+    // External processes — siblings of main, not children
+    const externals: Array<{ key: string; label: string; color: string; detail: string }> = [];
+
+    if (hasNvim) {
+      const nvimMem = pr.nvimMB > 0 ? ` · ${fmtMem(pr.nvimMB)} rss` : "";
+      externals.push({
+        key: "proc-nvim",
+        label: `${icon("worker")} neovim  active`,
+        color: "#57A143",
+        detail: nvimMem,
+      });
+    }
+
+    if (lspCount > 0) {
+      const lspMem = pr.lspMB > 0 ? ` · ${fmtMem(pr.lspMB)} rss` : "";
+      externals.push({
+        key: "proc-lsp",
+        label: `${icon("worker")} lsp  ${String(lspCount)} server${lspCount > 1 ? "s" : ""}`,
+        color: "#2dd4bf",
+        detail: lspMem,
+      });
+    }
+
+    if (hasProxy) {
+      const proxyMem = pr.proxyMB > 0 ? ` · ${fmtMem(pr.proxyMB)} rss` : "";
+      externals.push({
+        key: "proc-proxy",
+        label: `${icon("worker")} proxy  active`,
+        color: "#9B30FF",
+        detail: proxyMem,
+      });
+    }
+
+    lines.push(<SectionHeader key="h-sys" label="Process Tree" innerW={innerW} />);
+
+    // Main process with workers nested underneath
+    const hasExternals = externals.length > 0;
+    const mainMemColor = pr.mainMB < 1024 ? "#4a7" : pr.mainMB < 2048 ? "#b87333" : "#f44";
     lines.push(
-      <EntryRow
-        key="wk-io"
-        label={`  ${wkIcon(wk.io.status)} IO (smol)`}
-        value={
-          wk.io.restarts > 0
-            ? `${ioStatus} (${String(wk.io.restarts)} ${icon("worker_restart")})`
-            : ioStatus
-        }
-        valueColor={wkColor(wk.io.status)}
-        innerW={innerW}
-      />,
+      <PopupRow key="sys-main" w={innerW}>
+        <text fg="#888" bg={POPUP_BG}>
+          {hasExternals ? "  ├─ " : "  └─ "}
+        </text>
+        <text fg="#888" bg={POPUP_BG}>
+          {"main"}
+        </text>
+        <text fg={mainMemColor} bg={POPUP_BG}>
+          {`  ${fmtMem(pr.mainMB)} rss`}
+        </text>
+      </PopupRow>,
     );
+
+    // Workers nested under main
+    for (let i = 0; i < workers.length; i++) {
+      const wkEntry = workers[i];
+      if (!wkEntry) continue;
+      const isLast = i === workers.length - 1;
+      const treePad = hasExternals ? "  │  " : "     ";
+      lines.push(
+        <PopupRow key={wkEntry.key} w={innerW}>
+          <text fg="#555" bg={POPUP_BG}>
+            {isLast ? `${treePad}└─ ` : `${treePad}├─ `}
+          </text>
+          <text fg={wkEntry.color} bg={POPUP_BG}>
+            {wkEntry.label}
+          </text>
+          <text fg="#666" bg={POPUP_BG}>
+            {wkEntry.detail}
+          </text>
+        </PopupRow>,
+      );
+    }
+
+    // External processes as siblings of main
+    for (let i = 0; i < externals.length; i++) {
+      const ext = externals[i];
+      if (!ext) continue;
+      const isLast = i === externals.length - 1;
+      lines.push(
+        <PopupRow key={ext.key} w={innerW}>
+          <text fg="#555" bg={POPUP_BG}>
+            {isLast ? "  └─ " : "  ├─ "}
+          </text>
+          <text fg={ext.color} bg={POPUP_BG}>
+            {ext.label}
+          </text>
+          <text fg="#666" bg={POPUP_BG}>
+            {ext.detail}
+          </text>
+        </PopupRow>,
+      );
+    }
+
     if (wk.intelligence.lastError || wk.io.lastError) {
       const errMsg = wk.intelligence.lastError ?? wk.io.lastError ?? "";
       lines.push(
-        <EntryRow
-          key="wk-err"
-          label={`  ${icon("error")} Last Error`}
-          value={errMsg.slice(0, 40)}
-          valueColor="#f44"
-          innerW={innerW}
-        />,
+        <PopupRow key="wk-err" w={innerW}>
+          <text fg="#f44" bg={POPUP_BG}>
+            {`  ${icon("error")} ${errMsg.slice(0, innerW - 6)}`}
+          </text>
+        </PopupRow>,
       );
     }
+
+    // rssMB = main + nvim + proxy + lsp (all separate processes).
+    // Workers are threads in the main process — their RSS is already included in main.
+    // Only worker heap is a meaningful separate metric.
+    lines.push(
+      <PopupRow key="sys-total" w={innerW}>
+        <text fg="#555" bg={POPUP_BG}>
+          {"  total  "}
+        </text>
+        <text fg={memColor} bg={POPUP_BG}>
+          {`${fmtMem(rssMB)} rss`}
+        </text>
+        <text fg="#666" bg={POPUP_BG}>
+          {totalWorkerHeap > 0 ? ` · ${fmtMem(totalWorkerHeap)} worker heap` : ""}
+        </text>
+      </PopupRow>,
+    );
     lines.push(<Spacer key="s4" innerW={innerW} />);
 
-    lines.push(<SectionHeader key="h-sys" label="System" innerW={innerW} />);
-    lines.push(
-      <EntryRow
-        key="sys-mem"
-        label="  Memory"
-        value={fmtMem(rssMB)}
-        valueColor={memColor}
-        innerW={innerW}
-      />,
-    );
-    lines.push(
-      <EntryRow
-        key="sys-lsp"
-        label="  LSP Standalone"
-        value={lspCount > 0 ? `${String(lspCount)} active` : "none"}
-        valueColor={lspCount > 0 ? "#2dd4bf" : "#666"}
-        innerW={innerW}
-      />,
-    );
-    lines.push(
-      <EntryRow
-        key="sys-nvim"
-        label="  LSP Neovim"
-        value={getNvimInstance() ? "active" : "not running"}
-        valueColor={getNvimInstance() ? "#57A143" : "#666"}
-        innerW={innerW}
-      />,
-    );
+    lines.push(<SectionHeader key="h-env" label="Environment" innerW={innerW} />);
     lines.push(
       <EntryRow
         key="sys-mode"

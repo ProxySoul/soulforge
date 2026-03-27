@@ -29,6 +29,8 @@ const MODE_LABELS: Record<SemanticMode, string> = {
 
 const LLM_LIMIT_PRESETS = [100, 200, 300, 500, 1000];
 
+const TOKEN_BUDGET_PRESETS = [2000, 4000, 8000, 16000] as const;
+
 function statusColor(status: RepoMapStatus): string {
   switch (status) {
     case "scanning":
@@ -63,18 +65,26 @@ interface Props {
   currentMode?: string;
   currentLimit?: number;
   currentAutoRegen?: boolean;
+  currentTokenBudget?: number;
   currentScope?: ConfigScope;
   onToggle?: (enabled: boolean, scope: ConfigScope) => void;
   onRefresh?: () => void;
   onClear?: (scope: ConfigScope) => void;
   onRegenerate?: () => void;
   onClearSummaries?: () => void;
-  onApply?: (mode: string, limit: number, autoRegen: boolean, scope: ConfigScope) => void;
+  onApply?: (
+    mode: string,
+    limit: number,
+    autoRegen: boolean,
+    scope: ConfigScope,
+    tokenBudget: number | undefined,
+  ) => void;
 }
 
 enum FocusRow {
   Mode = 0,
   Limit = 1,
+  Budget = 2,
 }
 
 export function RepoMapStatusPopup({
@@ -84,6 +94,7 @@ export function RepoMapStatusPopup({
   currentMode,
   currentLimit,
   currentAutoRegen,
+  currentTokenBudget,
   currentScope,
   onToggle,
   onRefresh,
@@ -106,6 +117,9 @@ export function RepoMapStatusPopup({
   const [selectedMode, setSelectedMode] = useState<SemanticMode>(initialMode);
   const [selectedLimit, setSelectedLimit] = useState(initialLimit);
   const [selectedAutoRegen, setSelectedAutoRegen] = useState(currentAutoRegen ?? false);
+  const [selectedTokenBudget, setSelectedTokenBudget] = useState<number | undefined>(
+    currentTokenBudget,
+  );
   const [selectedScope, setSelectedScope] = useState<ConfigScope>(currentScope ?? "project");
   const [focusRow, setFocusRow] = useState<FocusRow>(FocusRow.Mode);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -115,10 +129,11 @@ export function RepoMapStatusPopup({
     setSelectedMode((currentMode ?? "off") as SemanticMode);
     setSelectedLimit(currentLimit ?? 300);
     setSelectedAutoRegen(currentAutoRegen ?? false);
+    setSelectedTokenBudget(currentTokenBudget);
     setSelectedScope(currentScope ?? "project");
     setFocusRow(FocusRow.Mode);
     setConfirmClear(false);
-  }, [visible, currentMode, currentLimit, currentAutoRegen, currentScope]);
+  }, [visible, currentMode, currentLimit, currentAutoRegen, currentTokenBudget, currentScope]);
 
   useEffect(() => {
     if (!visible) return;
@@ -147,6 +162,7 @@ export function RepoMapStatusPopup({
     selectedMode !== (currentMode ?? "off") ||
     selectedLimit !== (currentLimit ?? 300) ||
     selectedAutoRegen !== (currentAutoRegen ?? false) ||
+    selectedTokenBudget !== currentTokenBudget ||
     selectedScope !== (currentScope ?? "project");
 
   useKeyboard((evt) => {
@@ -167,7 +183,14 @@ export function RepoMapStatusPopup({
     }
 
     if (evt.name === "up" || evt.name === "down") {
-      setFocusRow((r) => (r === FocusRow.Mode ? FocusRow.Limit : FocusRow.Mode));
+      const dir = evt.name === "down" ? 1 : -1;
+      const showLimit = selectedMode === "llm" || selectedMode === "full";
+      const rows = [FocusRow.Mode, ...(showLimit ? [FocusRow.Limit] : []), FocusRow.Budget];
+      setFocusRow((r) => {
+        const idx = rows.indexOf(r);
+        const next = (idx + dir + rows.length) % rows.length;
+        return rows[next] as FocusRow;
+      });
       return;
     }
 
@@ -179,12 +202,25 @@ export function RepoMapStatusPopup({
           const next = (idx + dir + SEMANTIC_MODES.length) % SEMANTIC_MODES.length;
           return SEMANTIC_MODES[next] as SemanticMode;
         });
-      } else {
+      } else if (focusRow === FocusRow.Limit) {
         setSelectedLimit((lim) => {
           const idx = LLM_LIMIT_PRESETS.indexOf(lim);
           if (idx < 0) return LLM_LIMIT_PRESETS[0] as number;
           const next = (idx + dir + LLM_LIMIT_PRESETS.length) % LLM_LIMIT_PRESETS.length;
           return LLM_LIMIT_PRESETS[next] as number;
+        });
+      } else {
+        setSelectedTokenBudget((b) => {
+          if (b === undefined)
+            return dir > 0
+              ? TOKEN_BUDGET_PRESETS[0]
+              : TOKEN_BUDGET_PRESETS[TOKEN_BUDGET_PRESETS.length - 1];
+          const idx = TOKEN_BUDGET_PRESETS.indexOf(b as (typeof TOKEN_BUDGET_PRESETS)[number]);
+          if (idx < 0) return TOKEN_BUDGET_PRESETS[0];
+          const next = idx + dir;
+          if (next < 0) return undefined;
+          if (next >= TOKEN_BUDGET_PRESETS.length) return undefined;
+          return TOKEN_BUDGET_PRESETS[next];
         });
       }
       return;
@@ -197,7 +233,7 @@ export function RepoMapStatusPopup({
     }
 
     if (evt.name === "return" && isModified) {
-      onApply(selectedMode, selectedLimit, selectedAutoRegen, selectedScope);
+      onApply(selectedMode, selectedLimit, selectedAutoRegen, selectedScope, selectedTokenBudget);
       return;
     }
 
@@ -314,9 +350,23 @@ export function RepoMapStatusPopup({
     active: v === selectedLimit,
   }));
 
+  const budgetChips = [
+    {
+      value: undefined as number | undefined,
+      label: "auto",
+      active: selectedTokenBudget === undefined,
+    },
+    ...TOKEN_BUDGET_PRESETS.map((v) => ({
+      value: v as number | undefined,
+      label: `${String(v / 1000)}k`,
+      active: selectedTokenBudget === v,
+    })),
+  ];
+
   const showLimitRow = selectedMode === "llm" || selectedMode === "full";
   const modeBg = focusRow === FocusRow.Mode ? POPUP_HL : POPUP_BG;
   const limitBg = focusRow === FocusRow.Limit ? POPUP_HL : POPUP_BG;
+  const budgetBg = focusRow === FocusRow.Budget ? POPUP_HL : POPUP_BG;
 
   return (
     <Overlay>
@@ -506,6 +556,58 @@ export function RepoMapStatusPopup({
                 ) : (
                   <span fg="#FF8C00">{"   c clear summaries"}</span>
                 )}
+              </text>
+            </PopupRow>
+
+            <PopupRow w={innerW}>
+              <text bg={POPUP_BG}>{""}</text>
+            </PopupRow>
+
+            <PopupRow w={innerW}>
+              <text bg={POPUP_BG} fg="#333">
+                {"\u2500".repeat(innerW - 2)}
+              </text>
+            </PopupRow>
+
+            <PopupRow w={innerW}>
+              <text bg={POPUP_BG} fg="#9B30FF" attributes={TextAttributes.BOLD}>
+                Map Token Budget
+              </text>
+            </PopupRow>
+
+            <PopupRow w={innerW}>
+              <text bg={POPUP_BG}>{""}</text>
+            </PopupRow>
+
+            <PopupRow bg={budgetBg} w={innerW}>
+              <text bg={budgetBg} fg={focusRow === FocusRow.Budget ? "#FF0040" : "#555"}>
+                {focusRow === FocusRow.Budget ? "\u203A " : "  "}
+              </text>
+              <text
+                bg={budgetBg}
+                fg={focusRow === FocusRow.Budget ? "white" : "#aaa"}
+                attributes={focusRow === FocusRow.Budget ? TextAttributes.BOLD : undefined}
+              >
+                {"Budget  "}
+              </text>
+              {budgetChips.map((chip) => (
+                <text
+                  key={chip.label}
+                  bg={budgetBg}
+                  fg={chip.active ? "#2d5" : "#555"}
+                  attributes={chip.active ? TextAttributes.BOLD : undefined}
+                >
+                  {chip.active ? `[${chip.label}]` : ` ${chip.label} `}{" "}
+                </text>
+              ))}
+            </PopupRow>
+
+            <PopupRow w={innerW}>
+              <text bg={POPUP_BG} fg="#444">
+                {"    "}
+                {selectedTokenBudget === undefined
+                  ? "scales with conversation length (1.5k\u20134k)"
+                  : `fixed ${String(selectedTokenBudget / 1000)}k tokens — more files visible, higher prompt cost`}
               </text>
             </PopupRow>
 
