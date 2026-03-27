@@ -244,12 +244,12 @@ export class ContextManager {
 
   private syncRepoMapStore(status: "off" | "scanning" | "ready" | "error"): void {
     const store = useRepoMapStore.getState();
-    store.setStatus(status);
     if (status !== "scanning") {
       const stats = this.repoMap.getStatsCached();
       store.setStats(stats.files, stats.symbols, stats.edges, this.repoMap.dbSizeBytesCached());
       store.setScanProgress("");
     }
+    store.setStatus(status);
   }
 
   getMemoryManager(): MemoryManager {
@@ -422,7 +422,7 @@ export class ContextManager {
     return `${String(gen)}|${modelId}|${mode}|${String(skillCount)}:${skillNames}|${String(memCount)}`;
   }
 
-  waitForRepoMap(timeoutMs = 30_000): Promise<boolean> {
+  waitForRepoMap(timeoutMs = 120_000): Promise<boolean> {
     if (!this.repoMapEnabled) return Promise.resolve(false);
     if (this.isRepoMapReady()) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
