@@ -1,43 +1,13 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { access, stat as fsStat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
-import { isBinaryFileSync } from "isbinaryfile";
+import { isBinaryFile } from "isbinaryfile";
 import type { ToolResult } from "../../types";
 import { readBufferContent } from "../editor/instance";
 import type { SymbolKind } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
 import { binaryHint } from "./binary-detect.js";
 import { emitFileRead } from "./file-events.js";
-
-const CODE_EXTENSIONS = new Set([
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".py",
-  ".go",
-  ".rs",
-  ".java",
-  ".c",
-  ".h",
-  ".cpp",
-  ".cc",
-  ".hpp",
-  ".cs",
-  ".rb",
-  ".php",
-  ".swift",
-  ".kt",
-  ".scala",
-  ".lua",
-  ".ex",
-  ".exs",
-  ".dart",
-  ".zig",
-]);
 
 type ReadTarget = string;
 
@@ -49,14 +19,23 @@ interface ReadFileArgs {
   name?: string;
 }
 
-const OUTLINE_THRESHOLD = 300;
+const MAX_READ_LINES = 2000;
+const MAX_LINE_LENGTH = 2000;
+const MAX_READ_SIZE = 250 * 1024;
 
 export const readFileTool = {
   name: "read_file",
   description:
-    "Read file contents, or read a specific symbol by name. " +
-    "Pass target (function/class/type/interface/variable/enum/scope) + name for AST-based extraction. " +
-    "Large code files (300+ lines) return an outline with line numbers first — use target+name or startLine/endLine from the outline.",
+    "Reads file contents with line numbers. " +
+    "WHEN TO USE: Use when you need to read the contents of a specific file. " +
+    "HOW TO USE: Provide the file path. Optionally specify startLine/endLine to read a range, " +
+    "or target + name for AST-based symbol extraction (function/class/type/interface/variable/enum/scope). " +
+    "LIMITATIONS: Maximum file size is 250KB. Default reading limit is 2000 lines. " +
+    "Lines longer than 2000 characters are truncated. Cannot display binary files. " +
+    "TIPS: Most files fit in one read — don't chunk small files. " +
+    "For code exploration, first use Grep to find relevant files, then read them. " +
+    "NEVER re-read a file you already read — use the content you have. " +
+    "Read ALL needed files in a single parallel tool call to minimize round-trips.",
   execute: async (args: ReadFileArgs): Promise<ToolResult> => {
     try {
       const filePath = resolve(args.path);
@@ -71,7 +50,10 @@ export const readFileTool = {
         return { success: false, output: msg, error: msg };
       }
 
-      if (!existsSync(filePath)) {
+      let fileStat: Awaited<ReturnType<typeof fsStat>>;
+      try {
+        fileStat = await fsStat(filePath);
+      } catch {
         return {
           success: false,
           output: `File not found: ${filePath}`,
@@ -79,8 +61,7 @@ export const readFileTool = {
         };
       }
 
-      const stat = statSync(filePath);
-      if (stat.isDirectory()) {
+      if (fileStat.isDirectory()) {
         return {
           success: false,
           output: `Path is a directory: ${filePath}`,
@@ -88,12 +69,12 @@ export const readFileTool = {
         };
       }
 
-      if (isBinaryFileSync(filePath)) {
+      if (await isBinaryFile(filePath)) {
         const ext = extname(filePath).toLowerCase();
         const sizeStr =
-          stat.size > 1024 * 1024
-            ? `${(stat.size / (1024 * 1024)).toFixed(1)}MB`
-            : `${(stat.size / 1024).toFixed(0)}KB`;
+          fileStat.size > 1024 * 1024
+            ? `${(fileStat.size / (1024 * 1024)).toFixed(1)}MB`
+            : `${(fileStat.size / 1024).toFixed(0)}KB`;
         const hint = binaryHint(ext);
         return {
           success: false,
@@ -102,139 +83,50 @@ export const readFileTool = {
         };
       }
 
-      const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-
-      if (stat.size > MAX_FILE_SIZE && args.startLine == null && args.endLine == null) {
-        const sizeStr = `${String(Math.round(stat.size / (1024 * 1024)))}MB`;
-        const preview = Bun.file(filePath).stream();
-        const decoder = new TextDecoder();
-        const previewLines: string[] = [];
-        let leftover = "";
-        for await (const chunk of preview) {
-          leftover += decoder.decode(chunk, { stream: true });
-          const parts = leftover.split("\n");
-          leftover = parts.pop() ?? "";
-          for (const line of parts) {
-            previewLines.push(line);
-            if (previewLines.length >= 500) break;
-          }
-          if (previewLines.length >= 500) break;
-        }
-        const numbered = previewLines
-          .map((line: string, i: number) => `${String(i + 1).padStart(4)}  ${line}`)
-          .join("\n");
-
-        emitFileRead(filePath);
+      if (fileStat.size > MAX_READ_SIZE) {
+        const sizeStr =
+          fileStat.size > 1024 * 1024
+            ? `${(fileStat.size / (1024 * 1024)).toFixed(1)}MB`
+            : `${String(Math.round(fileStat.size / 1024))}KB`;
         return {
-          success: true,
-          output: `${numbered}\n\n[file is ${sizeStr}, showing first ${String(previewLines.length)} lines — use startLine/endLine for specific sections]`,
+          success: false,
+          output: `File too large (${sizeStr}). Maximum is ${String(MAX_READ_SIZE / 1024)}KB. Use startLine/endLine to read a specific range.`,
+          error: "file too large",
         };
       }
-
-      const isFullRead = args.startLine == null && args.endLine == null;
-      const isCodeFile = CODE_EXTENSIONS.has(extname(filePath));
-
-      // Kick off outline generation in parallel with buffer read for full reads of code files
-      const outlinePromise =
-        isFullRead && isCodeFile ? getCompactOutline(filePath) : Promise.resolve(null);
 
       const content = await readBufferContent(filePath);
       const lines = content.split("\n");
 
-      if (isFullRead && lines.length > OUTLINE_THRESHOLD && isCodeFile) {
-        const outline = await outlinePromise;
-        if (outline) {
-          const sizeKB = Math.round(stat.size / 1024);
-          emitFileRead(filePath);
-          return {
-            success: true,
-            output:
-              `${outline}\n` +
-              `[${String(lines.length)} lines, ${String(sizeKB)}KB — ` +
-              `outline above has line numbers. Use read_file(target, name) for a specific symbol, or startLine/endLine for a range. ` +
-              `Only use startLine=1 (full file) if you need to edit and must see exact content. Pass fresh=true to force full read.]`,
-            outlineOnly: true,
-          };
-        }
-      }
-
       const start = (args.startLine ?? 1) - 1;
       const end = args.endLine ?? lines.length;
-      const slice = lines.slice(start, end);
+      let slice = lines.slice(start, end);
+
+      const totalLines = lines.length;
+      const truncated = slice.length > MAX_READ_LINES;
+      if (truncated) slice = slice.slice(0, MAX_READ_LINES);
 
       const numbered = slice
-        .map((line: string, i: number) => `${String(start + i + 1).padStart(4)}  ${line}`)
+        .map((line: string, i: number) => {
+          const l = line.length > MAX_LINE_LENGTH ? `${line.slice(0, MAX_LINE_LENGTH)}...` : line;
+          return `${String(start + i + 1).padStart(4)}  ${l}`;
+        })
         .join("\n");
 
       emitFileRead(filePath);
 
-      if (isFullRead && lines.length > 100 && isCodeFile) {
-        const outline = await outlinePromise;
-        if (outline) return { success: true, output: `${outline}\n${numbered}` };
+      let output = numbered;
+      if (truncated) {
+        output += `\n\n(File has ${String(totalLines)} lines. Showing first ${String(MAX_READ_LINES)}. Use startLine/endLine to read beyond line ${String(start + MAX_READ_LINES)})`;
       }
 
-      return { success: true, output: numbered };
+      return { success: true, output };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, output: msg, error: msg };
     }
   },
 };
-
-const TOP_LEVEL_KINDS = new Set([
-  "function",
-  "class",
-  "interface",
-  "type",
-  "enum",
-  "variable",
-  "constant",
-  "method",
-  "property",
-]);
-
-async function getCompactOutline(filePath: string): Promise<string | null> {
-  try {
-    const { getIntelligenceRouter } = await import("../intelligence/index.js");
-    const router = getIntelligenceRouter(process.cwd());
-    const language = router.detectLanguage(filePath);
-    const outline = await router.executeWithFallback(language, "getFileOutline", (b) =>
-      b.getFileOutline ? b.getFileOutline(filePath) : Promise.resolve(null),
-    );
-    if (!outline || outline.symbols.length === 0) return null;
-
-    // Only include meaningful symbols — skip callbacks, locals, JSX noise.
-    // Works across all languages: TS/JS, Python, Go, Rust, Java, C#, etc.
-    const meaningful = outline.symbols.filter((s) => {
-      if (!TOP_LEVEL_KINDS.has(s.kind)) return false;
-      if (s.name.length <= 1) return false;
-      // Skip string/char literals in any language
-      if (/^["'`]/.test(s.name)) return false;
-      // Skip anonymous/unnamed symbols
-      if (s.name === "<unknown>" || s.name === "<function>") return false;
-      // Skip callback/closure patterns (JS/TS specific but harmless elsewhere)
-      if (s.name.includes("callback") || s.name.includes("() ")) return false;
-      // Skip likely local variables — short names that are constants/variables
-      // (keeps short class/function/type names like Go's `DB` or Rust's `Ok`)
-      if ((s.kind === "constant" || s.kind === "variable") && s.name.length <= 3) return false;
-      return true;
-    });
-    if (meaningful.length === 0) return null;
-
-    // Sort by line number (top-level declarations first), cap at 25
-    meaningful.sort((a, b) => a.location.line - b.location.line);
-    const capped = meaningful.slice(0, 25);
-    const symbolLines = capped.map((s) => {
-      const end = s.location.endLine ? `-${String(s.location.endLine)}` : "";
-      return `  ${s.kind} ${s.name} — ${String(s.location.line)}${end}`;
-    });
-    const more = meaningful.length > 30 ? `\n  ... +${String(meaningful.length - 30)} more` : "";
-
-    return `[Outline: ${String(meaningful.length)} symbols — use target + name for targeted reading]\n${symbolLines.join("\n")}${more}\n`;
-  } catch {
-    return null;
-  }
-}
 
 async function readSymbolFromFile(filePath: string, args: ReadFileArgs): Promise<ToolResult> {
   const blocked = isForbidden(filePath);
@@ -247,6 +139,16 @@ async function readSymbolFromFile(filePath: string, args: ReadFileArgs): Promise
   }
 
   if (!existsSync(filePath)) {
+    return {
+      success: false,
+      output: `File not found: ${filePath}`,
+      error: "not_found",
+    };
+  }
+
+  try {
+    await access(filePath);
+  } catch {
     return {
       success: false,
       output: `File not found: ${filePath}`,

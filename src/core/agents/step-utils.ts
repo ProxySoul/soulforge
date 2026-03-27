@@ -1,12 +1,20 @@
 import type { ModelMessage } from "@ai-sdk/provider-utils";
 import type { PrepareStepFunction, StopCondition } from "ai";
 import { stepCountIs } from "ai";
-import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
 import { renderTaskList } from "../tools/task-list.js";
 import type { AgentBus } from "./agent-bus.js";
 import { emitSubagentStep } from "./subagent-events.js";
 
 type SymbolLookup = (absPath: string) => Array<{ name: string; kind: string; isExported: boolean }>;
+
+/** Global flag — set by /export api command. When true, each step dumps full request/response data. */
+let apiExportEnabled = false;
+export function setApiExportEnabled(v: boolean): void {
+  apiExportEnabled = v;
+}
+export function isApiExportEnabled(): boolean {
+  return apiExportEnabled;
+}
 
 export interface PrepareStepOptions {
   bus?: AgentBus;
@@ -28,7 +36,7 @@ const MAX_SUBAGENT_CONTEXT = 200_000;
 
 const KEEP_RECENT_MESSAGES = 4;
 
-// Token-budget pruning (OpenCode-style): protect last N tokens of tool results,
+// Token-budget pruning: protect last N tokens of tool results,
 // blank everything older. More forgiving than message-count for subagents.
 const PRUNE_PROTECT_TOKENS = 40_000;
 const PRUNE_MINIMUM_TOKENS = 20_000;
@@ -251,120 +259,6 @@ function formatSymbolHint(symbols: Array<{ name: string; kind: string }>): strin
   return `exports: ${display.join(", ")}`;
 }
 
-function semanticPrune(messages: ModelMessage[], pathMap?: Map<string, string>): ModelMessage[] {
-  // Build a map of file path → index of FIRST edit for that file
-  const firstEditIdx = new Map<string, number>();
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (!msg || msg.role !== "assistant" || typeof msg.content === "string") continue;
-    if (!Array.isArray(msg.content)) continue;
-    for (const part of msg.content) {
-      if (part.type !== "tool-call") continue;
-      if (!EDIT_TOOLS.has(part.toolName)) continue;
-      const input = part.input as Record<string, unknown>;
-      const path = input.path ?? input.file ?? input.filePath;
-      if (typeof path === "string" && !firstEditIdx.has(path)) firstEditIdx.set(path, i);
-      if (Array.isArray(input.edits)) {
-        for (const e of input.edits as Record<string, unknown>[]) {
-          const ep = e.file ?? e.path;
-          if (typeof ep === "string" && !firstEditIdx.has(ep)) firstEditIdx.set(ep, i);
-        }
-      }
-    }
-  }
-
-  if (firstEditIdx.size === 0 && !messages.some((m) => m.role === "tool")) return messages;
-
-  return messages.map((msg, idx) => {
-    if (msg.role !== "tool" || typeof msg.content === "string") return msg;
-    if (!Array.isArray(msg.content)) return msg;
-
-    let changed = false;
-    const newContent = msg.content.map((part) => {
-      if (part.type !== "tool-result") return part;
-
-      if (part.toolName === "read_file") {
-        const filePath = pathMap?.get(part.toolCallId);
-        if (filePath) {
-          // 1. Prune read results for files that were LATER edited
-          const editIdx = firstEditIdx.get(filePath);
-          if (editIdx !== undefined && idx < editIdx) {
-            const text = extractText(part.output);
-            if (text.length > 200) {
-              changed = true;
-              return {
-                ...part,
-                output: {
-                  type: "text" as const,
-                  value: "← file was edited later in this conversation",
-                },
-              };
-            }
-          }
-        }
-      }
-
-      // 3. Prune canceled plan results immediately
-      if (part.toolName === "plan") {
-        const text = extractText(part.output);
-        if (text.includes("canceled") || text.includes("cancelled")) {
-          changed = true;
-          const titleMatch = text.match(/plan "([^"]+)"|^# (.+)/m);
-          const title = titleMatch?.[1] ?? titleMatch?.[2] ?? "plan";
-          return {
-            ...part,
-            output: { type: "text" as const, value: `← plan "${title}" — canceled` },
-          };
-        }
-      }
-
-      return part;
-    });
-
-    return changed ? { ...msg, content: newContent } : msg;
-  }) as ModelMessage[];
-}
-
-// 3. Edit arg stripping: runs on ALL old messages (step 1+)
-function stripOldEditArgs(messages: ModelMessage[], cutoff: number): ModelMessage[] {
-  if (cutoff <= 0) return messages;
-  return messages.map((msg, idx) => {
-    if (idx >= cutoff) return msg;
-    if (msg.role !== "assistant" || !Array.isArray(msg.content)) return msg;
-
-    let argsChanged = false;
-    const prunedContent = msg.content.map((part) => {
-      if (part.type !== "tool-call") return part;
-      if (!EDIT_TOOLS.has(part.toolName) && part.toolName !== "editor") return part;
-      const input = part.input as Record<string, unknown>;
-      if (!input.old_string && !input.new_string && !input.replacement) return part;
-      argsChanged = true;
-      const slim: Record<string, unknown> = { ...input };
-      if (typeof slim.old_string === "string") {
-        slim.old_string = `[${String((slim.old_string as string).length)} chars]`;
-      }
-      if (typeof slim.new_string === "string") {
-        slim.new_string = `[${String((slim.new_string as string).length)} chars]`;
-      }
-      if (typeof slim.replacement === "string") {
-        slim.replacement = `[${String((slim.replacement as string).length)} chars]`;
-      }
-      if (Array.isArray(slim.edits)) {
-        slim.edits = (slim.edits as Record<string, unknown>[]).map((e) => {
-          const s: Record<string, unknown> = { ...e };
-          if (typeof s.oldString === "string")
-            s.oldString = `[${String((s.oldString as string).length)} chars]`;
-          if (typeof s.newString === "string")
-            s.newString = `[${String((s.newString as string).length)} chars]`;
-          return s;
-        });
-      }
-      return { ...part, input: slim };
-    });
-    return argsChanged ? { ...msg, content: prunedContent } : msg;
-  }) as ModelMessage[];
-}
-
 /** Compact old tool results beyond KEEP_RECENT_MESSAGES into one-line summaries.
  *  Keeps edit tool results intact (needed for conversation coherence).
  *  Runs on every step from step 1+ via buildPrepareStep. */
@@ -446,7 +340,9 @@ function pruneByTokenBudget(messages: ModelMessage[]): ModelMessage[] {
     const msg = messages[mi];
     if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
     for (let pi = msg.content.length - 1; pi >= 0; pi--) {
-      const part = msg.content[pi] as { type: string; toolName: string; output: unknown } | undefined;
+      const part = msg.content[pi] as
+        | { type: string; toolName: string; output: unknown }
+        | undefined;
       if (!part || part.type !== "tool-result") continue;
       if (EDIT_TOOLS.has(part.toolName)) continue;
       const text = extractText(part.output);
@@ -500,7 +396,7 @@ export function buildPrepareStep({
   parentToolCallId,
   role,
   allTools: _allTools,
-  symbolLookup: _symbolLookup,
+  symbolLookup,
   contextWindow: ctxWindow,
   disablePruning,
 }: PrepareStepOptions): PrepareStepResult {
@@ -520,9 +416,6 @@ export function buildPrepareStep({
       system?: string;
       messages?: ModelMessage[];
     } = {};
-
-    // Capture path map BEFORE sanitization wipes malformed inputs
-    const pathMap = buildToolCallPathMap(messages);
 
     // Sanitize non-dict tool-call inputs to prevent Anthropic API rejections
     let sanitizedMessages: ModelMessage[] | undefined;
@@ -551,54 +444,115 @@ export function buildPrepareStep({
       result.toolChoice = "required";
     }
 
-    if (stepNumber > 0 && messages.length >= 2) {
-      if (!result.messages) result.messages = [...messages];
-      const msgs = result.messages;
-      for (const msg of msgs) {
-        if (msg.providerOptions?.anthropic) {
-          const { anthropic: _, ...rest } = msg.providerOptions;
-          msg.providerOptions = Object.keys(rest).length > 0 ? rest : undefined;
-        }
+    // Tool result pruning: compact old results into summaries to save tokens.
+    // Only runs when pruning is enabled (pruningTarget includes "subagents" or "both").
+    // Uses token-budget approach: protect last PRUNE_PROTECT_TOKENS, blank older results.
+    if (!disablePruning && stepNumber >= 2) {
+      const src = result.messages ?? messages;
+      const pruned = pruneByTokenBudget(src);
+      if (pruned !== src) {
+        const compacted = compactOldToolResults(pruned, symbolLookup);
+        result.messages = compacted !== pruned ? compacted : pruned;
       }
-      const target = msgs[msgs.length - 2];
-      if (target) {
-        target.providerOptions = { ...target.providerOptions, ...EPHEMERAL_CACHE };
-      }
-    }
-
-    // Pruning: semantic (stale reads, canceled plans) + token-budget (blank old tool results)
-    if (stepNumber >= 1 && !disablePruning) {
-      let msgs = result.messages ?? messages;
-      msgs = semanticPrune(msgs, pathMap);
-      msgs = pruneByTokenBudget(msgs);
-      msgs = stripOldEditArgs(msgs, msgs.length - KEEP_RECENT_MESSAGES);
-      result.messages = msgs;
-    }
-
-    // Debug: dump the exact messages being sent to the API
-    // Enable with SOULFORGE_DEBUG_API=1 — writes to .soulforge/tee/
-    if (process.env.SOULFORGE_DEBUG_API) {
-      const msgs = result.messages ?? messages;
-      const dump = msgs
-        .map((m, i) => {
-          const content =
-            typeof m.content === "string"
-              ? m.content.slice(0, 500)
-              : JSON.stringify(m.content).slice(0, 500);
-          return `[${String(i)}] ${m.role} (${String(content.length)} chars): ${content}`;
-        })
-        .join("\n---\n");
-      import("../tools/tee.js").then(({ saveTee }) => {
-        saveTee(
-          `api-step-${String(stepNumber)}`,
-          `Step ${String(stepNumber)} — ${String(msgs.length)} messages\n\n${dump}`,
-        );
-      });
     }
 
     // Use the last step's input tokens as actual context size (not cumulative sum).
     // Each step re-sends the full message history, so inputTokens reflects real context window usage.
     const lastStep = steps.length > 0 ? steps[steps.length - 1] : undefined;
+
+    // API export: dump full request data per step
+    // Enable via /export api command or SOULFORGE_DEBUG_API=1 env var
+    if (apiExportEnabled || process.env.SOULFORGE_DEBUG_API) {
+      const msgs = result.messages ?? messages;
+      const prevUsage = lastStep?.usage;
+
+      // Serialize each message content into readable form — no [object Object]
+      const serializeContent = (content: unknown): unknown => {
+        if (typeof content === "string") return content;
+        if (!Array.isArray(content)) return String(content);
+        return (content as Record<string, unknown>[]).map((part) => {
+          const p = part as Record<string, unknown>;
+          if (p.type === "tool-call") {
+            return {
+              type: "tool-call",
+              toolCallId: p.toolCallId,
+              toolName: p.toolName,
+              input: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
+            };
+          }
+          if (p.type === "tool-result") {
+            const output = p.output as Record<string, unknown> | undefined;
+            let text: string;
+            if (output?.type === "text") text = String(output.value ?? "");
+            else if (output?.type === "json") text = JSON.stringify(output.value);
+            else text = JSON.stringify(output);
+            return {
+              type: "tool-result",
+              toolCallId: p.toolCallId,
+              toolName: p.toolName,
+              contentLength: text.length,
+              content: text,
+            };
+          }
+          if (p.type === "text") return { type: "text", text: String(p.text ?? "") };
+          return p;
+        });
+      };
+
+      const exportData = {
+        step: stepNumber,
+        timestamp: new Date().toISOString(),
+        messageCount: msgs.length,
+        activeTools: result.activeTools ?? "all",
+        previousStepUsage: prevUsage
+          ? {
+              inputTokens: prevUsage.inputTokens,
+              outputTokens: prevUsage.outputTokens,
+              cacheCreationTokens:
+                (prevUsage as Record<string, unknown>).cacheCreationInputTokens ?? 0,
+              cacheReadTokens: (prevUsage as Record<string, unknown>).cacheReadInputTokens ?? 0,
+              totalTokens:
+                (prevUsage.inputTokens ?? 0) +
+                (prevUsage.outputTokens ?? 0) +
+                (((prevUsage as Record<string, unknown>).cacheCreationInputTokens as number) ?? 0) +
+                (((prevUsage as Record<string, unknown>).cacheReadInputTokens as number) ?? 0),
+            }
+          : null,
+        messages: msgs.map((m, i) => {
+          const content = serializeContent(m.content);
+          const charCount =
+            typeof content === "string"
+              ? content.length
+              : Array.isArray(content)
+                ? content.reduce(
+                    (sum: number, p: Record<string, unknown>) =>
+                      sum +
+                      (typeof p.content === "string" ? p.content.length : 0) +
+                      (typeof p.text === "string" ? p.text.length : 0) +
+                      (typeof p.input === "string" ? p.input.length : 0),
+                    0,
+                  )
+                : 0;
+          return {
+            index: i,
+            role: m.role,
+            cacheControl: m.providerOptions?.anthropic ? "ephemeral" : undefined,
+            charCount,
+            estimatedTokens: Math.ceil(charCount / 4),
+            content,
+          };
+        }),
+      };
+
+      const json = JSON.stringify(exportData, null, 2);
+      import("node:fs").then(({ mkdirSync, writeFileSync }) => {
+        const dir = `${process.cwd()}/.soulforge/api-export`;
+        mkdirSync(dir, { recursive: true });
+        const file = `${dir}/step-${String(stepNumber).padStart(2, "0")}.json`;
+        writeFileSync(file, json, "utf-8");
+      });
+    }
+
     const contextSize = lastStep?.usage.inputTokens ?? 0;
 
     if (bus && agentId) {

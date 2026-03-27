@@ -303,8 +303,9 @@ initNerdFont(config.nerdFont);
 }
 
 // Pre-init ContextManager async — yields between heavy sync steps so the spinner stays alive.
+const repoMapEnabled = (projectConfig?.repoMap ?? config.repoMap) !== false;
 const contextManagerReady = import("./core/context/manager.js").then(({ ContextManager }) =>
-  ContextManager.createAsync(process.cwd(), (step) => status(step)),
+  ContextManager.createAsync(process.cwd(), (step) => status(step), { repoMapEnabled }),
 );
 
 status("Summoning the editor spirit…");

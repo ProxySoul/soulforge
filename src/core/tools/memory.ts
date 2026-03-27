@@ -15,17 +15,18 @@ export function createMemoryTool(manager: MemoryManager) {
       "Persistent memory across sessions. Search to recall past decisions/conventions. Write ONLY when the user explicitly asks you to remember something — never proactively save.",
     inputSchema: z.object({
       action: z.enum(["write", "list", "search", "delete"]),
-      scope: scopeOrBothSchema.optional().describe("Memory scope"),
+      scope: scopeOrBothSchema.nullable().optional().describe("Memory scope"),
       title: z
         .string()
+        .nullable()
         .optional()
         .describe("For write: the memory text (auto-truncated to 120 chars)"),
-      category: categorySchema.optional().describe("For write/list: category"),
-      tags: z.array(z.string()).optional().describe("For write: 1-3 keyword tags"),
-      id: z.string().optional().describe("For write (update) or delete: memory ID"),
-      query: z.string().optional().describe("For search: search query"),
-      tag: z.string().optional().describe("For list: filter by tag"),
-      limit: z.number().optional().describe("For search: max results"),
+      category: categorySchema.nullable().optional().describe("For write/list: category"),
+      tags: z.array(z.string()).nullable().optional().describe("For write: 1-3 keyword tags"),
+      id: z.string().nullable().optional().describe("For write (update) or delete: memory ID"),
+      query: z.string().nullable().optional().describe("For search: search query"),
+      tag: z.string().nullable().optional().describe("For list: filter by tag"),
+      limit: z.number().nullable().optional().describe("For search: max results"),
     }),
     execute: async (args) => {
       try {
@@ -67,7 +68,7 @@ export function createMemoryTool(manager: MemoryManager) {
             const scope = (args.scope as string) ?? manager.scopeConfig.readScope;
             const results = manager.list(scope as MemoryScope | "both" | "all", {
               category: args.category as MemoryCategory | undefined,
-              tag: args.tag,
+              tag: args.tag ?? undefined,
             });
             if (results.length === 0) {
               return { success: true, output: "No memories found." };
@@ -90,7 +91,7 @@ export function createMemoryTool(manager: MemoryManager) {
             const results = manager.search(
               args.query,
               scope as MemoryScope | "both" | "all",
-              args.limit,
+              args.limit ?? undefined,
             );
             if (results.length === 0) {
               return { success: true, output: "No matching memories found." };

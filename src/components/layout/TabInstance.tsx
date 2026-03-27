@@ -216,9 +216,9 @@ export const TabInstance = memo(function TabInstance({
   // Sync status bar when this tab is active
   useEffect(() => {
     if (visible) {
-      useStatusBarStore.getState().setTokenUsage(chat.tokenUsage);
+      useStatusBarStore.getState().setTokenUsage(chat.tokenUsage, chat.activeModel);
     }
-  }, [visible, chat.tokenUsage]);
+  }, [visible, chat.tokenUsage, chat.activeModel]);
 
   // Report loading state to tab manager, sync coordinator idle/active, update claim count
   const prevLoading = useRef(chat.isLoading);

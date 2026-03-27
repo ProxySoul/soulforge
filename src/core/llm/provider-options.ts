@@ -333,7 +333,7 @@ function buildContextEdits(
 // so caching works regardless of which provider routes to Anthropic/Claude.
 // The Vercel AI SDK silently ignores keys that don't match the active provider.
 
-const CACHE_EPHEMERAL = { cacheControl: { type: "ephemeral", ttl: "1h" } } as const;
+const CACHE_EPHEMERAL = { cacheControl: { type: "ephemeral" } } as const;
 
 export const EPHEMERAL_CACHE: ProviderOptions = {
   anthropic: CACHE_EPHEMERAL,

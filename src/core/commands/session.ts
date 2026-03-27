@@ -20,7 +20,7 @@ async function handleExportAll(ctx: CommandContext): Promise<void> {
   const forgeMode = ctx.chat.forgeMode;
   const repoMapReady = ctx.contextManager.isRepoMapReady();
 
-  const soulMapBlock = ctx.contextManager.buildSoulMapSystemBlock();
+  const soulMapBlock = ctx.contextManager.buildSoulMapSnapshot(false);
   const skillsMessages = ctx.contextManager.buildSkillsMessages();
 
   const payload = {
@@ -29,6 +29,11 @@ async function handleExportAll(ctx: CommandContext): Promise<void> {
     mode: forgeMode,
     repoMapReady,
     tokenUsage,
+    lastStep: {
+      input: tokenUsage.lastStepInput,
+      output: tokenUsage.lastStepOutput,
+      cacheRead: tokenUsage.lastStepCacheRead,
+    },
     systemPrompt,
     injectedMessages: {
       soulMap: soulMapBlock ? { systemBlock: soulMapBlock } : null,
@@ -78,6 +83,21 @@ async function handleExport(input: string, ctx: CommandContext): Promise<void> {
 
   if (arg === "all" || arg === "diagnostic") {
     await handleExportAll(ctx);
+    return;
+  }
+
+  if (arg === "api") {
+    const { isApiExportEnabled, setApiExportEnabled } = await import("../agents/step-utils.js");
+    const newState = !isApiExportEnabled();
+    setApiExportEnabled(newState);
+    if (newState) {
+      sysMsg(
+        ctx,
+        "API export **ON** — each agent step will dump full request data (messages, tools, usage) to `~/.local/share/soulforge/tee/`. Run `/export api` again to disable.",
+      );
+    } else {
+      sysMsg(ctx, "API export **OFF**.");
+    }
     return;
   }
 
@@ -136,8 +156,12 @@ function handleClear(_input: string, ctx: CommandContext): void {
     completion: 0,
     total: 0,
     cacheRead: 0,
+    cacheWrite: 0,
     subagentInput: 0,
     subagentOutput: 0,
+    lastStepInput: 0,
+    lastStepOutput: 0,
+    lastStepCacheRead: 0,
   });
   ctx.chat.setMessageQueue([]);
   clearTasks();

@@ -28,6 +28,9 @@ export class MemoryDB {
     this.db.run("PRAGMA busy_timeout = 5000");
     this.db.run("PRAGMA foreign_keys = ON");
     if (dbPath !== ":memory:") {
+      try {
+        this.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch {}
       for (const suffix of ["", "-wal", "-shm"]) {
         try {
           chmodSync(dbPath + suffix, 0o600);

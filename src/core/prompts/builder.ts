@@ -46,15 +46,15 @@ export interface PromptBuilderOptions {
   hasRepoMap: boolean;
   hasSymbols: boolean;
   forgeMode: ForgeMode;
-  contextPercent: number;
-  isMinimalContext: boolean;
+  contextPercent?: number;
+  isMinimalContext?: boolean;
 
   // Dynamic sections (null = omit)
   projectInfo: string | null;
   projectInstructions: string | null;
   forbiddenContext: string | null;
-  editorSection: string[];
-  gitContext: string | null;
+  editorSection?: string[];
+  gitContext?: string | null;
   memoryContext: string | null;
 }
 
@@ -102,7 +102,7 @@ export function buildSystemPrompt(opts: PromptBuilderOptions): string {
   if (opts.forbiddenContext) parts.push("", opts.forbiddenContext);
 
   // 5. Editor context
-  if (opts.editorSection.length > 0) parts.push("", ...opts.editorSection);
+  if (opts.editorSection && opts.editorSection.length > 0) parts.push("", ...opts.editorSection);
 
   // 6. Git context
   if (opts.gitContext) parts.push(`Git: ${opts.gitContext}`);

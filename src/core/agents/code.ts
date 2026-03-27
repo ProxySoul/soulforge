@@ -73,6 +73,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
   return new ToolLoopAgent({
     id: options?.agentId ?? "code",
     model,
+    temperature: 0,
     tools: allTools,
     instructions: {
       role: "system" as const,
@@ -87,9 +88,16 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
     stopWhen: stopConditions,
     prepareStep,
     experimental_repairToolCall: repairToolCall,
-    ...(options?.providerOptions && Object.keys(options.providerOptions).length > 0
-      ? { providerOptions: options.providerOptions }
-      : {}),
+    providerOptions: {
+      ...options?.providerOptions,
+      anthropic: {
+        ...(((options?.providerOptions as Record<string, unknown>)?.anthropic as Record<
+          string,
+          unknown
+        >) ?? {}),
+        cacheControl: { type: "ephemeral" },
+      },
+    } as ProviderOptions,
     ...(options?.headers ? { headers: options.headers } : {}),
   });
 }

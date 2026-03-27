@@ -39,6 +39,7 @@ export async function buildV2Summary(opts: {
   try {
     const result = await generateText({
       model,
+      temperature: 0,
       maxOutputTokens: 2048,
       maxRetries: 0,
       ...(abortSignal ? { abortSignal } : {}),

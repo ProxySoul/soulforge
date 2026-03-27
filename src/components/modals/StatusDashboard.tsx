@@ -9,7 +9,7 @@ import { getModelContextInfo, getShortModelLabel } from "../../core/llm/models.j
 import type { ChatInstance } from "../../hooks/useChat.js";
 import type { UseTabsReturn } from "../../hooks/useTabs.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
-import { useStatusBarStore } from "../../stores/statusbar.js";
+import { computeCost, useStatusBarStore } from "../../stores/statusbar.js";
 import { Overlay, POPUP_BG, PopupRow } from "../layout/shared.js";
 
 const CHROME_ROWS = 6;
@@ -226,18 +226,18 @@ export function StatusDashboard({
 
     lines.push(<SectionHeader key="h-tok" label="Token Usage (session)" innerW={innerW} />);
     {
-      const totalInput = tu.prompt + tu.subagentInput;
+      const uncachedInput = tu.prompt + tu.subagentInput;
+      const allInput = uncachedInput + tu.cacheRead + tu.cacheWrite;
       const totalOutput = tu.completion + tu.subagentOutput;
       const hasSub = tu.subagentInput > 0 || tu.subagentOutput > 0;
       const cachePct =
-        totalInput > 0 ? Math.min(100, Math.round((tu.cacheRead / totalInput) * 100)) : 0;
-      const uncached = Math.max(0, totalInput - tu.cacheRead);
+        allInput > 0 ? Math.min(100, Math.round((tu.cacheRead / allInput) * 100)) : 0;
 
       lines.push(
         <EntryRow
           key="t-in"
           label="  Input"
-          value={fmtTokens(totalInput)}
+          value={fmtTokens(uncachedInput)}
           valueColor="#2d9bf0"
           innerW={innerW}
         />,
@@ -304,12 +304,23 @@ export function StatusDashboard({
           innerW={innerW}
         />,
       );
+      if (tu.cacheWrite > 0) {
+        lines.push(
+          <EntryRow
+            key="t-cache-write"
+            label="  Cache Write"
+            value={fmtTokens(tu.cacheWrite)}
+            valueColor="#e0a020"
+            innerW={innerW}
+          />,
+        );
+      }
       if (tu.cacheRead > 0) {
         lines.push(
           <EntryRow
             key="t-uncached"
             label="    Uncached"
-            value={fmtTokens(uncached)}
+            value={fmtTokens(uncachedInput)}
             valueColor="#888"
             innerW={innerW}
           />,
@@ -319,6 +330,20 @@ export function StatusDashboard({
       lines.push(
         <EntryRow key="t-total" label="  Total" value={fmtTokens(tu.total)} innerW={innerW} />,
       );
+
+      const cost = computeCost(tu, modelId);
+      if (cost > 0) {
+        const costStr = cost < 0.01 ? `$${cost.toFixed(3)}` : `$${cost.toFixed(2)}`;
+        lines.push(
+          <EntryRow
+            key="t-cost"
+            label="  Cost"
+            value={costStr}
+            valueColor="#ccc"
+            innerW={innerW}
+          />,
+        );
+      }
     }
 
     const allTabs = tabMgr.tabs;
@@ -343,6 +368,9 @@ export function StatusDashboard({
           cacheRead: 0,
           subagentInput: 0,
           subagentOutput: 0,
+          lastStepInput: 0,
+          lastStepOutput: 0,
+          lastStepCacheRead: 0,
         };
         grandTotal += u.total;
         const isActive = t.id === tabMgr.activeTabId;

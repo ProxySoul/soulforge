@@ -53,12 +53,14 @@ export function buildInteractiveTools(
                       ),
                     line: z
                       .number()
+                      .nullable()
                       .optional()
                       .describe("Current line number if modifying/removing"),
                   }),
                 )
+                .nullable()
                 .optional()
-                .catch(undefined)
+                .catch(null)
                 .describe("Symbols to change in this file — include for all modify/delete actions"),
               code_snippets: z
                 .array(
@@ -67,8 +69,9 @@ export function buildInteractiveTools(
                     code: z.string().describe("Exact current code copied from read_file output"),
                   }),
                 )
+                .nullable()
                 .optional()
-                .catch(undefined)
+                .catch(null)
                 .describe(
                   "Current code from this file that the executor needs to see. " +
                     'Required for depth "full" on modify files. ' +
@@ -84,8 +87,9 @@ export function buildInteractiveTools(
               label: z.string().describe("Short step label for the checklist"),
               targetFiles: z
                 .array(z.string())
+                .nullable()
                 .optional()
-                .catch(undefined)
+                .catch(null)
                 .describe("File paths this step touches — executor opens only these"),
               edits: z
                 .array(
@@ -95,8 +99,9 @@ export function buildInteractiveTools(
                     new: z.string().describe("Replacement text"),
                   }),
                 )
+                .nullable()
                 .optional()
-                .catch(undefined)
+                .catch(null)
                 .describe(
                   "Concrete edit_file operations for this step. " +
                     'Required for depth "full" on modify steps. ' +
@@ -104,10 +109,12 @@ export function buildInteractiveTools(
                 ),
               shell: z
                 .string()
+                .nullable()
                 .optional()
                 .describe("Shell command to run in this step (e.g. install deps, run tests)"),
               details: z
                 .string()
+                .nullable()
                 .optional()
                 .describe("Additional context / guidance for the executor"),
             }),
@@ -115,8 +122,9 @@ export function buildInteractiveTools(
           .describe("Ordered implementation steps with full details"),
         verification: z
           .array(z.string())
+          .nullable()
           .optional()
-          .catch(undefined)
+          .catch(null)
           .describe("How to verify the changes work"),
       }),
       execute: async (args) => {
@@ -303,16 +311,16 @@ export function buildInteractiveTools(
             z.object({
               label: z.string().describe("Display label"),
               value: z.string().describe("Value returned when selected"),
-              description: z.string().optional().describe("Optional description"),
+              description: z.string().nullable().optional().describe("Optional description"),
             }),
           )
           .describe("Selectable options"),
-        allowSkip: z.boolean().optional().describe("Whether the user can skip (Esc)"),
+        allowSkip: z.boolean().nullable().optional().describe("Whether the user can skip (Esc)"),
       }),
       execute: async (args) => {
         const answer = await callbacks.onAskUser(
           args.question,
-          args.options,
+          args.options.map((o) => ({ ...o, description: o.description ?? undefined })),
           args.allowSkip ?? true,
         );
         return {

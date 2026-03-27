@@ -39,6 +39,7 @@ import { completeInProgressTasks, resetInProgressTasks } from "../core/tools/tas
 import { logCompaction } from "../stores/compaction-logs.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { useStatusBarStore } from "../stores/statusbar.js";
+import { useToolsStore } from "../stores/tools.js";
 import type {
   AppConfig,
   ChatMessage,
@@ -76,8 +77,12 @@ export interface TokenUsage {
   completion: number;
   total: number;
   cacheRead: number;
+  cacheWrite: number;
   subagentInput: number;
   subagentOutput: number;
+  lastStepInput: number;
+  lastStepOutput: number;
+  lastStepCacheRead: number;
 }
 
 const ZERO_USAGE: TokenUsage = {
@@ -85,8 +90,12 @@ const ZERO_USAGE: TokenUsage = {
   completion: 0,
   total: 0,
   cacheRead: 0,
+  cacheWrite: 0,
   subagentInput: 0,
   subagentOutput: 0,
+  lastStepInput: 0,
+  lastStepOutput: 0,
+  lastStepCacheRead: 0,
 };
 
 const CHARS_PER_TOKEN = 4;
@@ -313,7 +322,8 @@ export function useChat({
       const tu = pendingTokenUsage.current;
       if (tu) {
         setTokenUsageRaw(tu);
-        if (visibleRef.current) useStatusBarStore.getState().setTokenUsage(tu);
+        if (visibleRef.current)
+          useStatusBarStore.getState().setTokenUsage(tu, activeModelRef.current);
         pendingTokenUsage.current = null;
       }
       const ct = pendingContextTokens.current;
@@ -524,7 +534,8 @@ export function useChat({
           setStreamingChars(0);
         }
       }
-      if (visibleRef.current) useStatusBarStore.getState().setTokenUsage(next);
+      if (visibleRef.current)
+        useStatusBarStore.getState().setTokenUsage(next, activeModelRef.current);
       return next;
     });
   }, []);
@@ -571,8 +582,8 @@ export function useChat({
 
   // Sync tokenUsage to statusbar store when this tab becomes visible (tab switch)
   useEffect(() => {
-    if (visible) useStatusBarStore.getState().setTokenUsage(tokenUsageRef.current);
-  }, [visible]);
+    if (visible) useStatusBarStore.getState().setTokenUsage(tokenUsageRef.current, activeModel);
+  }, [visible, activeModel]);
 
   const coreMessagesRef = useRef(coreMessages);
   coreMessagesRef.current = coreMessages;
@@ -851,6 +862,7 @@ export function useChat({
 
           const { text: v1Summary } = await generateText({
             model,
+            temperature: 0,
             maxOutputTokens: 8192,
             abortSignal: compactAbort.signal,
             ...(providerOptions && Object.keys(providerOptions).length > 0
@@ -1527,6 +1539,11 @@ export function useChat({
           return texts.length > 0 ? texts.join("\n\n") : null;
         };
 
+        if (!contextManager.isRepoMapReady()) {
+          setIsLoading(true);
+          await contextManager.waitForRepoMap();
+        }
+
         const agent = createForgeAgent({
           model,
           contextManager,
@@ -1548,7 +1565,10 @@ export function useChat({
           agentFeatures: effectiveConfig.agentFeatures,
           planExecution: planExecutionRef.current,
           drainSteering,
-          disablePruning: effectiveConfig.contextManagement?.disablePruning === true,
+          disablePruning: !["subagents", "both"].includes(
+            effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+          ),
+          disabledTools: useToolsStore.getState().disabledTools,
         });
         let result: StreamTextResult<ToolSet, never> | undefined;
         const MAX_TRANSIENT_RETRIES = 3;
@@ -1587,8 +1607,10 @@ export function useChat({
                           agentFeatures: effectiveConfig.agentFeatures,
                           planExecution: planExecutionRef.current,
                           drainSteering,
-                          disablePruning:
-                            effectiveConfig.contextManagement?.disablePruning === true,
+                          disablePruning: !["subagents", "both"].includes(
+                            effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+                          ),
+                          disabledTools: useToolsStore.getState().disabledTools,
                         });
                       })();
                 result = (await currentAgent.stream({
@@ -1709,11 +1731,28 @@ export function useChat({
         }
 
         let streamEventCount = 0;
+        let yieldBeforeNext = false;
         for await (const part of result.fullStream) {
-          if (++streamEventCount % 5 === 0) {
+          if (yieldBeforeNext || ++streamEventCount % 5 === 0) {
+            yieldBeforeNext = false;
             await new Promise<void>((r) => setTimeout(r, 0));
           }
           switch (part.type) {
+            case "start-step": {
+              const warnings = (part as { warnings?: Array<{ type: string; message?: string }> })
+                .warnings;
+              if (warnings && warnings.length > 0) {
+                const msg = warnings
+                  .map((w) => `[${w.type}]${w.message ? ` ${w.message}` : ""}`)
+                  .join("; ");
+                if (process.env.SOULFORGE_DEBUG_API) {
+                  import("../core/tools/tee.js").then(({ saveTee }) =>
+                    saveTee("provider-warnings", msg),
+                  );
+                }
+              }
+              break;
+            }
             case "reasoning-start": {
               hasNativeReasoning = true;
               pushReasoningSegment(part.id);
@@ -1848,7 +1887,8 @@ export function useChat({
                 );
                 syncV2Slots();
               }
-              queueMicrotaskFlush();
+              flushStreamState();
+              yieldBeforeNext = true;
               break;
             }
             case "tool-error": {
@@ -1872,25 +1912,48 @@ export function useChat({
                 );
                 syncV2Slots();
               }
-              queueMicrotaskFlush();
+              flushStreamState();
+              yieldBeforeNext = true;
               break;
             }
             case "finish-step": {
-              const stepIn = part.usage.inputTokens ?? 0;
+              const stepTotal = part.usage.inputTokens ?? 0;
               const stepOut = part.usage.outputTokens ?? 0;
-              const stepCache =
-                (
-                  part.usage as {
-                    inputTokenDetails?: { cacheReadTokens?: number };
-                  }
-                ).inputTokenDetails?.cacheReadTokens ?? 0;
+              const details = (
+                part.usage as {
+                  inputTokenDetails?: {
+                    cacheReadTokens?: number;
+                    cacheWriteTokens?: number;
+                    noCacheTokens?: number;
+                  };
+                }
+              ).inputTokenDetails;
+              const stepCache = details?.cacheReadTokens ?? 0;
+              const stepCacheWrite = details?.cacheWriteTokens ?? 0;
+              const stepNoCache = details?.noCacheTokens ?? 0;
+              // prompt = uncached input ONLY. cacheWrite tracked separately.
+              // inputTokens from SDK = total (noCache + cacheRead + cacheWrite)
+              const stepIn =
+                stepNoCache > 0 ? stepNoCache : Math.max(0, stepTotal - stepCache - stepCacheWrite);
+              if (process.env.SOULFORGE_DEBUG_API) {
+                const line = `[cache] step total=${String(stepTotal)} noCache=${String(stepNoCache)} cacheRead=${String(stepCache)} cacheWrite=${String(stepCacheWrite)} prompt=${String(stepIn)} output=${String(stepOut)}\n`;
+                try {
+                  const g = globalThis as unknown as Record<string, string>;
+                  g.__cacheLog = (g.__cacheLog ?? "") + line;
+                  Bun.write(`${process.cwd()}/.soulforge/api-export/cache-steps.log`, g.__cacheLog);
+                } catch {}
+              }
               const base = baseTokenUsageRef.current;
               const newUsage: TokenUsage = {
                 ...base,
                 prompt: base.prompt + stepIn,
                 completion: base.completion + stepOut,
-                total: base.total + stepIn + stepOut,
+                total: base.total + stepTotal + stepOut,
                 cacheRead: base.cacheRead + stepCache,
+                cacheWrite: base.cacheWrite + stepCacheWrite,
+                lastStepInput: stepIn,
+                lastStepOutput: stepOut,
+                lastStepCacheRead: stepCache,
               };
               pendingTokenUsage.current = newUsage;
               baseTokenUsageRef.current = newUsage;
@@ -2062,9 +2125,8 @@ export function useChat({
 
         setCoreMessages((prev) => {
           const updated = [...prev, ...responseMessages];
-          return effectiveConfig.contextManagement?.disablePruning === true
-            ? updated
-            : pruneOldToolResults(updated);
+          const target = effectiveConfig.contextManagement?.pruningTarget ?? "subagents";
+          return ["main", "both"].includes(target) ? pruneOldToolResults(updated) : updated;
         });
         streamSegmentsBuffer.current = [];
         liveToolCallsBuffer.current = [];

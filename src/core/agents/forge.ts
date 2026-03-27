@@ -1,4 +1,4 @@
-import type { ModelMessage, ProviderOptions, SystemModelMessage } from "@ai-sdk/provider-utils";
+import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
 import { ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
@@ -9,18 +9,18 @@ import type {
   InteractiveCallbacks,
 } from "../../types/index.js";
 import type { ContextManager } from "../context/manager.js";
-import { detectModelFamily, EPHEMERAL_CACHE, isAnthropicNative } from "../llm/provider-options.js";
+import { EPHEMERAL_CACHE, isAnthropicNative } from "../llm/provider-options.js";
 import {
   buildInteractiveTools,
   buildTools,
-  SCHEMAS,
   PLAN_EXECUTION_TOOL_NAMES,
   RESTRICTED_TOOL_NAMES,
+  SCHEMAS,
 } from "../tools/index.js";
 import { readFileTool } from "../tools/read-file.js";
 import { renderTaskList } from "../tools/task-list.js";
 import { normalizePath } from "./agent-bus.js";
-import { pruneByTokenBudget } from "./step-utils.js";
+import { isApiExportEnabled } from "./step-utils.js";
 import { repairToolCall, sanitizeMessages } from "./stream-options.js";
 import { buildSubagentTools, type SharedCacheRef } from "./subagent-tools.js";
 
@@ -102,257 +102,56 @@ function countReadsAfterLastDispatch(messages: ModelMessage[]): number {
   return count;
 }
 
-const DISPATCH_REJECT_RE = /(?:⛔|⚠️) dispatch \[rejected → ([^\]]+)\]/;
-
-function extractOutputText(output: unknown): string {
-  if (!output || typeof output !== "object") return String(output ?? "");
-  const o = output as Record<string, unknown>;
-  if (o.type === "text" && typeof o.value === "string") return o.value;
-  if (o.type === "json") return JSON.stringify(o.value);
-  return JSON.stringify(output);
-}
-
-function stripRejectedDispatches(messages: ModelMessage[]): ModelMessage[] {
-  const rejectedCallIds = new Set<string>();
-
-  for (const msg of messages) {
-    if (msg.role !== "tool" || typeof msg.content === "string") continue;
-    if (!Array.isArray(msg.content)) continue;
-    for (const part of msg.content) {
-      if (part.type !== "tool-result") continue;
-      if (DISPATCH_REJECT_RE.test(extractOutputText(part.output))) {
-        rejectedCallIds.add(part.toolCallId);
-      }
-    }
-  }
-
-  if (rejectedCallIds.size === 0) return messages;
-
-  return messages.map((msg) => {
-    if (typeof msg.content === "string" || !Array.isArray(msg.content)) return msg;
-
-    if (msg.role === "assistant") {
-      const filtered = msg.content.map((part) => {
-        if (part.type !== "tool-call" || !rejectedCallIds.has(part.toolCallId)) return part;
-        return { ...part, input: { _stripped: true } };
-      });
-      return { ...msg, content: filtered };
-    }
-
-    if (msg.role === "tool") {
-      const filtered = msg.content.map((part) => {
-        if (part.type !== "tool-result" || !rejectedCallIds.has(part.toolCallId)) return part;
-        const match = DISPATCH_REJECT_RE.exec(extractOutputText(part.output));
-        const reason = match?.[1] ?? "rejected";
-        return {
-          ...part,
-          output: {
-            type: "text" as const,
-            value: `[dispatch rejected: ${reason} — read files directly]`,
-          },
-        };
-      });
-      return { ...msg, content: filtered };
-    }
-
-    return msg;
-  });
-}
-
 function buildForgePrepareStep(
   isPlanMode: boolean,
   drainSteering?: () => string | null,
-  _repoMap?: import("../intelligence/repo-map.js").RepoMap,
   contextManager?: {
     buildCrossTabSection(): string | null;
-    isEditorOpen(): boolean;
-    getEditorIntegration(): import("../../types/index.js").EditorIntegration | undefined;
-    buildSystemPrompt(modelIdOverride?: string): string;
-    buildSoulMapMessages():
-      | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
-      | null;
-    buildSkillsMessages():
-      | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
-      | null;
+    buildSoulMapDiff(): string | null;
+    commitSoulMapDiff(): void;
+    buildSkillsBlock(): string | null;
   },
-  activeModelId?: string,
-  toolNames?: string[],
-  editingModel?: LanguageModel,
 ) {
-  const SKILLS_MARKER = "<loaded_skills>";
-  const EDIT_TOOL_NAMES = new Set(["edit_file", "multi_edit", "write_file", "create_file"]);
-
-  // Validate editing model compatibility: only switch if same provider family
-  // (e.g., Opus → Sonnet is safe, Opus → GPT-4 would have incompatible providerOptions)
-  const editingModelId =
-    editingModel && typeof editingModel === "object" && "modelId" in editingModel
-      ? String((editingModel as { modelId: string }).modelId)
-      : undefined;
-  const safeEditingModel =
-    editingModel && editingModelId && activeModelId
-      ? detectModelFamily(editingModelId) === detectModelFamily(activeModelId)
-        ? editingModel
-        : undefined
-      : editingModel;
-
   // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
   return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): any => {
     const sanitized = sanitizeMessages(messages);
-    let stripped = stripRejectedDispatches(sanitized);
+
     const result: {
-      model?: LanguageModel;
       messages?: ModelMessage[];
-      activeTools?: string[];
-      toolChoice?: "required" | "auto";
-      system?: SystemModelMessage[];
-      providerOptions?: ProviderOptions;
     } = {};
 
-    if (safeEditingModel && stepNumber > 0) {
-      for (const msg of messages) {
-        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-        for (const part of msg.content) {
-          if (
-            typeof part === "object" &&
-            part !== null &&
-            "type" in part &&
-            (part as { type: string }).type === "tool-call" &&
-            "toolName" in part &&
-            EDIT_TOOL_NAMES.has((part as { toolName: string }).toolName)
-          ) {
-            result.model = safeEditingModel;
-            // Clear providerOptions — they were built for the original model and may
-            // contain features (e.g. compact_20260112) unsupported by the editing model
-            result.providerOptions = {};
-            break;
-          }
-        }
-        if (result.model) break;
-      }
-    }
+    // Soul Map snapshot + skills are in the system prompt (instructions).
+    // prepareStep only handles diffs (file changes since last step) and hints.
+    const hints: string[] = [];
+    let soulMapDiff: string | null = null;
 
-    // System prompt: single cached block (stable between steps)
-    // Soul Map + Skills: user→assistant message pairs prepended to conversation
-    // (aider pattern — models treat user content as context to reference)
     if (contextManager) {
-      result.system = [
-        {
-          role: "system" as const,
-          content: contextManager.buildSystemPrompt(activeModelId),
-          providerOptions: EPHEMERAL_CACHE,
-        },
-      ];
-
-      // Strip stale Soul Map / Skills pairs from previous steps
-      let conversationStart = 0;
-      while (conversationStart < stripped.length - 1) {
-        const msg = stripped[conversationStart];
-        if (
-          msg?.role === "user" &&
-          typeof msg.content === "string" &&
-          (msg.content.startsWith("<soul_map>") || msg.content.startsWith(SKILLS_MARKER))
-        ) {
-          conversationStart += 2;
-        } else {
-          break;
-        }
-      }
-      if (conversationStart > 0) {
-        stripped = stripped.slice(conversationStart);
-      }
-
-      // Prepend fresh Soul Map + Skills as user→assistant message pairs
-      // Soul Map messages are cached by ContextManager — identical bytes when
-      // unchanged, enabling prefix cache hits across providers.
-      const prefix: ModelMessage[] = [];
-      const soulMapMsgs = contextManager.buildSoulMapMessages();
-      if (soulMapMsgs) {
-        const [userMsg, assistantMsg] = soulMapMsgs;
-        prefix.push(userMsg as unknown as ModelMessage);
-        prefix.push({
-          ...(assistantMsg as unknown as ModelMessage),
-          providerOptions: EPHEMERAL_CACHE,
-        });
-      }
-      const skillsMsgs = contextManager.buildSkillsMessages();
-      if (skillsMsgs) {
-        prefix.push(...(skillsMsgs as unknown as ModelMessage[]));
-      }
-      if (prefix.length > 0) {
-        stripped = [...prefix, ...stripped];
-      }
-      result.messages = stripped;
+      soulMapDiff = contextManager.buildSoulMapDiff();
     }
 
-    if (stripped !== messages && !result.messages) {
-      result.messages = stripped;
-    }
-
-    // Cache breakpoints: Anthropic supports up to 4.
-    // Breakpoint 1: Soul Map assistant message (prefix[1]) — stable when no edits.
-    // Breakpoint 2: second-to-last conversation message — append-only pattern.
-    if (stepNumber > 0) {
-      const msgs = result.messages ?? messages;
-      if (msgs.length >= 2) {
-        // Strip old cache_control from conversation messages (skip Soul Map at prefix)
-        const soulMapEnd =
-          msgs[0]?.role === "user" &&
-          typeof msgs[0]?.content === "string" &&
-          msgs[0].content.startsWith("<soul_map>")
-            ? 2
-            : 0;
-        for (let i = soulMapEnd; i < msgs.length; i++) {
-          const msg = msgs[i];
-          if (msg?.providerOptions?.anthropic) {
-            const { anthropic: _, ...rest } = msg.providerOptions;
-            msg.providerOptions = Object.keys(rest).length > 0 ? rest : undefined;
-          }
-        }
-        const target = msgs[msgs.length - 2];
-        if (target) {
-          target.providerOptions = { ...target.providerOptions, ...EPHEMERAL_CACHE };
-        }
-      }
-    }
-
-    // Token-budget pruning: blank old tool results beyond 40k protection window.
-    // No message-count pruning — it causes re-reads when the agent needs old file content.
-    if (stepNumber >= 1) {
-      const msgs = result.messages ?? stripped;
-      const pruned = pruneByTokenBudget(msgs);
-      if (pruned !== msgs) result.messages = pruned;
-    }
-
-    // Helper: append a nudge/hint to the system blocks array
-    const appendSystemHint = (text: string) => {
-      if (!result.system) result.system = [];
-      result.system.push({ role: "system" as const, content: text });
-    };
-
+    // [6] Plan mode nudges — hint only, no activeTools forcing
     if (isPlanMode && stepNumber >= PLAN_NUDGE_STEP && !hasPlanToolCall(messages)) {
       if (stepNumber >= PLAN_FORCE_STEP) {
-        result.activeTools = ["plan", "ask_user"];
-        result.toolChoice = "required";
-        appendSystemHint(
+        hints.push(
           "You have done enough research. Call plan NOW with everything you have. Do not read more files.",
         );
       } else {
-        appendSystemHint(
+        hints.push(
           "You have gathered substantial context. Start assembling the plan — call plan when ready.",
         );
       }
     }
 
+    // [4] Read nudges + [5] Loop detection
     if (!isPlanMode && stepNumber >= 3) {
       const hasDispatch = hasToolCall(messages, "dispatch");
       const readsAfterDispatch = countReadsAfterLastDispatch(messages);
       if (hasDispatch && readsAfterDispatch >= 2) {
-        appendSystemHint(
+        hints.push(
           "You have dispatch results. Proceed to implementation or respond — additional reads are likely redundant.",
         );
       }
 
-      // Detect excessive reads without action — language-agnostic
       const READ_TOOLS = new Set([
         "read_file",
         "grep",
@@ -400,21 +199,16 @@ function buildForgePrepareStep(
               return count;
             })();
 
-      // Only nudge when no dispatch was used (dispatches handle their own read patterns)
-      // and the agent isn't in plan mode (audits/plans legitimately need many reads)
-      if (!hasDispatch) {
-        if (readsSinceAction >= 8) {
-          appendSystemHint(
-            `${String(readsSinceAction)} consecutive reads without an action (edit/dispatch). Act on what you have — edit files directly or use dispatch for parallel work.`,
-          );
-        }
+      if (!hasDispatch && readsSinceAction >= 8) {
+        hints.push(
+          `${String(readsSinceAction)} consecutive reads without an action (edit/dispatch). Act on what you have — edit files directly or use dispatch for parallel work.`,
+        );
       }
 
-      // Degenerate loop detection: identical tool calls OR same tool+path repeated in recent messages
+      // [5] Loop detection — hint only, no activeTools blocking
       const LOOP_THRESHOLD = 3;
       const LOOP_WINDOW = 16;
-      const exactCounts = new Map<string, { toolName: string; count: number }>();
-      const pathCounts = new Map<string, { toolName: string; count: number }>();
+      const callCounts = new Map<string, { toolName: string; count: number }>();
       const startIdx = Math.max(0, messages.length - LOOP_WINDOW);
       for (let i = startIdx; i < messages.length; i++) {
         const m = messages[i];
@@ -423,88 +217,68 @@ function buildForgePrepareStep(
           if (typeof part !== "object" || part === null || !("type" in part)) continue;
           const p = part as { type: string; toolName?: string; input?: unknown };
           if (p.type !== "tool-call" || !p.toolName) continue;
-          // Exact args match
           let argStr: string;
           try {
             argStr = JSON.stringify(p.input ?? {});
           } catch {
             argStr = "{}";
           }
-          const exactSig = `${p.toolName}::${argStr}`;
-          const exactEntry = exactCounts.get(exactSig);
-          if (exactEntry) exactEntry.count++;
-          else exactCounts.set(exactSig, { toolName: p.toolName, count: 1 });
-          // Path-based match (same tool + same file path, different args)
-          const input = p.input as Record<string, unknown> | null;
-          const filePath = input?.path ?? input?.file ?? input?.query;
-          if (typeof filePath === "string") {
-            const pathSig = `${p.toolName}::path=${filePath}`;
-            const pathEntry = pathCounts.get(pathSig);
-            if (pathEntry) pathEntry.count++;
-            else pathCounts.set(pathSig, { toolName: p.toolName, count: 1 });
-          }
+          const sig = `${p.toolName}::${argStr}`;
+          const entry = callCounts.get(sig);
+          if (entry) entry.count++;
+          else callCounts.set(sig, { toolName: p.toolName, count: 1 });
         }
       }
-      const loopingTools = new Set<string>();
-      for (const [, entry] of exactCounts) {
+      for (const [, entry] of callCounts) {
         if (entry.count >= LOOP_THRESHOLD) {
-          loopingTools.add(entry.toolName);
-        }
-      }
-      // Path-based loops need a higher threshold (5) since different args are expected
-      for (const [, entry] of pathCounts) {
-        if (entry.count >= 5) {
-          loopingTools.add(entry.toolName);
-        }
-      }
-      if (loopingTools.size > 0) {
-        const blocked = [...loopingTools].join(", ");
-        appendSystemHint(
-          `🔁 LOOP DETECTED: ${blocked} called 3+ times with identical arguments. These tools are now BLOCKED for this step. Use read_file to read the files directly, or edit_file to make changes.`,
-        );
-        if (result.activeTools) {
-          result.activeTools = result.activeTools.filter((t) => !loopingTools.has(t));
-        } else if (toolNames) {
-          result.activeTools = toolNames.filter((t) => !loopingTools.has(t));
+          hints.push(
+            `🔁 LOOP DETECTED: ${entry.toolName} called ${String(entry.count)} times with identical arguments. Results have not changed. Do NOT call it again. Act on the results you already have or try a different approach.`,
+          );
+          break;
         }
       }
     }
 
-    // Inject task list so it survives compaction and is always visible
+    // [8] Task list injection
     const taskBlock = renderTaskList();
-    if (taskBlock) {
-      appendSystemHint(taskBlock);
-    }
+    if (taskBlock) hints.push(taskBlock);
 
-    // Inject fresh cross-tab claims on every step (always live from coordinator)
+    // [7] Cross-tab claims
     if (contextManager) {
       const crossTab = contextManager.buildCrossTabSection();
-      if (crossTab) {
-        appendSystemHint(crossTab);
-      }
+      if (crossTab) hints.push(crossTab);
     }
 
-    // Inject steering messages from queue (user typed while agent was running)
+    // Assemble tail content: diffs + hints + steering.
+    // System prompt has the snapshot; prepareStep only adds ephemeral updates.
+    const tailParts: string[] = [];
+
+    if (soulMapDiff) tailParts.push(soulMapDiff);
+
+    if (hints.length > 0) {
+      tailParts.push(...hints.map((h) => `<system-reminder>\n${h}\n</system-reminder>`));
+    }
     if (stepNumber > 0 && drainSteering) {
       const combined = drainSteering();
       if (combined) {
-        const msgs = result.messages ?? [...messages];
-        msgs.push({
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `IMPORTANT — the user just sent this while you were working. Prioritize this:\n\n${combined}`,
-            },
-          ],
-        });
-        result.messages = msgs;
+        tailParts.push(
+          `IMPORTANT — the user just sent this while you were working. Prioritize this:\n\n${combined}`,
+        );
       }
     }
 
-    // Debug: dump the exact messages being sent to the API
+    if (tailParts.length > 0) {
+      const msgs = result.messages ?? [...sanitized];
+      msgs.push({
+        role: "user" as const,
+        content: [{ type: "text" as const, text: tailParts.join("\n\n") }],
+      });
+      result.messages = msgs;
+    }
+
+    // [9] Debug API logging
     if (process.env.SOULFORGE_DEBUG_API) {
-      const msgs = result.messages ?? messages;
+      const msgs = result.messages ?? sanitized;
       const dump = msgs
         .map((m, i) => {
           const raw = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
@@ -512,22 +286,115 @@ function buildForgePrepareStep(
           return `[${String(i)}] ${m.role} (${String(raw.length)} chars): ${preview}${raw.length > 300 ? "..." : ""}`;
         })
         .join("\n---\n");
-      const sys = result.system
-        ?.map(
-          (s, i) =>
-            `[sys ${String(i)}] (${String(s.content.length)} chars): ${s.content.slice(0, 300)}`,
-        )
-        .join("\n---\n");
       import("../tools/tee.js").then(({ saveTee }) => {
         saveTee(
           `forge-step-${String(stepNumber)}`,
-          `Forge Step ${String(stepNumber)} — ${String(msgs.length)} messages\n\n${sys ? `=== SYSTEM ===\n${sys}\n\n` : ""}=== MESSAGES ===\n${dump}`,
+          `Forge Step ${String(stepNumber)} — ${String(msgs.length)} messages\n\n=== MESSAGES ===\n${dump}`,
         );
       });
     }
 
+    // [10] API export logging
+    if (isApiExportEnabled()) {
+      const msgs = result.messages ?? sanitized;
+      const serializeContent = (content: unknown): unknown => {
+        if (typeof content === "string") return content;
+        if (!Array.isArray(content)) return String(content);
+        return (content as Record<string, unknown>[]).map((p) => {
+          if (p.type === "tool-call") {
+            return {
+              type: "tool-call",
+              toolCallId: p.toolCallId,
+              toolName: p.toolName,
+              input: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
+            };
+          }
+          if (p.type === "tool-result") {
+            const out = p.output as Record<string, unknown> | undefined;
+            const text =
+              out?.type === "text"
+                ? String(out.value ?? "")
+                : out?.type === "json"
+                  ? JSON.stringify(out.value)
+                  : JSON.stringify(out);
+            return {
+              type: "tool-result",
+              toolCallId: p.toolCallId,
+              toolName: p.toolName,
+              contentLength: text.length,
+              content: text,
+            };
+          }
+          if (p.type === "text") return { type: "text", text: String(p.text ?? "") };
+          return p;
+        });
+      };
+      const exportData = {
+        agent: "forge",
+        step: stepNumber,
+        timestamp: new Date().toISOString(),
+        messageCount: msgs.length,
+        messages: msgs.map((m, i) => {
+          const content = serializeContent(m.content);
+          const charCount =
+            typeof content === "string"
+              ? content.length
+              : Array.isArray(content)
+                ? (content as Record<string, unknown>[]).reduce(
+                    (s: number, p) =>
+                      s +
+                      (typeof p.content === "string" ? p.content.length : 0) +
+                      (typeof p.text === "string" ? p.text.length : 0) +
+                      (typeof p.input === "string" ? p.input.length : 0),
+                    0,
+                  )
+                : 0;
+          return {
+            index: i,
+            role: m.role,
+            charCount,
+            estimatedTokens: Math.ceil(charCount / 4),
+            content,
+          };
+        }),
+      };
+      import("node:fs").then(({ mkdirSync, writeFileSync }) => {
+        const dir = `${process.cwd()}/.soulforge/api-export`;
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(
+          `${dir}/forge-step-${String(stepNumber).padStart(2, "0")}.json`,
+          JSON.stringify(exportData, null, 2),
+          "utf-8",
+        );
+      });
+    }
+
+    if (sanitized !== messages && !result.messages) {
+      result.messages = sanitized;
+    }
+
+    // Commit diff after building result — if API call fails and retries,
+    // buildSoulMapDiff returns the same pending diff instead of losing it
+    if (soulMapDiff && contextManager) contextManager.commitSoulMapDiff();
+
     return Object.keys(result).length > 0 ? result : undefined;
   };
+}
+
+const instructionsCache = new WeakMap<ContextManager, { text: string; key: string }>();
+
+function buildInstructions(cm: ContextManager, modelId: string): string {
+  const key = cm.getInstructionsCacheKey(modelId);
+  const cached = instructionsCache.get(cm);
+  if (cached && cached.key === key) return cached.text;
+  const parts = [cm.buildSystemPrompt(modelId)];
+  const snapshot = cm.buildSoulMapSnapshot(false);
+  if (snapshot) parts.push(snapshot);
+  const skills = cm.buildSkillsBlock();
+  if (skills) parts.push(skills);
+  const text = parts.join("\n\n");
+  if (snapshot) instructionsCache.set(cm, { text, key });
+  return text;
 }
 
 interface ForgeAgentOptions {
@@ -559,21 +426,12 @@ interface ForgeAgentOptions {
   planExecution?: boolean;
   drainSteering?: () => string | null;
   disablePruning?: boolean;
+  disabledTools?: Set<string>;
   tabId?: string;
   tabLabel?: string;
 }
 
-/**
- * Creates the main Forge ToolLoopAgent.
- * Factory function (not singleton) — model can change between turns (Ctrl+L).
- * Combines direct tools + subagent tools + optional interactive tools.
- *
- * For restricted modes (architect, socratic, challenge), activeTools limits
- * to read-only tools — the LLM physically cannot call edit/shell/git.
- *
- * callOptionsSchema accepts userMessage for future use (e.g. memory recall).
- * prepareCall currently handles activeTools override only.
- */
+/** Creates the main Forge ToolLoopAgent — model can change between turns (Ctrl+L). */
 export function createForgeAgent({
   model,
   contextManager,
@@ -596,6 +454,7 @@ export function createForgeAgent({
   planExecution,
   drainSteering,
   disablePruning,
+  disabledTools,
   tabId,
   tabLabel,
 }: ForgeAgentOptions) {
@@ -612,6 +471,9 @@ export function createForgeAgent({
   if (modelId) contextManager.setActiveModel(modelId);
   const canUseCodeExecution = codeExecution && isAnthropicNative(modelId);
 
+  const onDemandEnabled = agentFeatures?.onDemandTools !== false && !isRestricted && !planExecution;
+  const activeDeferredTools = onDemandEnabled ? new Set<string>() : undefined;
+
   const directTools = buildTools(undefined, editorIntegration, onApproveWebSearch, {
     codeExecution: canUseCodeExecution,
     contextManager,
@@ -623,6 +485,7 @@ export function createForgeAgent({
     onApproveDestructive,
     tabId: tabId ?? contextManager.getTabId() ?? undefined,
     tabLabel: tabLabel ?? contextManager.getTabLabel() ?? undefined,
+    activeDeferredTools,
   });
 
   const subagentTools = isRestricted
@@ -674,55 +537,54 @@ export function createForgeAgent({
     ...(interactive ? buildInteractiveTools(interactive, { cwd, sessionId, forgeMode }) : {}),
   };
 
-  // Mark the last tool with cache_control so the Anthropic API caches
-  // the entire tools array as a prefix (system prompt + tools = stable prefix).
-  // This saves re-processing ~12k tokens of tool schemas on every step.
-  const toolKeys = Object.keys(allTools);
-  const lastToolKey = toolKeys[toolKeys.length - 1];
-  if (lastToolKey) {
-    const lastTool = allTools[lastToolKey as keyof typeof allTools] as Record<string, unknown>;
-    lastTool.providerOptions = EPHEMERAL_CACHE;
-  }
+  // Cache breakpoints: system prompt (via instructions) + first 2 messages.
+  // Total: 3 breakpoints. The system+tools prefix is the biggest stable cache.
 
   const allToolNames = Object.keys(allTools) as (keyof typeof allTools)[];
   const restrictedSet = new Set(RESTRICTED_TOOL_NAMES);
   const planExecSet = new Set(PLAN_EXECUTION_TOOL_NAMES);
-  const activeToolOverride = isRestricted
-    ? allToolNames.filter((name) => restrictedSet.has(name))
-    : planExecution
-      ? allToolNames.filter((name) => planExecSet.has(name))
-      : undefined;
+
+  const computeActiveTools = (): (keyof typeof allTools)[] | undefined => {
+    if (isRestricted) return allToolNames.filter((name) => restrictedSet.has(name));
+    if (planExecution) return allToolNames.filter((name) => planExecSet.has(name));
+    if (disabledTools && disabledTools.size > 0) {
+      return allToolNames.filter((name) => !disabledTools.has(name));
+    }
+    return undefined;
+  };
 
   return new ToolLoopAgent({
     id: "forge",
     model,
+    temperature: 0,
+    maxOutputTokens: 4096,
     tools: allTools,
     stopWhen: () => false,
-    callOptionsSchema: z.object({
-      userMessage: z.string().optional(),
-    }),
     instructions: {
       role: "system" as const,
-      content: contextManager.buildSystemPrompt(modelId),
+      content: buildInstructions(contextManager, modelId),
       providerOptions: EPHEMERAL_CACHE,
     },
+    callOptionsSchema: z.object({
+      userMessage: z.string().nullable(),
+    }),
     prepareCall: ({ options: _options, ...settings }) => {
+      const activeTools = computeActiveTools();
       return {
         ...settings,
-        ...(activeToolOverride ? { activeTools: activeToolOverride } : {}),
+        ...(activeTools ? { activeTools } : {}),
       };
     },
-    prepareStep: buildForgePrepareStep(
-      forgeMode === "plan",
-      drainSteering,
-      repoMap,
-      contextManager,
-      modelId,
-      Object.keys(allTools),
-      subagentModels?.editing,
-    ),
+    prepareStep: buildForgePrepareStep(forgeMode === "plan", drainSteering, contextManager),
     experimental_repairToolCall: repairToolCall,
-    ...(providerOptions && Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),
+    providerOptions: {
+      ...providerOptions,
+      anthropic: {
+        ...(((providerOptions as Record<string, unknown>)?.anthropic as Record<string, unknown>) ??
+          {}),
+        cacheControl: { type: "ephemeral" },
+      },
+    } as ProviderOptions,
     ...(headers ? { headers } : {}),
   });
 }

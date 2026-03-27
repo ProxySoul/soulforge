@@ -181,6 +181,8 @@ export interface PerformanceConfig {
   serviceTier?: ServiceTier | "off";
 }
 
+export type PruningTarget = "none" | "main" | "subagents" | "both";
+
 export interface ContextManagementConfig {
   /** Enable server-side context compaction for 200K+ models */
   compact?: boolean;
@@ -188,8 +190,10 @@ export interface ContextManagementConfig {
   clearToolUses?: boolean;
   /** Clear old thinking blocks (keep last 5 turns) */
   clearThinking?: boolean;
-  /** Disable step-level pruning of old tool results (default: false = pruning enabled) */
+  /** @deprecated Use pruningTarget instead */
   disablePruning?: boolean;
+  /** Which agents get tool result pruning: none | main | subagents | both. Default: subagents */
+  pruningTarget?: PruningTarget;
 }
 
 interface CompactionConfig {
@@ -222,6 +226,8 @@ export interface AgentFeatures {
   verifyEdits?: boolean;
   /** Allow the agent to search, install, and load skills. Default: true */
   agentSkills?: boolean;
+  /** Only expose core tools initially; deferred tools loaded via request_tools. Default: false — all tools active to avoid roundtrips. */
+  onDemandTools?: boolean;
 }
 
 export interface AppConfig {

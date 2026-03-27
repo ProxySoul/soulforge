@@ -95,8 +95,9 @@ const CLAUDE_ITEMS: SettingItem[] = [
   {
     key: "pruning",
     label: "Tool Result Pruning",
-    desc: "Compact old tool results into one-line summaries (saves tokens)",
-    type: "toggle",
+    desc: "Compact old tool results — main | subagents | both | none",
+    type: "cycle",
+    options: ["none", "main", "subagents", "both"],
   },
 ];
 
@@ -158,7 +159,7 @@ interface CurrentValues {
   compact: boolean;
   clearToolUses: boolean;
   clearThinking: boolean;
-  pruning: boolean;
+  pruning: string;
 }
 
 const DEFAULTS: CurrentValues = {
@@ -175,7 +176,7 @@ const DEFAULTS: CurrentValues = {
   compact: false,
   clearToolUses: false,
   clearThinking: false,
-  pruning: true,
+  pruning: "subagents",
 };
 
 function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentValues> {
@@ -199,8 +200,10 @@ function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentV
     v.clearToolUses = layer.contextManagement.clearToolUses;
   if (layer.contextManagement?.clearThinking !== undefined)
     v.clearThinking = layer.contextManagement.clearThinking;
-  if (layer.contextManagement?.disablePruning !== undefined)
-    v.pruning = !layer.contextManagement.disablePruning;
+  if (layer.contextManagement?.pruningTarget !== undefined)
+    v.pruning = layer.contextManagement.pruningTarget;
+  else if (layer.contextManagement?.disablePruning !== undefined)
+    v.pruning = layer.contextManagement.disablePruning ? "none" : "subagents";
   return v;
 }
 
@@ -240,7 +243,7 @@ function buildPatch(key: string, value: string | number | boolean): Partial<AppC
       return { contextManagement: { clearThinking: value as boolean } as ContextManagementConfig };
     case "pruning":
       return {
-        contextManagement: { disablePruning: !(value as boolean) } as ContextManagementConfig,
+        contextManagement: { pruningTarget: value as string } as ContextManagementConfig,
       };
     default:
       return {};

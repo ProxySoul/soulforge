@@ -47,9 +47,13 @@ benchmarks/results-*.json
 # Claude Code local settings
 .claude/
 
+# OpenCode local settings
+.opencode/
+
 # Installed agent skills (user-specific)
 .agents/
 
 # Audit logs
 audit_issue.json
 coverage/
+test_tmp/

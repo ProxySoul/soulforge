@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types";
 import { analyzeFile } from "../analysis/complexity";
@@ -205,9 +204,13 @@ function resolveLineRange(
 export const editFileTool = {
   name: "edit_file",
   description:
-    "Edit a file by replacing content. Provide lineStart (1-indexed, from your last read) for reliable line-based editing. " +
-    "oldString is used for verification when lineStart is provided, or as the match key when lineStart is omitted. " +
-    "Empty oldString creates a new file.",
+    "Edit a file by replacing content. " +
+    "HOW TO USE: Read the file first, then provide path, oldString, and newString. " +
+    "ALWAYS provide lineStart (1-indexed, from your last read_file output) — it makes edits escape-proof for regex and backslash-heavy code. " +
+    "oldString verifies content at lineStart, or acts as match key when lineStart is omitted. Empty oldString creates a new file. " +
+    "LIMITATIONS: oldString must match exactly (whitespace-sensitive). Only one replacement per call. " +
+    "TIPS: Plan all edits before starting. Use multi_edit for multiple changes to the same file. " +
+    "Do NOT tell the user to 'save the file' — edits are applied immediately.",
   execute: async (args: EditFileArgs): Promise<ToolResult> => {
     try {
       const filePath = resolve(args.path);
@@ -224,8 +227,13 @@ export const editFileTool = {
       // Create new file
       if (oldStr === "") {
         const dir = dirname(filePath);
-        const dirCreated = !existsSync(dir);
-        mkdirSync(dir, { recursive: true });
+        let dirCreated = false;
+        try {
+          await access(dir);
+        } catch {
+          dirCreated = true;
+        }
+        await mkdir(dir, { recursive: true });
         await writeFile(filePath, newStr, "utf-8");
         markToolWrite(filePath);
         emitFileEdited(filePath, newStr);
@@ -237,7 +245,9 @@ export const editFileTool = {
         return { success: true, output: out };
       }
 
-      if (!existsSync(filePath)) {
+      try {
+        await access(filePath);
+      } catch {
         return {
           success: false,
           output: `File not found: ${filePath}`,

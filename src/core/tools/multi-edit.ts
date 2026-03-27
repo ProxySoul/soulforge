@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
@@ -44,7 +43,9 @@ export const multiEditTool = {
         return { success: false, output: msg, error: msg };
       }
 
-      if (!existsSync(filePath)) {
+      try {
+        await access(filePath);
+      } catch {
         const msg = `File not found: ${filePath}`;
         return { success: false, output: msg, error: msg };
       }

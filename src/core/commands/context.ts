@@ -192,10 +192,15 @@ function handleRepoMap(_input: string, ctx: CommandContext): void {
   openRepoMapMenu(ctx);
 }
 
+function handleTools(_input: string, _ctx: CommandContext): void {
+  useUIStore.getState().openModal("toolsPopup");
+}
+
 export function register(map: Map<string, CommandHandler>): void {
   map.set("/context", handleContext);
   map.set("/memory", handleMemory);
   map.set("/repo-map", handleRepoMap);
+  map.set("/tools", handleTools);
 }
 
 export function matchContextPrefix(cmd: string): CommandHandler | null {

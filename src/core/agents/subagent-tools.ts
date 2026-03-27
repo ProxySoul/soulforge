@@ -200,7 +200,7 @@ export function createAgent(
     onApproveFetchPage: models.onApproveFetchPage,
     repoMap: models.repoMap,
     contextWindow,
-    disablePruning: false,
+    disablePruning: models.disablePruning,
     role: task.role === "investigate" ? ("investigate" as const) : ("explore" as const),
   };
   const agent = useExplore ? createExploreAgent(model, opts) : createCodeAgent(model, opts);
@@ -1222,7 +1222,10 @@ export function buildSubagentTools(models: SubagentModels) {
       toModelOutput({ output }: { toolCallId: string; input: unknown; output: unknown }) {
         const dispatch = output as DispatchOutput | string;
         if (typeof dispatch === "string") {
-          return { type: "text" as const, value: `<dispatch_result>\n${dispatch}\n</dispatch_result>` };
+          return {
+            type: "text" as const,
+            value: `<dispatch_result>\n${dispatch}\n</dispatch_result>`,
+          };
         }
 
         const parts: string[] = [];
@@ -1242,7 +1245,8 @@ export function buildSubagentTools(models: SubagentModels) {
             const lines = section.split("\n").slice(1);
             const summaryLines: string[] = [];
             for (const line of lines) {
-              if (/^(?:Key findings:|Files examined:|Gaps:|Connections:|Verified:)/.test(line)) break;
+              if (/^(?:Key findings:|Files examined:|Gaps:|Connections:|Verified:)/.test(line))
+                break;
               if (line.trim()) summaryLines.push(line.trim());
             }
             if (summaryLines.length > 0) {

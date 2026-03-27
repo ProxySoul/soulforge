@@ -18,7 +18,12 @@ import {
 } from "../security/approval-gates.js";
 import { needsOutsideConfirm } from "../security/outside-cwd.js";
 import { analyzeTool } from "./analyze.js";
-import { truncateBytes, truncateLines } from "./constants.js";
+import {
+  CORE_TOOL_NAMES,
+  DEFERRED_TOOL_CATALOG,
+  truncateBytes,
+  truncateLines,
+} from "./constants.js";
 import { discoverPatternTool } from "./discover-pattern.js";
 import { editFileTool } from "./edit-file";
 import { undoEditTool } from "./edit-stack.js";
@@ -56,6 +61,8 @@ import { buildWebSearchTool } from "./web-search";
 
 export { wrapWithBusCache } from "./bus-cache.js";
 export {
+  CORE_TOOL_NAMES,
+  DEFERRED_TOOL_CATALOG,
   PLAN_EXECUTION_TOOL_NAMES,
   planFileName,
   RESTRICTED_TOOL_NAMES,
@@ -79,10 +86,24 @@ function deferExecute<T, R>(fn: (args: T) => Promise<R>): (args: T) => Promise<R
 
 const coerceInt = (v: unknown) => (typeof v === "string" ? Number(v) : v);
 
-const lineNum = () => z.preprocess(coerceInt, z.number()).optional();
-const optStr = () => z.string().optional();
-const optBool = () => z.boolean().optional();
+const nullToUndef = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
+const lineNum = () =>
+  z.preprocess(coerceInt, z.number().nullable().optional().transform(nullToUndef));
+const optStr = () => z.string().nullable().optional().transform(nullToUndef);
+const optBool = () => z.boolean().nullable().optional().transform(nullToUndef);
 const freshField = () => optBool().describe("Set true to bypass cache and re-execute");
+
+/** Send tool results as plain text to the model instead of JSON.stringify'd objects.
+ *  Without this, the AI SDK wraps `{success,output}` in JSON, escaping all newlines
+ *  and quotes — adding 3-8% token overhead per tool result that compounds across steps. */
+const TEXT_OUTPUT = {
+  toModelOutput({ output }: { output: unknown }) {
+    if (typeof output === "string") return { type: "text" as const, value: output };
+    const r = output as { success?: boolean; output?: string; error?: string } | null;
+    const text = r?.output ?? r?.error ?? JSON.stringify(output);
+    return { type: "text" as const, value: text };
+  },
+};
 const forceField = () =>
   optBool().describe(
     "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
@@ -127,7 +148,12 @@ export const SCHEMAS = {
   soulFind: z.object({
     query: z.string().describe("Fuzzy search query"),
     type: optStr().describe("File type filter"),
-    limit: z.preprocess(coerceInt, z.number()).optional().describe("Max results (default 20)"),
+    limit: z
+      .preprocess(coerceInt, z.number())
+      .nullable()
+      .optional()
+      .transform(nullToUndef)
+      .describe("Max results (default 20)"),
   }),
 } as const;
 
@@ -259,6 +285,7 @@ export function buildTools(
     onApproveDestructive?: (description: string) => Promise<boolean>;
     tabId?: string;
     tabLabel?: string;
+    activeDeferredTools?: Set<string>;
   },
 ) {
   const effectiveCwd = cwd ?? process.cwd();
@@ -324,6 +351,7 @@ export function buildTools(
 
   return {
     read_file: tool({
+      ...TEXT_OUTPUT,
       description: readFileTool.description,
       inputSchema: SCHEMAS.readFile.extend({ fresh: freshField() }),
       execute: deferExecute(async (args) => {
@@ -356,12 +384,17 @@ export function buildTools(
           }
         }
 
+        // Mark as pending BEFORE the async read so parallel calls for the same file
+        // see the cache immediately instead of both executing the read.
+        if (isFullRead && !args.fresh) fullReadCache.add(normPath);
+
         const result = await readFileTool.execute(args);
 
-        // Track successful reads
-        if (result.success && !(result as unknown as Record<string, unknown>).outlineOnly) {
-          if (isFullRead) fullReadCache.add(normPath);
-          readCountPerFile.set(normPath, (readCountPerFile.get(normPath) ?? 0) + 1);
+        if (result.success) {
+          if (!isFullRead)
+            readCountPerFile.set(normPath, (readCountPerFile.get(normPath) ?? 0) + 1);
+        } else if (isFullRead) {
+          fullReadCache.delete(normPath);
         }
 
         sequentialReads++;
@@ -378,6 +411,7 @@ export function buildTools(
     }),
 
     edit_file: tool({
+      ...TEXT_OUTPUT,
       description: editFileTool.description,
       inputSchema: z.object({
         path: z.string().describe("File path to edit"),
@@ -385,7 +419,9 @@ export function buildTools(
         newString: z.string().describe("Replacement content"),
         lineStart: z
           .preprocess(coerceInt, z.number())
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "RECOMMENDED: 1-indexed line number from your last read_file output. " +
               "Makes edits escape-proof — if oldString fails to match (e.g. backslash-heavy code), " +
@@ -393,7 +429,9 @@ export function buildTools(
           ),
         lineEnd: z
           .preprocess(coerceInt, z.number())
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "1-indexed end line (inclusive). When both lineStart and lineEnd are set, the system replaces by line range if oldString matching fails.",
           ),
@@ -445,15 +483,22 @@ export function buildTools(
     }),
 
     undo_edit: tool({
+      ...TEXT_OUTPUT,
       description: undoEditTool.description,
       inputSchema: z.object({
         path: z.string().describe("File path to undo"),
-        steps: z.number().optional().describe("Number of edits to undo (default 1, max 10)"),
+        steps: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Number of edits to undo (default 1, max 10)"),
       }),
       execute: deferExecute((args) => undoEditTool.execute({ ...args, tabId: opts?.tabId })),
     }),
 
     multi_edit: tool({
+      ...TEXT_OUTPUT,
       description: multiEditTool.description,
       inputSchema: z.object({
         path: z.string().describe("File path to edit"),
@@ -464,11 +509,15 @@ export function buildTools(
               newString: z.string().describe("Replacement content"),
               lineStart: z
                 .number()
+                .nullable()
                 .optional()
+                .transform(nullToUndef)
                 .describe("RECOMMENDED: 1-indexed line number from read_file output"),
               lineEnd: z
                 .number()
+                .nullable()
                 .optional()
+                .transform(nullToUndef)
                 .describe("End line (1-indexed, inclusive) for line-range fallback"),
             }),
           )
@@ -514,29 +563,54 @@ export function buildTools(
     }),
 
     task_list: tool({
+      ...TEXT_OUTPUT,
       description: taskListTool.description,
       inputSchema: z.object({
         action: z.enum(["add", "update", "remove", "list", "clear"]).describe("Task action"),
-        title: z.string().optional().describe("Single task title (for add/update)"),
-        titles: z.array(z.string()).optional().describe("Batch add — multiple task titles at once"),
-        id: z.number().optional().describe("Task ID (for update/remove)"),
+        title: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Single task title (for add/update)"),
+        titles: z
+          .array(z.string())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Batch add — multiple task titles at once"),
+        id: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Task ID (for update/remove)"),
         status: z
           .enum(["pending", "in-progress", "done", "blocked"])
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Task status (for add/update)"),
       }),
       execute: deferExecute((args) => taskListTool.execute({ ...args, tabId: opts?.tabId })),
     }),
 
     list_dir: tool({
+      ...TEXT_OUTPUT,
       description: listDirTool.description,
       inputSchema: z.object({
-        path: z.string().optional().describe("Directory path (defaults to cwd)"),
+        path: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Directory path (defaults to cwd)"),
       }),
       execute: deferExecute((args) => listDirTool.execute(args, opts?.repoMap)),
     }),
 
     soul_grep: tool({
+      ...TEXT_OUTPUT,
       description:
         soulGrepTool.description +
         " Use dep to search inside dependency/vendor directories (bypasses .gitignore).",
@@ -548,6 +622,7 @@ export function buildTools(
     }),
 
     soul_find: tool({
+      ...TEXT_OUTPUT,
       description: soulFindTool.description,
       inputSchema: z.object({
         query: z
@@ -557,9 +632,16 @@ export function buildTools(
           ),
         type: z
           .enum(["test", "component", "config", "types", "style"])
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Filter by file category"),
-        limit: z.number().optional().describe("Max results (default 20)"),
+        limit: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Max results (default 20)"),
       }),
       execute: deferExecute((args) => {
         resetReadCounter();
@@ -568,6 +650,7 @@ export function buildTools(
     }),
 
     soul_analyze: tool({
+      ...TEXT_OUTPUT,
       description: soulAnalyzeTool.description,
       inputSchema: z.object({
         action: z
@@ -585,20 +668,29 @@ export function buildTools(
               "file_profile=deps/dependents/blast/cochanges/symbols, duplication=clone detection, " +
               "top_files=PageRank ranking, packages=external deps, symbols_by_kind=by type (function/class/etc)",
           ),
-        file: z.string().optional().describe("File path (required for file_profile)"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File path (required for file_profile)"),
         name: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Identifier/package name (for identifier_frequency, packages, symbols_by_kind)",
           ),
         kind: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Symbol kind (for symbols_by_kind: interface, class, function, type, enum, trait, struct)",
           ),
-        limit: z.number().optional().describe("Max results"),
+        limit: z.number().nullable().optional().transform(nullToUndef).describe("Max results"),
       }),
       execute: deferExecute((args) => {
         resetReadCounter();
@@ -607,6 +699,7 @@ export function buildTools(
     }),
 
     soul_impact: tool({
+      ...TEXT_OUTPUT,
       description: soulImpactTool.description,
       inputSchema: z.object({
         action: z
@@ -624,11 +717,12 @@ export function buildTools(
     }),
 
     shell: tool({
+      ...TEXT_OUTPUT,
       description: shellTool.description,
       inputSchema: z.object({
         command: z.string().describe("Shell command to execute"),
-        cwd: z.string().optional().describe("Working directory"),
-        timeout: z.number().optional().describe("Timeout in ms"),
+        cwd: z.string().nullable().optional().transform(nullToUndef).describe("Working directory"),
+        timeout: z.number().nullable().optional().transform(nullToUndef).describe("Timeout in ms"),
       }),
       execute: async (args, { abortSignal }) => {
         await new Promise<void>((r) => setTimeout(r, 0));
@@ -679,6 +773,7 @@ export function buildTools(
     }),
 
     grep: tool({
+      ...TEXT_OUTPUT,
       description: grepTool.description,
       inputSchema: SCHEMAS.grep.extend({ fresh: freshField() }),
       execute: deferExecute((args) => {
@@ -692,6 +787,7 @@ export function buildTools(
     }),
 
     glob: tool({
+      ...TEXT_OUTPUT,
       description: globTool.description,
       inputSchema: SCHEMAS.glob.extend({ fresh: freshField() }),
       execute: deferExecute((args) => {
@@ -711,6 +807,7 @@ export function buildTools(
     }),
 
     fetch_page: tool({
+      ...TEXT_OUTPUT,
       description: fetchPageTool.description,
       inputSchema: z.object({
         url: z.string().describe("URL to fetch and read"),
@@ -734,6 +831,7 @@ export function buildTools(
     ...(skillsTool ? { skills: skillsTool } : {}),
 
     editor: tool({
+      ...TEXT_OUTPUT,
       description: editorTool.description,
       inputSchema: z.object({
         action: z
@@ -766,34 +864,81 @@ export function buildTools(
           ),
         startLine: z
           .number()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("For read/edit/format/select/highlight: start line (1-indexed)"),
         endLine: z
           .number()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("For read/edit/format/select/highlight: end line (1-indexed)"),
-        replacement: z.string().optional().describe("For edit: new content"),
-        file: z.string().optional().describe("For read/edit/navigate: file path (switches buffer)"),
+        replacement: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For edit: new content"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For read/edit/navigate: file path (switches buffer)"),
         line: z
           .number()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("For navigate/hover/references/definition/actions/rename/goto_cursor: line"),
         col: z
           .number()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("For navigate/hover/references/definition/actions/rename/goto_cursor: column"),
-        search: z.string().optional().describe("For navigate: search pattern"),
-        newName: z.string().optional().describe("For rename: new symbol name"),
-        apply: z.number().optional().describe("For actions: 0-indexed action to apply"),
-        jump: z.boolean().optional().describe("For definition: jump to first result"),
-        text: z.string().optional().describe("For yank: text to put in register"),
+        search: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For navigate: search pattern"),
+        newName: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For rename: new symbol name"),
+        apply: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For actions: 0-indexed action to apply"),
+        jump: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For definition: jump to first result"),
+        text: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For yank: text to put in register"),
         register: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe('For yank: neovim register (default: "+", system clipboard)'),
         count: z
           .number()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("For terminal_output: max lines to read (default: 100)"),
       }),
       execute: deferExecute((args) => {
@@ -818,6 +963,7 @@ export function buildTools(
     }),
 
     navigate: tool({
+      ...TEXT_OUTPUT,
       description: navigateTool.description,
       inputSchema: z.object({
         action: z
@@ -839,13 +985,35 @@ export function buildTools(
               "type_hierarchy=returns super/subtypes, symbols/imports/exports=returns file contents, " +
               "workspace_symbols/search_symbols=returns matching symbols across all files",
           ),
-        symbol: z.string().optional().describe("Symbol name to look up"),
-        file: z.string().optional().describe("File path (auto-resolved from symbol if omitted)"),
-        scope: z.string().optional().describe("Filter symbols by name pattern"),
-        query: z.string().optional().describe("Search query for workspace_symbols/search_symbols"),
+        symbol: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Symbol name to look up"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File path (auto-resolved from symbol if omitted)"),
+        scope: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Filter symbols by name pattern"),
+        query: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Search query for workspace_symbols/search_symbols"),
         force: z
           .boolean()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
@@ -861,13 +1029,16 @@ export function buildTools(
     }),
 
     rename_symbol: tool({
+      ...TEXT_OUTPUT,
       description: renameSymbolTool.description,
       inputSchema: z.object({
         symbol: z.string().describe("Current name of the symbol to rename"),
         newName: z.string().describe("New name for the symbol"),
         file: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "File where the symbol is defined (optional — auto-detected via workspace search)",
           ),
@@ -889,6 +1060,7 @@ export function buildTools(
     }),
 
     move_symbol: tool({
+      ...TEXT_OUTPUT,
       description: moveSymbolTool.description,
       inputSchema: z.object({
         symbol: z.string().describe("Name of the symbol to move"),
@@ -909,6 +1081,7 @@ export function buildTools(
     }),
 
     rename_file: tool({
+      ...TEXT_OUTPUT,
       description: renameFileTool.description,
       inputSchema: z.object({
         from: z.string().describe("Current file path"),
@@ -927,6 +1100,7 @@ export function buildTools(
     }),
 
     refactor: tool({
+      ...TEXT_OUTPUT,
       description: refactorTool.description,
       inputSchema: z.object({
         action: z
@@ -941,17 +1115,39 @@ export function buildTools(
             "extract_function=lines→new function, extract_variable=expression→variable, " +
               "organize_imports=sort/dedupe, format=whole file, format_range=line range",
           ),
-        file: z.string().optional().describe("Target file"),
-        newName: z.string().optional().describe("New name for extracted symbol"),
-        startLine: z.preprocess(coerceInt, z.number()).optional().describe("Start line for extraction or range formatting"),
-        endLine: z.preprocess(coerceInt, z.number()).optional().describe("End line for extraction or range formatting"),
+        file: z.string().nullable().optional().transform(nullToUndef).describe("Target file"),
+        newName: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("New name for extracted symbol"),
+        startLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Start line for extraction or range formatting"),
+        endLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("End line for extraction or range formatting"),
         name: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Symbol name to extract (auto-resolves line range — use instead of startLine/endLine)",
           ),
-        apply: z.boolean().optional().describe("Apply changes to disk (default true)"),
+        apply: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Apply changes to disk (default true)"),
       }),
       execute: deferExecute(async (args) => {
         if (args.file) {
@@ -970,6 +1166,7 @@ export function buildTools(
     }),
 
     analyze: tool({
+      ...TEXT_OUTPUT,
       description: analyzeTool.description,
       inputSchema: z.object({
         action: z
@@ -978,28 +1175,68 @@ export function buildTools(
             "diagnostics=type errors/warnings, type_info=type signature+docs, " +
               "outline=compact symbol list, code_actions=quick fixes, symbol_diff=before/after exports",
           ),
-        file: z.string().optional().describe("File path to analyze"),
-        symbol: z.string().optional().describe("Symbol for type_info"),
-        line: z.preprocess(coerceInt, z.number()).optional().describe("Line number for type_info"),
-        column: z.preprocess(coerceInt, z.number()).optional().describe("Column number for type_info"),
-        startLine: z.preprocess(coerceInt, z.number()).optional().describe("Start line for code_actions range"),
-        endLine: z.preprocess(coerceInt, z.number()).optional().describe("End line for code_actions range"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File path to analyze"),
+        symbol: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Symbol for type_info"),
+        line: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Line number for type_info"),
+        column: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Column number for type_info"),
+        startLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Start line for code_actions range"),
+        endLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("End line for code_actions range"),
         oldContent: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Old file content for symbol_diff (or uses git HEAD)"),
       }),
       execute: deferExecute((args) => analyzeTool.execute(args)),
     }),
 
     discover_pattern: tool({
+      ...TEXT_OUTPUT,
       description: discoverPatternTool.description,
       inputSchema: z.object({
         query: z.string().describe("Concept to discover (e.g. 'provider', 'router', 'auth')"),
-        file: z.string().optional().describe("File to scope the search to"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File to scope the search to"),
         force: z
           .boolean()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
@@ -1014,14 +1251,22 @@ export function buildTools(
     }),
 
     test_scaffold: tool({
+      ...TEXT_OUTPUT,
       description: testScaffoldTool.description,
       inputSchema: z.object({
         file: z.string().describe("Source file to generate tests for"),
         framework: z
           .enum(["vitest", "jest", "bun", "pytest", "go", "cargo"])
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Test framework (auto-detected from project toolchain)"),
-        output: z.string().optional().describe("Output path for test file"),
+        output: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Output path for test file"),
       }),
       execute: deferExecute(async (args) => {
         const result = await testScaffoldTool.execute(args);
@@ -1033,6 +1278,7 @@ export function buildTools(
     }),
 
     project: tool({
+      ...TEXT_OUTPUT,
       description: projectTool.description,
       inputSchema: z.object({
         action: z
@@ -1040,28 +1286,56 @@ export function buildTools(
           .describe(
             "Project action. format = auto-fix lint/style issues. list discovers monorepo packages.",
           ),
-        file: z.string().optional().describe("Target file (for test/lint)"),
-        fix: z.boolean().optional().describe("Auto-fix lint issues"),
-        script: z.string().optional().describe("Named script to run (for run action)"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Target file (for test/lint)"),
+        fix: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Auto-fix lint issues"),
+        script: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Named script to run (for run action)"),
         flags: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Extra flags appended to the command (e.g. '--features async', '-k test_name')",
           ),
         raw: z
           .boolean()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Skip preset fix flags — use only the flags you provide"),
         env: z
           .record(z.string(), z.string())
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Environment variables (e.g. { NODE_ENV: 'test', DEBUG: '1' })"),
         cwd: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Working directory relative to project root (for monorepos)"),
-        timeout: z.number().optional().describe("Timeout in ms (default 120000)"),
+        timeout: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Timeout in ms (default 120000)"),
       }),
       execute: deferExecute((args) =>
         projectTool.execute(args as Parameters<typeof projectTool.execute>[0]),
@@ -1069,6 +1343,7 @@ export function buildTools(
     }),
 
     git: tool({
+      ...TEXT_OUTPUT,
       description: gitTool.description,
       inputSchema: z.object({
         action: z.enum([
@@ -1084,24 +1359,136 @@ export function buildTools(
           "unstage",
           "restore",
         ]),
-        staged: z.boolean().optional().describe("For diff: staged changes"),
-        count: z.number().optional().describe("For log: number of commits"),
-        message: z.string().optional().describe("For commit/stash: message"),
-        files: z.array(z.string()).optional().describe("For commit/unstage/restore: files"),
+        staged: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For diff: staged changes"),
+        count: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For log: number of commits"),
+        message: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For commit/stash: message"),
+        files: z
+          .array(z.string())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For commit/unstage/restore: files"),
         sub_action: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("For stash: push|pop|list|show|drop. For branch: list|create|switch|delete"),
-        name: z.string().optional().describe("For branch: branch name"),
-        index: z.number().optional().describe("For stash: stash index"),
-        amend: z.boolean().optional().describe("For commit: amend the last commit"),
-        ref: z.string().optional().describe("For show: commit hash or ref (default: HEAD)"),
+        name: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For branch: branch name"),
+        index: z
+          .number()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For stash: stash index"),
+        amend: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For commit: amend the last commit"),
+        ref: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("For show: commit hash or ref (default: HEAD)"),
       }),
       execute: deferExecute(async (args) => {
         const mutating = ["pull", "stash", "restore", "branch"].includes(args.action);
         if (mutating) resetReadCache();
         return gitTool.execute(args, opts?.tabId);
       }),
+    }),
+
+    request_tools: tool({
+      ...TEXT_OUTPUT,
+      description:
+        "Load additional tools by name. Available tools:\n" +
+        Object.entries(DEFERRED_TOOL_CATALOG)
+          .map(([name, desc]) => `  ${name} — ${desc}`)
+          .join("\n"),
+      inputSchema: z.object({
+        tools: z.array(z.string()).describe("Tool names to activate"),
+      }),
+      execute: async (args) => {
+        const deferred = opts?.activeDeferredTools;
+        if (!deferred) return { success: true, output: "On-demand tools not enabled" };
+        const catalog = DEFERRED_TOOL_CATALOG;
+        const coreNames = new Set(CORE_TOOL_NAMES);
+        const activated: string[] = [];
+        const unknown: string[] = [];
+        const alreadyActive: string[] = [];
+        for (const name of args.tools) {
+          if (coreNames.has(name)) {
+            alreadyActive.push(`${name} (core)`);
+          } else if (!catalog[name]) {
+            unknown.push(name);
+          } else if (deferred.has(name)) {
+            alreadyActive.push(name);
+          } else {
+            deferred.add(name);
+            activated.push(name);
+          }
+        }
+        const parts: string[] = [];
+        if (activated.length > 0) parts.push(`Activated: ${activated.join(", ")}`);
+        if (alreadyActive.length > 0) parts.push(`Already active: ${alreadyActive.join(", ")}`);
+        if (unknown.length > 0)
+          parts.push(`Unknown: ${unknown.join(", ")} — check available tools list`);
+        parts.push("Tools will be available on your next step.");
+        return { success: true, output: parts.join("\n") };
+      },
+    }),
+
+    release_tools: tool({
+      ...TEXT_OUTPUT,
+      description: "Deactivate tools you no longer need to reduce context size.",
+      inputSchema: z.object({
+        tools: z.array(z.string()).describe("Tool names to deactivate"),
+      }),
+      execute: async (args) => {
+        const deferred = opts?.activeDeferredTools;
+        if (!deferred) return { success: true, output: "On-demand tools not enabled" };
+        const released: string[] = [];
+        const notActive: string[] = [];
+        const coreSet = new Set(CORE_TOOL_NAMES);
+        for (const name of args.tools) {
+          if (coreSet.has(name)) {
+            notActive.push(`${name} (core — cannot release)`);
+          } else if (deferred.has(name)) {
+            deferred.delete(name);
+            released.push(name);
+          } else {
+            notActive.push(name);
+          }
+        }
+        const parts: string[] = [];
+        if (released.length > 0) parts.push(`Released: ${released.join(", ")}`);
+        if (notActive.length > 0) parts.push(`Not active: ${notActive.join(", ")}`);
+        parts.push("Tools will be removed on your next step.");
+        return { success: true, output: parts.join("\n") };
+      },
     }),
 
     ...(opts?.codeExecution
@@ -1151,6 +1538,7 @@ export function buildSubagentExploreTools(opts?: {
   const subagentCwd = process.cwd();
   return {
     read_file: tool({
+      ...TEXT_OUTPUT,
       description: `${readFileTool.description} Output capped at 750 lines.`,
       inputSchema: SCHEMAS.readFile,
       execute: deferExecute(async (args) => {
@@ -1162,6 +1550,7 @@ export function buildSubagentExploreTools(opts?: {
     }),
 
     grep: tool({
+      ...TEXT_OUTPUT,
       description: grepTool.description,
       inputSchema: SCHEMAS.grep,
       execute: deferExecute(async (args) => {
@@ -1176,6 +1565,7 @@ export function buildSubagentExploreTools(opts?: {
     }),
 
     glob: tool({
+      ...TEXT_OUTPUT,
       description: globTool.description,
       inputSchema: SCHEMAS.glob,
       execute: deferExecute((args) => {
@@ -1188,6 +1578,7 @@ export function buildSubagentExploreTools(opts?: {
     }),
 
     navigate: tool({
+      ...TEXT_OUTPUT,
       description: navigateTool.description,
       inputSchema: z.object({
         action: z
@@ -1209,13 +1600,35 @@ export function buildSubagentExploreTools(opts?: {
               "type_hierarchy=returns super/subtypes, symbols/imports/exports=returns file contents, " +
               "workspace_symbols/search_symbols=returns matching symbols across all files",
           ),
-        symbol: z.string().optional().describe("Symbol name to look up"),
-        file: z.string().optional().describe("File path (auto-resolved from symbol if omitted)"),
-        scope: z.string().optional().describe("Filter symbols by name pattern"),
-        query: z.string().optional().describe("Search query for workspace_symbols/search_symbols"),
+        symbol: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Symbol name to look up"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File path (auto-resolved from symbol if omitted)"),
+        scope: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Filter symbols by name pattern"),
+        query: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Search query for workspace_symbols/search_symbols"),
         force: z
           .boolean()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
@@ -1230,6 +1643,7 @@ export function buildSubagentExploreTools(opts?: {
     }),
 
     analyze: tool({
+      ...TEXT_OUTPUT,
       description: analyzeTool.description,
       inputSchema: z.object({
         action: z
@@ -1238,28 +1652,68 @@ export function buildSubagentExploreTools(opts?: {
             "diagnostics=type errors/warnings, type_info=type signature+docs, " +
               "outline=compact symbol list, code_actions=quick fixes, symbol_diff=before/after exports",
           ),
-        file: z.string().optional().describe("File path to analyze"),
-        symbol: z.string().optional().describe("Symbol for type_info"),
-        line: z.preprocess(coerceInt, z.number()).optional().describe("Line number for type_info"),
-        column: z.preprocess(coerceInt, z.number()).optional().describe("Column number for type_info"),
-        startLine: z.preprocess(coerceInt, z.number()).optional().describe("Start line for code_actions range"),
-        endLine: z.preprocess(coerceInt, z.number()).optional().describe("End line for code_actions range"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File path to analyze"),
+        symbol: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Symbol for type_info"),
+        line: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Line number for type_info"),
+        column: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Column number for type_info"),
+        startLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Start line for code_actions range"),
+        endLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("End line for code_actions range"),
         oldContent: z
           .string()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe("Old file content for symbol_diff (or uses git HEAD)"),
       }),
       execute: deferExecute((args) => analyzeTool.execute(args)),
     }),
 
     discover_pattern: tool({
+      ...TEXT_OUTPUT,
       description: discoverPatternTool.description,
       inputSchema: z.object({
         query: z.string().describe("Concept to discover (e.g. 'provider', 'router', 'auth')"),
-        file: z.string().optional().describe("File to scope the search to"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File to scope the search to"),
         force: z
           .boolean()
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
           ),
@@ -1280,6 +1734,7 @@ export function buildSubagentExploreTools(opts?: {
     }),
 
     fetch_page: tool({
+      ...TEXT_OUTPUT,
       description: fetchPageTool.description,
       inputSchema: z.object({
         url: z.string().describe("URL to fetch and read"),
@@ -1302,9 +1757,15 @@ export function buildSubagentExploreTools(opts?: {
     // task_list omitted from subagents — session-scoped, subagents are ephemeral
 
     list_dir: tool({
+      ...TEXT_OUTPUT,
       description: listDirTool.description,
       inputSchema: z.object({
-        path: z.string().optional().describe("Directory path (defaults to cwd)"),
+        path: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Directory path (defaults to cwd)"),
       }),
       execute: deferExecute((args) => listDirTool.execute(args, opts?.repoMap)),
     }),
@@ -1321,6 +1782,7 @@ export function buildSubagentExploreTools(opts?: {
     ...(opts?.repoMap
       ? {
           soul_grep: tool({
+            ...TEXT_OUTPUT,
             description: soulGrepTool.description,
             inputSchema: SCHEMAS.soulGrep,
             execute: deferExecute((args) => {
@@ -1329,6 +1791,7 @@ export function buildSubagentExploreTools(opts?: {
             }),
           }),
           soul_find: tool({
+            ...TEXT_OUTPUT,
             description: soulFindTool.description,
             inputSchema: SCHEMAS.soulFind,
             execute: deferExecute((args) => {
@@ -1337,6 +1800,7 @@ export function buildSubagentExploreTools(opts?: {
             }),
           }),
           soul_analyze: tool({
+            ...TEXT_OUTPUT,
             description: soulAnalyzeTool.description,
             inputSchema: z.object({
               action: z
@@ -1354,10 +1818,30 @@ export function buildSubagentExploreTools(opts?: {
                     "file_profile=deps/dependents/blast/cochanges/symbols, duplication=clone detection, " +
                     "top_files=PageRank ranking, packages=external deps, symbols_by_kind=by type (function/class/etc)",
                 ),
-              file: z.string().optional().describe("File path (for file_profile)"),
-              name: z.string().optional().describe("Identifier/package name"),
-              kind: z.string().optional().describe("Symbol kind (for symbols_by_kind)"),
-              limit: z.number().optional().describe("Max results"),
+              file: z
+                .string()
+                .nullable()
+                .optional()
+                .transform(nullToUndef)
+                .describe("File path (for file_profile)"),
+              name: z
+                .string()
+                .nullable()
+                .optional()
+                .transform(nullToUndef)
+                .describe("Identifier/package name"),
+              kind: z
+                .string()
+                .nullable()
+                .optional()
+                .transform(nullToUndef)
+                .describe("Symbol kind (for symbols_by_kind)"),
+              limit: z
+                .number()
+                .nullable()
+                .optional()
+                .transform(nullToUndef)
+                .describe("Max results"),
             }),
             execute: deferExecute((args) => {
               const exec = soulAnalyzeTool.createExecute(opts.repoMap);
@@ -1365,6 +1849,7 @@ export function buildSubagentExploreTools(opts?: {
             }),
           }),
           soul_impact: tool({
+            ...TEXT_OUTPUT,
             description: soulImpactTool.description,
             inputSchema: z.object({
               action: z
@@ -1374,7 +1859,12 @@ export function buildSubagentExploreTools(opts?: {
                     "cochanges=files edited together in git, blast_radius=total affected scope",
                 ),
               file: z.string().describe("File path to analyze"),
-              limit: z.number().optional().describe("Max results"),
+              limit: z
+                .number()
+                .nullable()
+                .optional()
+                .transform(nullToUndef)
+                .describe("Max results"),
             }),
             execute: deferExecute((args) => {
               const exec = soulImpactTool.createExecute(opts.repoMap);
@@ -1385,11 +1875,17 @@ export function buildSubagentExploreTools(opts?: {
       : {}),
 
     project: tool({
+      ...TEXT_OUTPUT,
       description: `${projectTool.description} Read-only: test, build, lint, typecheck (no format/run).`,
       inputSchema: z.object({
         action: z.enum(["test", "build", "lint", "typecheck"]).describe("Read-only project action"),
-        file: z.string().optional().describe("Target file or directory"),
-        timeout: z.number().optional().describe("Timeout in ms"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Target file or directory"),
+        timeout: z.number().nullable().optional().transform(nullToUndef).describe("Timeout in ms"),
       }),
       execute: deferExecute((args) =>
         projectTool.execute(args as Parameters<typeof projectTool.execute>[0]),
@@ -1425,6 +1921,7 @@ export function buildSubagentCodeTools(opts?: {
     ...coreExploreTools,
 
     edit_file: tool({
+      ...TEXT_OUTPUT,
       description: editFileTool.description,
       inputSchema: z.object({
         path: z.string().describe("File path to edit"),
@@ -1432,7 +1929,9 @@ export function buildSubagentCodeTools(opts?: {
         newString: z.string().describe("Replacement content"),
         lineStart: z
           .preprocess(coerceInt, z.number())
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "RECOMMENDED: 1-indexed line number from your last read_file output. " +
               "Makes edits escape-proof — if oldString fails to match (e.g. backslash-heavy code), " +
@@ -1440,7 +1939,9 @@ export function buildSubagentCodeTools(opts?: {
           ),
         lineEnd: z
           .preprocess(coerceInt, z.number())
+          .nullable()
           .optional()
+          .transform(nullToUndef)
           .describe(
             "1-indexed end line (inclusive). When both lineStart and lineEnd are set, the system replaces by line range if oldString matching fails.",
           ),
@@ -1460,6 +1961,7 @@ export function buildSubagentCodeTools(opts?: {
     }),
 
     multi_edit: tool({
+      ...TEXT_OUTPUT,
       description: multiEditTool.description,
       inputSchema: z.object({
         path: z.string().describe("File path to edit"),
@@ -1470,11 +1972,15 @@ export function buildSubagentCodeTools(opts?: {
               newString: z.string().describe("Replacement content"),
               lineStart: z
                 .number()
+                .nullable()
                 .optional()
+                .transform(nullToUndef)
                 .describe("RECOMMENDED: 1-indexed line number from read_file output"),
               lineEnd: z
                 .number()
+                .nullable()
                 .optional()
+                .transform(nullToUndef)
                 .describe("End line (1-indexed, inclusive) for line-range fallback"),
             }),
           )
@@ -1488,11 +1994,17 @@ export function buildSubagentCodeTools(opts?: {
     }),
 
     rename_symbol: tool({
+      ...TEXT_OUTPUT,
       description: renameSymbolTool.description,
       inputSchema: z.object({
         symbol: z.string().describe("Current name of the symbol to rename"),
         newName: z.string().describe("New name for the symbol"),
-        file: z.string().optional().describe("File where the symbol is defined (optional)"),
+        file: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("File where the symbol is defined (optional)"),
       }),
       execute: deferExecute(async (args) => {
         const warning = args.file
@@ -1507,6 +2019,7 @@ export function buildSubagentCodeTools(opts?: {
     }),
 
     move_symbol: tool({
+      ...TEXT_OUTPUT,
       description: moveSymbolTool.description,
       inputSchema: z.object({
         symbol: z.string().describe("Name of the symbol to move"),
@@ -1525,6 +2038,7 @@ export function buildSubagentCodeTools(opts?: {
     }),
 
     rename_file: tool({
+      ...TEXT_OUTPUT,
       description: renameFileTool.description,
       inputSchema: z.object({
         from: z.string().describe("Current file path"),
@@ -1541,6 +2055,7 @@ export function buildSubagentCodeTools(opts?: {
     }),
 
     refactor: tool({
+      ...TEXT_OUTPUT,
       description: refactorTool.description,
       inputSchema: z.object({
         action: z
@@ -1555,12 +2070,37 @@ export function buildSubagentCodeTools(opts?: {
             "extract_function=lines→new function, extract_variable=expression→variable, " +
               "organize_imports=sort/dedupe, format=whole file, format_range=line range",
           ),
-        file: z.string().optional().describe("Target file"),
-        newName: z.string().optional().describe("New name for extracted symbol"),
-        startLine: z.preprocess(coerceInt, z.number()).optional().describe("Start line"),
-        endLine: z.preprocess(coerceInt, z.number()).optional().describe("End line"),
-        name: z.string().optional().describe("Symbol name to extract"),
-        apply: z.boolean().optional().describe("Apply changes to disk (default true)"),
+        file: z.string().nullable().optional().transform(nullToUndef).describe("Target file"),
+        newName: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("New name for extracted symbol"),
+        startLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Start line"),
+        endLine: z
+          .preprocess(coerceInt, z.number())
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("End line"),
+        name: z
+          .string()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Symbol name to extract"),
+        apply: z
+          .boolean()
+          .nullable()
+          .optional()
+          .transform(nullToUndef)
+          .describe("Apply changes to disk (default true)"),
       }),
       execute: deferExecute(async (args) => {
         const warning = args.file
@@ -1575,11 +2115,12 @@ export function buildSubagentCodeTools(opts?: {
     }),
 
     shell: tool({
+      ...TEXT_OUTPUT,
       description: shellTool.description,
       inputSchema: z.object({
         command: z.string().describe("Shell command to execute"),
-        cwd: z.string().optional().describe("Working directory"),
-        timeout: z.number().optional().describe("Timeout in ms"),
+        cwd: z.string().nullable().optional().transform(nullToUndef).describe("Working directory"),
+        timeout: z.number().nullable().optional().transform(nullToUndef).describe("Timeout in ms"),
       }),
       execute: async (args, { abortSignal }) => {
         await new Promise<void>((r) => setTimeout(r, 0));

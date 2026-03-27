@@ -26,14 +26,15 @@ export function createWebSearchAgent(
   return new ToolLoopAgent({
     id: "web-search",
     model,
+    temperature: 0,
     tools: {
       web_search: tool({
         description: webSearchScraper.description,
         inputSchema: z.object({
           query: z.string().describe("Search query"),
-          count: z.number().optional().describe("Number of results (default 5)"),
+          count: z.number().nullable().describe("Number of results (default 5)"),
         }),
-        execute: (args) => webSearchScraper.execute(args),
+        execute: (args) => webSearchScraper.execute({ ...args, count: args.count ?? undefined }),
       }),
       fetch_page: tool({
         description: fetchPageTool.description,

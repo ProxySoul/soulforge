@@ -69,15 +69,20 @@ export function createSkillsTool(
       "- install: install a skill from skills.sh. Requires id param (from search results). Optionally set global: true.",
     inputSchema: z.object({
       action: z.enum(["search", "list_installed", "list_active", "load", "unload", "install"]),
-      query: z.string().optional().describe("For search: search query"),
-      name: z.string().optional().describe("For load/unload: skill name"),
+      query: z.string().nullable().optional().describe("For search: search query"),
+      name: z.string().nullable().optional().describe("For load/unload: skill name"),
       id: z
         .string()
+        .nullable()
         .optional()
         .describe(
           "For install: skill id from search results (e.g. 'vercel-labs/agent-skills/vercel-react-best-practices')",
         ),
-      global: z.boolean().optional().describe("For install: install globally (default: project)"),
+      global: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe("For install: install globally (default: project)"),
     }),
     execute: async (args) => {
       try {

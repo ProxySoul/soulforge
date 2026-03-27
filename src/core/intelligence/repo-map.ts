@@ -115,6 +115,11 @@ export class RepoMap {
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA busy_timeout = 5000");
     this.db.run("PRAGMA foreign_keys = ON");
+    // Recover stale WAL from previous crash — checkpoint flushes WAL to main DB
+    // and releases any leftover -shm locks from dead processes
+    try {
+      this.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {}
     for (const suffix of ["", "-wal", "-shm"]) {
       try {
         chmodSync(dbPath + suffix, 0o600);
@@ -448,6 +453,7 @@ export class RepoMap {
       }
 
       if (toIndex.length > 0) {
+        this.onProgress?.(0, toIndex.length);
         await this.ensureTreeSitter();
         for (let i = 0; i < toIndex.length; i++) {
           const file = toIndex[i];

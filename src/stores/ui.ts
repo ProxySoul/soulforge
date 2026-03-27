@@ -26,7 +26,8 @@ export type ModalName =
   | "lspInstall"
   | "compactionLog"
   | "diagnosePopup"
-  | "statusDashboard";
+  | "statusDashboard"
+  | "toolsPopup";
 
 type Modals = Record<ModalName, boolean>;
 
@@ -53,6 +54,7 @@ const INITIAL_MODALS: Modals = {
   compactionLog: false,
   diagnosePopup: false,
   statusDashboard: false,
+  toolsPopup: false,
 };
 
 interface UIState {

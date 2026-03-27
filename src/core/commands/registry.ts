@@ -221,6 +221,14 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["save", "markdown", "json", "clipboard", "diagnostic"],
   },
   {
+    cmd: "/export api",
+    ic: "search",
+    desc: "Toggle per-step API request dump (messages, tools, usage per step)",
+    category: "Session",
+    tags: ["debug", "tokens", "cost"],
+    hidden: true,
+  },
+  {
     cmd: "/export json",
     ic: "changes",
     desc: "Export chat as JSON",
@@ -376,6 +384,13 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Provider options — thinking, effort, speed, context",
     category: "Models",
     tags: ["thinking", "effort", "speed", "config"],
+  },
+  {
+    cmd: "/tools",
+    ic: "search",
+    desc: "Enable/disable tools for the agent",
+    category: "Intelligence",
+    tags: ["tools", "enable", "disable", "toggle"],
   },
   {
     cmd: "/providers",

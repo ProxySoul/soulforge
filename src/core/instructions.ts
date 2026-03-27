@@ -59,12 +59,6 @@ export const INSTRUCTION_SOURCES: InstructionSource[] = [
     defaultEnabled: false,
   },
   {
-    id: "opencode",
-    label: ".opencode/instructions.md",
-    files: [".opencode/instructions.md"],
-    defaultEnabled: false,
-  },
-  {
     id: "amp",
     label: "AMPLIFY.md",
     files: ["AMPLIFY.md", ".amp/instructions.md"],

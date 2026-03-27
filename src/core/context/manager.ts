@@ -12,7 +12,6 @@ import { MemoryManager } from "../memory/manager.js";
 import {
   buildDirectoryTree,
   buildSystemPrompt as buildPrompt,
-  buildSoulMapAck,
   buildSoulMapUserMessage as buildSoulMapContent,
   getModeInstructions,
   type PromptBuilderOptions,
@@ -62,17 +61,15 @@ export class ContextManager {
   private projectInfoCache: { info: string | null; at: number } | null = null;
   private repoMap: RepoMap;
   private repoMapReady = false;
-  /** Repo map is always enabled unless SOULFORGE_NO_REPOMAP=1 env var is set (debug only). */
   private repoMapEnabled = process.env.SOULFORGE_NO_REPOMAP !== "1";
+  private repoMapGeneration = 0;
   private editedFiles = new Set<string>();
   private mentionedFiles = new Set<string>();
   // conversationTerms removed — FTS boosting was noisy, PageRank handles ranking
   private conversationTokens = 0;
   private contextWindowTokens = DEFAULT_CONTEXT_WINDOW;
   private repoMapCache: { content: string; at: number } | null = null;
-  private soulMapMessagesCache:
-    | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
-    | null = null;
+  private soulMapDiffChangedFiles = new Set<string>();
   private taskRouter: TaskRouter | undefined;
   private semanticSummaryLimit = 300;
   private semanticAutoRegen = false;
@@ -111,7 +108,11 @@ export class ContextManager {
    * Async factory that yields to the event loop between heavy sync steps.
    * Use this from boot to keep the spinner alive during DB init.
    */
-  static async createAsync(cwd: string, onStep?: (label: string) => void): Promise<ContextManager> {
+  static async createAsync(
+    cwd: string,
+    onStep?: (label: string) => void,
+    opts?: { repoMapEnabled?: boolean },
+  ): Promise<ContextManager> {
     const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
     onStep?.("Opening the memory vaults…");
@@ -125,6 +126,7 @@ export class ContextManager {
     onStep?.("Wiring up the forge…");
     const cm = new ContextManager(cwd, { repoMap, memoryManager });
     cm.isChild = false;
+    if (opts?.repoMapEnabled === false) cm.repoMapEnabled = false;
     if (cm.repoMapEnabled) {
       cm.wireRepoMapCallbacks();
       cm.startRepoMapScan();
@@ -195,6 +197,7 @@ export class ContextManager {
     this.repoMap.onScanComplete = (success) => {
       if (success) {
         this.repoMapReady = true;
+        this.repoMapGeneration++;
         this.syncRepoMapStore("ready");
         useRepoMapStore.getState().setScanError("");
         // Re-apply semantic mode now that repo map is ready (may have been set before scan finished)
@@ -324,8 +327,9 @@ export class ContextManager {
       }
     }
     this.editedFiles.add(absPath);
+    const rel = absPath.startsWith(`${this.cwd}/`) ? absPath.slice(this.cwd.length + 1) : absPath;
+    this.soulMapDiffChangedFiles.add(rel);
     this.repoMapCache = null;
-    this.soulMapMessagesCache = null;
     this.gitContextStale = true;
   }
 
@@ -356,12 +360,11 @@ export class ContextManager {
 
     this.conversationTokens = 0;
     this.repoMapCache = null;
-    this.soulMapMessagesCache = null;
   }
 
   /** Render repo map with full tracked context (cached within TTL) */
   renderRepoMap(): string {
-    if (!this.repoMapReady) return "";
+    if (!this.isRepoMapReady()) return "";
     const now = Date.now();
     if (this.repoMapCache && now - this.repoMapCache.at < ContextManager.REPO_MAP_TTL) {
       return this.repoMapCache.content;
@@ -390,11 +393,38 @@ export class ContextManager {
     return this.repoMapReady;
   }
 
+  getRepoMapGeneration(): number {
+    if (this.isChild) return this.repoMap.getStats().files;
+    return this.repoMapGeneration;
+  }
+
+  getInstructionsCacheKey(modelId: string): string {
+    const gen = this.getRepoMapGeneration();
+    const skillCount = this.skills.size;
+    const skillNames = [...this.skills.keys()].sort().join(",");
+    const memCount = (this.memoryManager.buildMemoryIndex() ?? "").length;
+    const mode = this.forgeMode;
+    return `${String(gen)}|${modelId}|${mode}|${String(skillCount)}:${skillNames}|${String(memCount)}`;
+  }
+
+  waitForRepoMap(timeoutMs = 30_000): Promise<boolean> {
+    if (!this.repoMapEnabled) return Promise.resolve(false);
+    if (this.isRepoMapReady()) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        if (this.isRepoMapReady()) return resolve(true);
+        if (Date.now() - start > timeoutMs) return resolve(false);
+        setTimeout(check, 200);
+      };
+      check();
+    });
+  }
+
   setRepoMapEnabled(enabled: boolean): void {
     if (this.repoMapEnabled === enabled) return;
     this.repoMapEnabled = enabled;
     this.repoMapCache = null;
-    this.soulMapMessagesCache = null;
   }
 
   setSemanticSummaries(
@@ -584,6 +614,7 @@ export class ContextManager {
 
         const { text, usage } = await generateText({
           model,
+          temperature: 0,
           system: [
             "Summarize each code symbol in ONE line (max 80 chars). Focus on BEHAVIOR: what it does, key side effects, non-obvious logic.",
             "BAD: 'Checks if Neovim is available' (restates name)",
@@ -657,6 +688,8 @@ export class ContextManager {
   }
 
   async refreshRepoMap(): Promise<void> {
+    this.repoMapReady = false;
+    this.repoMapCache = null;
     this.syncRepoMapStore("scanning");
     useRepoMapStore.getState().setScanError("");
     await this.repoMap.scan().catch((err: unknown) => this.handleScanError(err));
@@ -724,7 +757,7 @@ export class ContextManager {
       active: projectInfo !== null,
     });
 
-    if (this.repoMapEnabled && this.repoMapReady) {
+    if (this.isRepoMapReady()) {
       const cached = this.repoMapCache?.content;
       const map = cached ?? this.renderRepoMap();
       if (map) {
@@ -812,22 +845,23 @@ export class ContextManager {
     const opts: PromptBuilderOptions = {
       modelId: modelIdOverride || this.lastActiveModel,
       cwd: this.cwd,
-      hasRepoMap: this.repoMapEnabled && this.repoMapReady,
-      hasSymbols: this.repoMapEnabled && this.repoMapReady && this.repoMap.getStats().symbols > 0,
+      hasRepoMap: this.isRepoMapReady(),
+      hasSymbols: this.isRepoMapReady() && this.repoMap.getStats().symbols > 0,
       forgeMode: this.forgeMode,
-      contextPercent: this.getContextPercent(),
-      isMinimalContext: this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD,
+      // contextPercent: this.getContextPercent(),
+      // isMinimalContext: this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD,
       projectInfo: this.getProjectInfo(),
       projectInstructions: this.projectInstructions,
       forbiddenContext: buildForbiddenContext(),
-      editorSection: this.buildEditorContextSection(),
-      gitContext: this.gitContext,
+      // editorSection: this.buildEditorContextSection(),
+      // gitContext: this.gitContext,
       memoryContext: this.memoryManager.buildMemoryIndex(),
     };
     return buildPrompt(opts);
   }
 
   /** Build editor context lines for the system prompt. */
+  // @ts-expect-error temporarily unused while testing cache stability
   private buildEditorContextSection(): string[] {
     const lines = [...this.buildEditorToolsSection()];
     const showEditorContext = this.editorIntegration?.editorContext !== false;
@@ -856,42 +890,6 @@ export class ContextManager {
       lines.push("Editor: panel open, no file loaded.");
     }
     return lines;
-  }
-
-  /**
-   * Build the Soul Map as a user→assistant message pair (aider pattern).
-   * Models treat user content as context to reference, keeping it separate
-   * from system instructions. This also means it can update after edits
-   * without invalidating the cached system prompt.
-   * Returns null if the repo map isn't ready.
-   */
-  buildSoulMapMessages():
-    | [{ role: "user"; content: string }, { role: "assistant"; content: string }]
-    | null {
-    if (!this.repoMapEnabled || !this.repoMapReady) return null;
-    if (this.soulMapMessagesCache) return this.soulMapMessagesCache;
-
-    const rendered = this.renderRepoMap();
-    if (!rendered) return null;
-
-    const isMinimal = this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD;
-    const dirTree = buildDirectoryTree(this.cwd);
-    this.soulMapMessagesCache = [
-      { role: "user" as const, content: buildSoulMapContent(rendered, isMinimal, dirTree) },
-      { role: "assistant" as const, content: buildSoulMapAck() },
-    ];
-    return this.soulMapMessagesCache;
-  }
-
-  /**
-   * @deprecated Use buildSoulMapMessages() instead. Kept for backwards compatibility.
-   */
-  buildSoulMapSystemBlock(): string | null {
-    if (!this.repoMapEnabled || !this.repoMapReady) return null;
-    const rendered = this.renderRepoMap();
-    if (!rendered) return null;
-    const isMinimal = this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD;
-    return buildSoulMapContent(rendered, isMinimal);
   }
 
   /**
@@ -924,6 +922,62 @@ export class ContextManager {
       { role: "user" as const, content: userMessage },
       { role: "assistant" as const, content: assistantAck },
     ];
+  }
+
+  buildSoulMapSnapshot(clearDiffTracker = true): string | null {
+    if (!this.isRepoMapReady()) return null;
+    const rendered = this.renderRepoMap();
+    if (!rendered) return null;
+    const isMinimal = this.contextWindowTokens <= MINIMAL_CONTEXT_THRESHOLD;
+    const dirTree = buildDirectoryTree(this.cwd);
+    if (clearDiffTracker) this.soulMapDiffChangedFiles.clear();
+    return buildSoulMapContent(rendered, isMinimal, dirTree);
+  }
+
+  private pendingSoulMapDiff: string | null = null;
+
+  buildSoulMapDiff(): string | null {
+    if (this.pendingSoulMapDiff) return this.pendingSoulMapDiff;
+    if (!this.isRepoMapReady()) return null;
+    if (this.soulMapDiffChangedFiles.size === 0) return null;
+    const changed = [...this.soulMapDiffChangedFiles];
+
+    const lines = ["<soul_map_update>"];
+    for (const file of changed.slice(0, 15)) {
+      const dependents = this.repoMap.getFileDependents(file);
+      if (dependents.length > 0) {
+        const top = dependents.slice(0, 3).map((d) => d.path);
+        lines.push(`  ${file} → affects: ${top.join(", ")}`);
+      } else {
+        lines.push(`  ${file}`);
+      }
+    }
+    if (changed.length > 15) lines.push(`  (+${String(changed.length - 15)} more)`);
+    lines.push("</soul_map_update>");
+    this.pendingSoulMapDiff = lines.join("\n");
+    return this.pendingSoulMapDiff;
+  }
+
+  commitSoulMapDiff(): void {
+    if (this.pendingSoulMapDiff) {
+      this.soulMapDiffChangedFiles.clear();
+      this.pendingSoulMapDiff = null;
+    }
+  }
+
+  buildSkillsBlock(): string | null {
+    if (this.skills.size === 0) return null;
+    const names = [...this.skills.keys()];
+    const skillBlocks = [...this.skills.entries()]
+      .map(([name, content]) => `<skill name="${name}">\n${content}\n</skill>`)
+      .join("\n\n");
+    return (
+      `<loaded_skills>\n` +
+      `The following ${String(names.length)} skill(s) are loaded: ${names.join(", ")}.\n` +
+      `Apply them when the task matches their domain.\n\n` +
+      `${skillBlocks}\n` +
+      `</loaded_skills>`
+    );
   }
 
   /** Build the editor tools section for the system prompt */

@@ -57,6 +57,7 @@ export function buildWebSearchTool(opts?: {
       query: z.string().describe("Search query or research question"),
       count: z
         .number()
+        .nullable()
         .optional()
         .describe("Number of results (default 5, ignored when agent is used)"),
     }),
@@ -175,7 +176,7 @@ export function buildWebSearchTool(opts?: {
         }
       }
 
-      return webSearchScraper.execute(args);
+      return webSearchScraper.execute({ ...args, count: args.count ?? undefined });
     },
   });
 }

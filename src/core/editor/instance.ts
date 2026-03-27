@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import type { NvimInstance } from "./neovim.js";
 
 let instance: NvimInstance | null = null;
@@ -62,7 +62,7 @@ export async function readBufferContent(filePath: string): Promise<string> {
   const toolWriteTime = recentToolWrites.get(filePath);
   if (toolWriteTime && Date.now() - toolWriteTime < TOOL_WRITE_FRESHNESS_MS) {
     recentToolWrites.delete(filePath);
-    return readFileSync(filePath, "utf-8");
+    return readFile(filePath, "utf-8");
   }
 
   const nvim = instance as
@@ -96,7 +96,7 @@ export async function readBufferContent(filePath: string): Promise<string> {
       // Fall through to disk read
     }
   }
-  return readFileSync(filePath, "utf-8");
+  return readFile(filePath, "utf-8");
 }
 
 export function waitForNvim(timeoutMs = 5000): Promise<NvimInstance | null> {

@@ -9,13 +9,12 @@ import type { HeadlessAction } from "./types.js";
 export { parseHeadlessArgs } from "./parse.js";
 export type { HeadlessAction, HeadlessChatOptions, HeadlessRunOptions } from "./types.js";
 
-function initConfig(cwd?: string): AppConfig {
+async function initConfig(cwd?: string): Promise<AppConfig> {
   const config = loadConfig();
   const projectConfig = loadProjectConfig(cwd ?? process.cwd());
   const merged = mergeConfigs(config, projectConfig);
   if (merged.keyPriority) {
-    const { setDefaultKeyPriority } =
-      require("../core/secrets.js") as typeof import("../core/secrets.js");
+    const { setDefaultKeyPriority } = await import("../core/secrets.js");
     setDefaultKeyPriority(merged.keyPriority);
   }
   if (merged.providers && merged.providers.length > 0) {
@@ -32,7 +31,7 @@ export async function runHeadless(action: HeadlessAction): Promise<void> {
 
   const cwd =
     action.type === "run" ? action.opts.cwd : action.type === "chat" ? action.opts.cwd : undefined;
-  const config = initConfig(cwd);
+  const config = await initConfig(cwd);
 
   switch (action.type) {
     case "list-providers":

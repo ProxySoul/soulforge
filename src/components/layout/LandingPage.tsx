@@ -315,11 +315,10 @@ function IndexingStatus() {
   const frame = SPINNER_FRAMES[spinnerRef.current % SPINNER_FRAMES.length] ?? "⠋";
 
   if (status === "scanning") {
-    const label = scanProgress || "indexing";
     return (
       <box flexDirection="row" gap={0} justifyContent="center">
         <text fg={AMBER}>
-          {frame} indexing repo {label}
+          {frame} indexing repo{scanProgress ? ` ${scanProgress}` : ""}
         </text>
       </box>
     );

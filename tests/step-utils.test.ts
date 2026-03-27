@@ -641,65 +641,67 @@ describe("buildPrepareStep — step gating", () => {
 		expect(result?.toolChoice).toBe("required");
 	});
 
-	it("returns result on step 1 with empty messages (semantic prune runs)", () => {
+	it("returns undefined on step 1 with empty messages (no pruning at step < 2)", () => {
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [] },
 		);
-		expect(result?.messages).toEqual([]);
+		expect(result).toBeUndefined();
 	});
 });
 
 describe("buildPrepareStep — disablePruning", () => {
-	// A read followed by an edit to the same file — semanticPrune replaces the stale read.
-	// Content must be >200 chars to trigger the stale replacement.
-	const longContent = "x".repeat(250);
-	const staleReadMsgs: ModelMessage[] = [
-		{ role: "user", content: [{ type: "text", text: "fix a.ts" }] },
-		assistantToolCall([{ id: "r1", name: "read_file", input: { path: "/a.ts" } }]),
-		toolResult([{ id: "r1", name: "read_file", output: longContent }]),
-		assistantToolCall([{ id: "e1", name: "edit_file", input: { path: "/a.ts", old_string: "old", new_string: "new" } }]),
-		toolResult([{ id: "e1", name: "edit_file", output: "ok" }]),
-	];
-
-	it("prunes stale reads by default (disablePruning unset)", () => {
-		const msgs = staleReadMsgs.map((m) => ({ ...m }));
-		const result = callPrepareStep(
-			{ role: "code", allTools: TOOLS },
-			{ stepNumber: 1, messages: msgs },
-		);
-		const toolMsg = result?.messages?.[2];
-		expect(toolMsg).toBeDefined();
-		const part = (toolMsg as { content: Array<{ output: unknown }> }).content[0];
-		const text = typeof part?.output === "string"
-			? part.output
-			: typeof (part?.output as { value?: unknown })?.value === "string"
-				? (part.output as { value: string }).value
-				: JSON.stringify(part?.output);
-		expect(text).toContain("← file was edited");
-	});
-
 	it("skips pruning when disablePruning: true", () => {
-		const msgs = staleReadMsgs.map((m) => ({ ...m }));
+		const bigContent = "x".repeat(200_000);
+		const msgs: ModelMessage[] = [
+			{ role: "user", content: [{ type: "text", text: "do stuff" }] },
+			assistantToolCall([{ id: "r1", name: "read_file", input: { path: "/a.ts" } }]),
+			toolResult([{ id: "r1", name: "read_file", output: bigContent }]),
+			assistantToolCall([{ id: "r2", name: "read_file", input: { path: "/b.ts" } }]),
+			toolResult([{ id: "r2", name: "read_file", output: "small" }]),
+		];
 		const result = callPrepareStep(
 			{ role: "code", allTools: TOOLS, disablePruning: true },
-			{ stepNumber: 1, messages: msgs },
+			{ stepNumber: 3, messages: msgs },
 		);
-		// With pruning disabled, messages should either be unchanged or not include ← file was edited
 		const toolMsg = (result?.messages ?? msgs)[2];
-		expect(toolMsg).toBeDefined();
 		const part = (toolMsg as { content: Array<{ output: unknown }> }).content[0];
 		const text = typeof part?.output === "string"
 			? part.output
 			: typeof (part?.output as { value?: unknown })?.value === "string"
 				? (part.output as { value: string }).value
 				: JSON.stringify(part?.output);
-		expect(text).not.toContain("stale");
+		expect(text).not.toContain("cleared");
+	});
+
+	it("prunes old results when pruning enabled and step >= 2", () => {
+		const bigContent = "x".repeat(400_000);
+		const msgs: ModelMessage[] = [
+			{ role: "user", content: [{ type: "text", text: "do stuff" }] },
+			assistantToolCall([{ id: "r1", name: "read_file", input: { path: "/a.ts" } }]),
+			toolResult([{ id: "r1", name: "read_file", output: bigContent }]),
+			assistantToolCall([{ id: "r2", name: "read_file", input: { path: "/b.ts" } }]),
+			toolResult([{ id: "r2", name: "read_file", output: bigContent }]),
+			assistantToolCall([{ id: "r3", name: "grep", input: { pattern: "foo" } }]),
+			toolResult([{ id: "r3", name: "grep", output: "line1\nline2" }]),
+			assistantToolCall([{ id: "r4", name: "read_file", input: { path: "/c.ts" } }]),
+			toolResult([{ id: "r4", name: "read_file", output: "recent" }]),
+		];
+		const result = callPrepareStep(
+			{ role: "code", allTools: TOOLS, disablePruning: false },
+			{ stepNumber: 3, messages: msgs },
+		);
+		expect(result?.messages).toBeDefined();
+		const firstToolResult = (result!.messages![2] as { content: Array<{ output: unknown }> }).content[0];
+		const text = typeof firstToolResult?.output === "string"
+			? firstToolResult.output
+			: (firstToolResult?.output as { value: string })?.value ?? "";
+		expect(text.length).toBeLessThan(bigContent.length);
 	});
 });
 
 describe("buildPrepareStep — cache control", () => {
-	it("sets ephemeral cache on penultimate message at step > 0", () => {
+	it("does not set cache markers on messages (auto-caching handles it)", () => {
 		const msgs: ModelMessage[] = [
 			{ role: "user", content: [{ type: "text", text: "hello" }] },
 			assistantToolCall([
@@ -711,21 +713,9 @@ describe("buildPrepareStep — cache control", () => {
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: msgs },
 		);
-		const penultimate = msgs[msgs.length - 2];
-		expect(penultimate?.providerOptions?.anthropic).toMatchObject({
-			cacheControl: { type: "ephemeral" },
-		});
-	});
-
-	it("does not set cache on step 0", () => {
-		const msgs: ModelMessage[] = [
-			{ role: "user", content: [{ type: "text", text: "hello" }] },
-		];
-		callPrepareStep(
-			{ role: "explore", allTools: TOOLS },
-			{ stepNumber: 0, messages: msgs },
-		);
-		expect(msgs[0]?.providerOptions).toBeUndefined();
+		for (const msg of msgs) {
+			expect(msg.providerOptions?.anthropic?.cacheControl).toBeUndefined();
+		}
 	});
 });
 

@@ -775,8 +775,8 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
       {visible.map((tc, i) =>
         renderToolCall(tc, elapsed.get(tc.id), diffStyle, {
           isLast: i === visible.length - 1,
-          }),
-        )}
-      </box>
-    );
+        }),
+      )}
+    </box>
+  );
 });

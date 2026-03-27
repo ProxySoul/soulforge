@@ -1,3 +1,49 @@
+/** Core tools — always exposed to the model (schemas sent on every API call).
+ *  Keep this minimal — every extra schema adds ~300 tokens per API roundtrip. */
+export const CORE_TOOL_NAMES: string[] = [
+  "read_file",
+  "edit_file",
+  "multi_edit",
+  "grep",
+  "glob",
+  "shell",
+  "project",
+  // "request_tools",
+  // "release_tools",
+];
+
+/** Deferred tools — name + one-liner visible in request_tools description,
+ *  full schema hidden until requested. Keeps per-call schema cost low. */
+export const DEFERRED_TOOL_CATALOG: Record<string, string> = {
+  request_tools: "Load additional tools by name",
+  release_tools: "Deactivate tools you no longer need",
+  dispatch: "Spawn parallel subagents for large tasks (8+ file edits or 11+ file exploration)",
+  plan: "Create an implementation plan for large changes (7+ files)",
+  write_plan: "Write/update a plan file with structured steps",
+  ask_user: "Ask the user a question and wait for their response",
+  navigate: "LSP symbol lookup: definitions, references, callers, type hierarchies",
+  soul_find: "Fuzzy file and symbol search ranked by importance",
+  soul_grep: "Token-efficient search with count mode and word-boundary matching",
+  soul_analyze: "Codebase analysis: file profiles, dead code, packages, symbol queries",
+  soul_impact: "Dependency graph: dependents, dependencies, cochanges, blast radius",
+  analyze: "LSP diagnostics, type info, outline, code actions on a file",
+  discover_pattern: "Discover recurring patterns/conventions in the codebase",
+  web_search: "Search the web for documentation, APIs, error messages",
+  fetch_page: "Fetch and extract content from a URL",
+  git: "Git operations: status, diff, log, commit, push, pull, stash, branch",
+  list_dir: "List directory contents",
+  rename_symbol: "Rename a symbol across all files (LSP-powered)",
+  move_symbol: "Move a symbol between files with import updates",
+  rename_file: "Rename/move a file with import path updates",
+  refactor: "LSP code transforms: extract function/variable, format, organize imports",
+  test_scaffold: "Generate test skeleton for a file",
+  undo_edit: "Undo recent edits to a file",
+  memory: "Read/write persistent memories across sessions",
+  editor: "Open file in embedded Neovim editor",
+  skills: "Search, add, or remove agent skills",
+  task_list: "Create and track tasks for the current session",
+};
+
 /** Tool names allowed in restricted modes (architect, socratic, challenge).
  *  Read/analysis + memory + editor read — NO edit/shell/git/refactor.
  *  Used with activeTools to restrict without rebuilding the tool set. */
@@ -21,6 +67,8 @@ export const RESTRICTED_TOOL_NAMES: string[] = [
   "ask_user",
   "plan",
   "update_plan_step",
+  "request_tools",
+  "release_tools",
 ];
 
 /** Tools available during plan execution.
@@ -52,6 +100,8 @@ export const PLAN_EXECUTION_TOOL_NAMES: string[] = [
   "soul_find",
   "soul_analyze",
   "soul_impact",
+  "request_tools",
+  "release_tools",
 ];
 
 const SUBAGENT_MAX_LINES = 750;

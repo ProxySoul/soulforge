@@ -66,6 +66,8 @@ import { ProviderSettings } from "./settings/ProviderSettings.js";
 import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { RouterSettings } from "./settings/RouterSettings.js";
 import { SkillSearch } from "./settings/SkillSearch.js";
+import { ToolsPopup } from "./settings/ToolsPopup.js";
+import { useToolsStore } from "../stores/tools.js";
 
 startMemoryPoll();
 
@@ -380,6 +382,8 @@ export function App({
   const modalInfoPopup = useUIStore((s) => s.modals.infoPopup);
   const modalDiagnose = useUIStore((s) => s.modals.diagnosePopup);
   const modalStatusDashboard = useUIStore((s) => s.modals.statusDashboard);
+  const modalToolsPopup = useUIStore((s) => s.modals.toolsPopup);
+  const toolsState = useToolsStore();
   const statusDashboardTab = useUIStore((s) => s.statusDashboardTab);
   const modalRepoMapStatus = useUIStore((s) => s.modals.repoMapStatus);
   const isModalOpen = useUIStore(selectIsAnyModalOpen);
@@ -1118,6 +1122,15 @@ export function App({
         projectConfig={projConfig}
         onUpdate={(patch, toScope, fromScope) => saveToScope(patch, toScope, fromScope)}
         onClose={getCloser("providerSettings")}
+      />
+
+      <ToolsPopup
+        visible={modalToolsPopup}
+        disabledTools={toolsState.disabledTools}
+        agentManaged={toolsState.agentManaged}
+        onToggleTool={toolsState.toggleTool}
+        onToggleAgentManaged={toolsState.toggleAgentManaged}
+        onClose={getCloser("toolsPopup")}
       />
 
       <RouterSettings

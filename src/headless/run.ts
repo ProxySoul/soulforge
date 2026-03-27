@@ -60,12 +60,15 @@ async function setupAgent(
   const model = resolveModel(modelId);
   const providerOpts = buildProviderOptions(modelId, merged);
 
-  const contextManager = await ContextManager.createAsync(cwd, (step) => {
-    if (showProgress) stderrDim(step);
-  });
-
-  // --no-repomap is deprecated; use SOULFORGE_NO_REPOMAP=1 env var. Flag still honored for compat.
-  const repoMapDisabled = opts.noRepomap || process.env.SOULFORGE_NO_REPOMAP === "1";
+  const repoMapDisabled =
+    merged.repoMap === false || opts.noRepomap || process.env.SOULFORGE_NO_REPOMAP === "1";
+  const contextManager = await ContextManager.createAsync(
+    cwd,
+    (step) => {
+      if (showProgress) stderrDim(step);
+    },
+    { repoMapEnabled: !repoMapDisabled },
+  );
   if (!repoMapDisabled) {
     const REPO_MAP_TIMEOUT = 15_000;
     if (!contextManager.isRepoMapReady()) {
@@ -114,6 +117,9 @@ async function setupAgent(
     providerOptions: providerOpts.providerOptions,
     headers: providerOpts.headers,
     cwd,
+    disablePruning: !["subagents", "both"].includes(
+      merged.contextManagement?.pruningTarget ?? "subagents",
+    ),
   });
 
   return {
@@ -156,7 +162,14 @@ async function streamTurn(
 ): Promise<TurnResult> {
   let output = "";
   let steps = 0;
-  const tokens = { input: 0, output: 0, cacheRead: 0 };
+  const tokens = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    lastStepInput: 0,
+    lastStepOutput: 0,
+    lastStepCacheRead: 0,
+  };
   const toolCalls: string[] = [];
   const filesEdited = new Set<string>();
   let error: string | undefined;
@@ -178,7 +191,20 @@ async function streamTurn(
         break;
       }
 
-      if (part.type === "text-delta") {
+      if (part.type === "start-step") {
+        const warnings = (part as { warnings?: Array<{ type: string; message?: string }> })
+          .warnings;
+        if (warnings && warnings.length > 0) {
+          for (const w of warnings) {
+            const msg = `[${w.type}]${w.message ? ` ${w.message}` : ""}`;
+            if (reporting.events) {
+              writeEvent({ type: "warning", message: msg });
+            } else if (reporting.showProgress) {
+              process.stderr.write(`${DIM}  ⚠ ${msg}${RST}\n`);
+            }
+          }
+        }
+      } else if (part.type === "text-delta") {
         output += part.text;
         if (reporting.events) {
           writeEvent({ type: "text", content: part.text });
@@ -222,9 +248,12 @@ async function streamTurn(
           outputTokens?: number;
           inputTokenDetails?: { cacheReadTokens?: number };
         };
-        tokens.input += usage.inputTokens ?? 0;
-        tokens.output += usage.outputTokens ?? 0;
-        tokens.cacheRead += usage.inputTokenDetails?.cacheReadTokens ?? 0;
+        tokens.lastStepInput = usage.inputTokens ?? 0;
+        tokens.lastStepOutput = usage.outputTokens ?? 0;
+        tokens.lastStepCacheRead = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+        tokens.input += tokens.lastStepInput;
+        tokens.output += tokens.lastStepOutput;
+        tokens.cacheRead += tokens.lastStepCacheRead;
         if (reporting.events) {
           writeEvent({ type: "step", step: steps, tokens: { ...tokens } });
         }
