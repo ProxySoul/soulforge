@@ -668,12 +668,9 @@ function applyFixFlag(command: string): string {
 export const projectTool = {
   name: "project",
   description:
-    "Run project commands with auto-detected toolchain. " +
-    "WHEN TO USE: After making code changes to verify correctness (typecheck, lint, test, build). " +
-    "HOW TO USE: Provide action (test/build/lint/format/typecheck/list). Optionally target a specific file or directory. " +
-    "LIMITATIONS: Default timeout 30s, max 120s. Format action may modify files. " +
-    "TIPS: Use freely after edits to catch errors early. Use format to auto-fix lint/style issues. " +
-    "NEVER assume the test framework — check the README or search the codebase first.",
+    "[TIER-1] Verify after every edit — auto-detected toolchain. " +
+    "Actions: test, build, lint, format, typecheck, list. Optionally target a specific file. " +
+    "TIPS: Call typecheck after edits to catch errors early. Default timeout 30s, max 120s.",
   execute: async (args: ProjectArgs): Promise<ToolResult> => {
     const cwd = args.cwd ? join(process.cwd(), args.cwd) : process.cwd();
 

@@ -215,7 +215,10 @@ export function StatusDashboard({
     const ctxWindow = sb.contextWindow > 0 ? sb.contextWindow : getModelContextInfo(modelId).tokens;
     const isApi = sb.contextTokens > 0;
     const charEstimate = (systemChars + sb.chatChars + sb.subagentChars) / 4;
-    const usedTokens = Math.round(isApi ? sb.contextTokens + sb.subagentChars / 4 : charEstimate);
+    const chatCharsDelta = Math.max(0, sb.chatChars - (sb.chatCharsAtSnapshot ?? 0));
+    const usedTokens = Math.round(
+      isApi ? sb.contextTokens + (chatCharsDelta + sb.subagentChars) / 4 : charEstimate,
+    );
     const fillPct =
       usedTokens > 0 ? Math.min(100, Math.max(1, Math.round((usedTokens / ctxWindow) * 100))) : 0;
     const activeSections = breakdown.filter((s) => s.active && s.chars > 0);
@@ -446,6 +449,7 @@ export function StatusDashboard({
     sb.chatChars,
     sb.contextTokens,
     sb.subagentChars,
+    sb.chatCharsAtSnapshot,
   ]);
 
   const systemLines = useMemo(() => {

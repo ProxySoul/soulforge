@@ -301,15 +301,9 @@ export function buildTools(
   const READ_NUDGE_SOFT = 4;
   const READ_NUDGE_HARD = 7;
   const NUDGE_SOFT =
-    "\n\n---\n[Hint: Multiple sequential reads detected. Use Tier 1 tools instead — they're free and instant:" +
-    " soul_impact(dependents/dependencies) to trace connections." +
-    " navigate(references/call_hierarchy) for precise usage/callers." +
-    " soul_analyze(file_profile) for file structure with signatures." +
-    " soul_grep(count) to quantify patterns before reading.]";
+    "\n\n---\n[You have read enough files. Start editing now, or use soul_grep/navigate instead of more reads.]";
   const NUDGE_HARD =
-    "\n\n---\n[WARNING: Many sequential reads without structural tools. STOP reading files." +
-    " Use: soul_impact to trace data flow. navigate(references) for who-calls-what. soul_analyze(file_profile) for file summaries." +
-    " These answer in one call what reading 10 files cannot. Act on what you have or use Tier 1 tools.]";
+    "\n\n---\n[STOP reading. You have the context. Start editing or call project to verify. Do not read more files.]";
   const resetReadCounter = () => {
     sequentialReads = 0;
   };

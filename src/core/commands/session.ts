@@ -162,6 +162,7 @@ function handleClear(_input: string, ctx: CommandContext): void {
     lastStepInput: 0,
     lastStepOutput: 0,
     lastStepCacheRead: 0,
+    modelBreakdown: {},
   });
   ctx.chat.setMessageQueue([]);
   clearTasks();

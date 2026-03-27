@@ -1236,6 +1236,9 @@ export function App({
         onClearSummaries={() => {
           contextManager.clearSemanticSummaries();
         }}
+        onLspEnrich={() => {
+          contextManager.enrichWithLsp().catch(() => {});
+        }}
         onApply={(mode, limit, autoRegen, scope, tokenBudget) => {
           const typedMode = mode as "off" | "ast" | "synthetic" | "llm" | "full";
           contextManager.setActiveModel(activeModelForHeader);

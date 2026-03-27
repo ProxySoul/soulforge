@@ -112,6 +112,7 @@ export function ContextBar({ contextManager }: Props) {
       contextTokens: number;
       contextWindow: number;
       chatChars: number;
+      chatCharsAtSnapshot: number;
       subagentChars: number;
     }) => {
       const ctxWindow = state.contextWindow || 200_000;
@@ -119,8 +120,11 @@ export function ContextBar({ contextManager }: Props) {
       const breakdown = contextManager.getContextBreakdown();
       const systemChars = breakdown.reduce((sum, s) => sum + s.chars, 0);
       const charEstimate = (systemChars + state.chatChars + state.subagentChars) / CHARS_PER_TOKEN;
+      // In API mode, contextTokens already includes everything sent at that step.
+      // Add the delta of chatChars accumulated since that snapshot + subagent chars.
+      const chatCharsDelta = Math.max(0, state.chatChars - state.chatCharsAtSnapshot);
       const totalTokens = isApi
-        ? state.contextTokens + state.subagentChars / CHARS_PER_TOKEN
+        ? state.contextTokens + (chatCharsDelta + state.subagentChars) / CHARS_PER_TOKEN
         : charEstimate;
       const rawPct = (totalTokens / ctxWindow) * 100;
       const pct = totalTokens > 0 ? Math.min(100, Math.max(1, Math.round(rawPct))) : 0;

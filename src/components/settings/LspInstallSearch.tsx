@@ -158,7 +158,7 @@ export const LspInstallSearch = memo(function LspInstallSearch({
           setRegistryLoading(false);
         });
     }
-  }, [visible, refreshAll, onSystemMessage, resetScroll]);
+  }, [visible, refreshAll, onSystemMessage, resetScroll, initialTab]);
 
   // Filter logic
   const filterQuery = query.toLowerCase().trim();

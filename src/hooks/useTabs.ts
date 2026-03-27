@@ -303,6 +303,7 @@ export function useTabs(): UseTabsReturn {
             lastStepInput: 0,
             lastStepOutput: 0,
             lastStepCacheRead: 0,
+            modelBreakdown: {},
             ...tm.tokenUsage,
           },
           coAuthorCommits: tm.coAuthorCommits,

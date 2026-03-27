@@ -306,13 +306,13 @@ const COMMAND_DEFS: CommandDef[] = [
     category: "Intelligence",
     tags: ["language", "server"],
   },
-    {
-      cmd: "/lsp install",
-      ic: "brain",
-      desc: "Install & manage LSP servers (Mason registry)",
-      category: "Intelligence",
-      tags: ["mason", "install", "search"],
-    },
+  {
+    cmd: "/lsp install",
+    ic: "brain",
+    desc: "Install & manage LSP servers (Mason registry)",
+    category: "Intelligence",
+    tags: ["mason", "install", "search"],
+  },
   {
     cmd: "/lsp restart",
     ic: "brain",

@@ -306,10 +306,10 @@ export class ContextManager {
   ): void {
     this.editorOpen = open;
     this.editorFile = file;
-    this.editorVimMode = vimMode ?? null;
-    this.editorCursorLine = cursorLine ?? 1;
-    this.editorCursorCol = cursorCol ?? 0;
-    this.editorVisualSelection = visualSelection ?? null;
+    (this as Record<string, unknown>).editorVimMode = vimMode ?? null;
+    (this as Record<string, unknown>).editorCursorLine = cursorLine ?? 1;
+    (this as Record<string, unknown>).editorCursorCol = cursorCol ?? 0;
+    (this as Record<string, unknown>).editorVisualSelection = visualSelection ?? null;
   }
 
   /** Invalidate cached file tree (call after agent edits files) */
@@ -549,6 +549,111 @@ export class ContextManager {
     store.setSemanticModel("");
     store.resetSemanticTokens();
     store.setSemanticStatus("off");
+  }
+
+  async enrichWithLsp(maxFiles = 50): Promise<number> {
+    const store = useRepoMapStore.getState();
+    store.setSemanticStatus("generating");
+    store.setSemanticProgress("LSP enriching symbols...");
+    try {
+      const { isNvimAvailable, documentSymbols } = await import(
+        "../intelligence/backends/lsp/nvim-bridge.js"
+      );
+      if (!isNvimAvailable()) {
+        store.setSemanticProgress("LSP not available — open editor first");
+        store.setSemanticStatus("ready");
+        return 0;
+      }
+
+      // Open the DB directly from main thread (WAL mode supports concurrent access)
+      const { Database } = await import("bun:sqlite");
+      const { join } = await import("node:path");
+      const dbPath = join(this.cwd, ".soulforge", "repomap.db");
+      const db = new Database(dbPath);
+      db.run("PRAGMA journal_mode = WAL");
+      db.run("PRAGMA busy_timeout = 5000");
+
+      const files = db
+        .query<{ id: number; path: string }, [number]>(
+          "SELECT id, path FROM files WHERE language IN ('typescript','javascript','python','rust','go','java','kotlin') ORDER BY pagerank DESC LIMIT ?",
+        )
+        .all(maxFiles);
+
+      const update = db.prepare("UPDATE symbols SET qualified_name = ? WHERE id = ?");
+      let enriched = 0;
+
+      for (let fi = 0; fi < files.length; fi++) {
+        const file = files[fi];
+        if (!file) continue;
+        store.setSemanticProgress(
+          `LSP enrich ${String(fi + 1)}/${String(files.length)}: ${file.path}`,
+        );
+        const absPath = join(this.cwd, file.path);
+        let raw: unknown[] | null;
+        try {
+          raw = await documentSymbols(absPath);
+        } catch {
+          continue;
+        }
+        if (!raw || raw.length === 0) continue;
+
+        // Walk LSP document symbol tree, extract containerName
+        const containerMap = new Map<string, string>();
+        const walk = (symbols: unknown[], container?: string): void => {
+          for (const sym of symbols) {
+            const s = sym as Record<string, unknown>;
+            const name = s.name as string;
+            if (!name) continue;
+            let line: number | undefined;
+            if (s.range) {
+              const r = s.range as { start: { line: number } };
+              line = r.start.line + 1;
+            } else if (s.location) {
+              const l = s.location as { range: { start: { line: number } } };
+              line = l.range.start.line + 1;
+            }
+            if (line !== undefined && container) {
+              containerMap.set(`${name}:${String(line)}`, container);
+            }
+            if (s.containerName && typeof s.containerName === "string" && line !== undefined) {
+              containerMap.set(`${name}:${String(line)}`, s.containerName as string);
+            }
+            if (s.children && Array.isArray(s.children)) {
+              walk(s.children as unknown[], name);
+            }
+          }
+        };
+        walk(raw);
+
+        if (containerMap.size === 0) continue;
+        const dbSymbols = db
+          .query<{ id: number; name: string; line: number }, [number]>(
+            "SELECT id, name, line FROM symbols WHERE file_id = ?",
+          )
+          .all(file.id);
+
+        const tx = db.transaction(() => {
+          for (const sym of dbSymbols) {
+            const container = containerMap.get(`${sym.name}:${String(sym.line)}`);
+            if (container) {
+              update.run(`${container}.${sym.name}`, sym.id);
+              enriched++;
+            }
+          }
+        });
+        tx();
+      }
+
+      db.close();
+      this.repoMapCache = null;
+      store.setSemanticProgress(`LSP enriched ${String(enriched)} symbols`);
+      store.setSemanticStatus("ready");
+      return enriched;
+    } catch {
+      store.setSemanticStatus("error");
+      store.setSemanticProgress("LSP enrich failed");
+      return 0;
+    }
   }
 
   isSemanticEnabled(): boolean {

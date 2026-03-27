@@ -26,19 +26,47 @@ interface SoulAnalyzeArgs {
 
 export const soulAnalyzeTool = {
   name: "soul_analyze",
-  description: "Codebase analysis from Soul Map — zero file I/O, instant results.",
+  description:
+    "[TIER-2] Codebase analysis from Soul Map — zero file I/O, instant. Actions: identifier_frequency, unused_exports, file_profile, top_files, packages, symbols_by_kind.",
 
   createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulAnalyzeArgs): Promise<ToolResult> => {
+      const cwd = process.cwd();
+
       if (!repoMap?.isReady) {
+        // Grep fallback for actions that can be approximated
+        if (args.action === "identifier_frequency" && args.name) {
+          try {
+            const { execSync } = await import("node:child_process");
+            const out = execSync(
+              `rg -c --word-regexp --glob='!node_modules' --glob='!.git' ${JSON.stringify(args.name)} .`,
+              { cwd, encoding: "utf-8", timeout: 10_000, maxBuffer: 256_000 },
+            ).trim();
+            const lines = out
+              .split("\n")
+              .filter(Boolean)
+              .sort((a, b) => {
+                const ca = Number.parseInt(a.split(":").pop() ?? "0", 10);
+                const cb = Number.parseInt(b.split(":").pop() ?? "0", 10);
+                return cb - ca;
+              })
+              .slice(0, args.limit ?? 20);
+            return {
+              success: true,
+              output: `"${args.name}" frequency (grep fallback):\n${lines.join("\n")}`,
+            };
+          } catch {
+            return {
+              success: true,
+              output: `"${args.name}" — 0 matches (grep fallback — soul map not indexed).`,
+            };
+          }
+        }
         return {
-          success: false,
-          output: "Soul map not ready. Run scan first.",
-          error: "not ready",
+          success: true,
+          output: `Soul map not indexed — "${String(args.action)}" requires the dependency graph. Run /repo-map to enable.`,
         };
       }
-
-      const cwd = process.cwd();
 
       switch (args.action) {
         case "identifier_frequency":

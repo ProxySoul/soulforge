@@ -84,6 +84,7 @@ export interface TokenUsage {
   lastStepInput: number;
   lastStepOutput: number;
   lastStepCacheRead: number;
+  modelBreakdown: Record<string, import("../stores/statusbar.js").PerModelUsage>;
 }
 
 const ZERO_USAGE: TokenUsage = {
@@ -97,6 +98,7 @@ const ZERO_USAGE: TokenUsage = {
   lastStepInput: 0,
   lastStepOutput: 0,
   lastStepCacheRead: 0,
+  modelBreakdown: {},
 };
 
 const CHARS_PER_TOKEN = 4;
@@ -1984,7 +1986,7 @@ export function useChat({
               pendingTokenUsage.current = newUsage;
               baseTokenUsageRef.current = newUsage;
               streamingCharsRef.current = 0;
-              if (stepIn > 0) pendingContextTokens.current = stepIn;
+              if (stepTotal > 0) pendingContextTokens.current = stepTotal;
               pendingLastStepOutput.current = stepOut;
               queueMicrotaskFlush();
 

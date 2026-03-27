@@ -1,4 +1,6 @@
-import { relative } from "node:path";
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import type { ToolResult } from "../../types";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
@@ -12,14 +14,11 @@ interface SoulImpactArgs {
 
 export const soulImpactTool = {
   name: "soul_impact",
-  description: "Dependency graph queries: dependents, dependencies, cochanges, blast_radius.",
+  description:
+    "[TIER-1] Check before editing high-impact files. Queries: dependents, dependencies, cochanges, blast_radius. Use when Soul Map shows (→N) > 10.",
 
   createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulImpactArgs): Promise<ToolResult> => {
-      if (!repoMap?.isReady) {
-        return { success: false, output: "Soul map not ready.", error: "not ready" };
-      }
-
       if (isForbidden(args.file) !== null) {
         return {
           success: false,
@@ -30,6 +29,21 @@ export const soulImpactTool = {
 
       const cwd = process.cwd();
       const relPath = args.file.startsWith("/") ? relative(cwd, args.file) : args.file;
+
+      // Fallback to grep when soul map not ready
+      if (!repoMap?.isReady) {
+        switch (args.action) {
+          case "dependents":
+            return await grepDependents(cwd, relPath);
+          case "dependencies":
+            return await grepDependencies(cwd, relPath);
+          default:
+            return {
+              success: true,
+              output: `Soul map not indexed — "${String(args.action)}" requires the dependency graph. Run /repo-map to enable.`,
+            };
+        }
+      }
 
       switch (args.action) {
         case "dependents":
@@ -147,4 +161,62 @@ async function showBlastRadius(repoMap: IntelligenceClient, relPath: string): Pr
   }
 
   return { success: true, output: lines.join("\n") };
+}
+
+async function grepDependents(cwd: string, relPath: string): Promise<ToolResult> {
+  const basename = relPath.replace(/\.(ts|tsx|js|jsx|py|rs|go|rb|java|kt)$/, "");
+  const stripped = basename.replace(/\/index$/, "");
+  const escaped = stripped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    const out = execSync(
+      `rg -l --glob='!node_modules' --glob='!.git' --max-count=1 "${escaped}" .`,
+      { cwd, encoding: "utf-8", timeout: 10_000, maxBuffer: 512_000 },
+    ).trim();
+    const files = out
+      .split("\n")
+      .filter(Boolean)
+      .map((f) => f.replace(/^\.\//, ""))
+      .filter((f) => f !== relPath && isForbidden(join(cwd, f)) === null);
+    if (files.length === 0) {
+      return {
+        success: true,
+        output: `No files reference "${relPath}" (grep fallback — soul map not indexed).`,
+      };
+    }
+    return {
+      success: true,
+      output: `${String(files.length)} files likely reference "${relPath}" (grep fallback):\n${files.map((f) => `  ${f}`).join("\n")}`,
+    };
+  } catch {
+    return {
+      success: true,
+      output: `No files reference "${relPath}" (grep fallback — soul map not indexed).`,
+    };
+  }
+}
+
+async function grepDependencies(cwd: string, relPath: string): Promise<ToolResult> {
+  const absPath = join(cwd, relPath);
+  try {
+    const content = readFileSync(absPath, "utf-8");
+    const importRe = /(?:import|from|require)\s*[(\s]['"`]([^'"`]+)['"`]/g;
+    const deps: string[] = [];
+    for (const match of content.matchAll(importRe)) {
+      if (match[1] && !match[1].startsWith("node:") && !match[1].startsWith("bun:")) {
+        deps.push(match[1]);
+      }
+    }
+    if (deps.length === 0) {
+      return {
+        success: true,
+        output: `"${relPath}" has no imports (grep fallback — soul map not indexed).`,
+      };
+    }
+    return {
+      success: true,
+      output: `"${relPath}" imports (grep fallback):\n${deps.map((d) => `  ${d}`).join("\n")}`,
+    };
+  } catch {
+    return { success: true, output: `Could not read "${relPath}" (grep fallback).` };
+  }
 }

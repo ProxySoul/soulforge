@@ -456,7 +456,8 @@ interface RenameSymbolArgs {
 
 export const renameSymbolTool = {
   name: "rename_symbol",
-  description: "Rename a symbol across all files atomically via LSP.",
+  description:
+    "[TIER-3] Rename a symbol across all files atomically via LSP. Safer than find-and-replace.",
   execute: async (args: RenameSymbolArgs): Promise<ToolResult> => {
     try {
       const router = getIntelligenceRouter(process.cwd());

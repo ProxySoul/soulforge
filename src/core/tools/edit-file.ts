@@ -204,13 +204,10 @@ function resolveLineRange(
 export const editFileTool = {
   name: "edit_file",
   description:
-    "Edit a file by replacing content. " +
-    "HOW TO USE: Read the file first, then provide path, oldString, and newString. " +
-    "ALWAYS provide lineStart (1-indexed, from your last read_file output) — it makes edits escape-proof for regex and backslash-heavy code. " +
-    "oldString verifies content at lineStart, or acts as match key when lineStart is omitted. Empty oldString creates a new file. " +
-    "LIMITATIONS: oldString must match exactly (whitespace-sensitive). Only one replacement per call. " +
-    "TIPS: Plan all edits before starting. Use multi_edit for multiple changes to the same file. " +
-    "Do NOT tell the user to 'save the file' — edits are applied immediately.",
+    "[TIER-1] Edit a file by replacing content. Read first, then provide path, oldString, newString. " +
+    "ALWAYS provide lineStart (1-indexed from read_file output) — makes edits escape-proof. " +
+    "Empty oldString creates a new file. Use multi_edit for multiple changes to the same file. " +
+    "Edits are applied immediately.",
   execute: async (args: EditFileArgs): Promise<ToolResult> => {
     try {
       const filePath = resolve(args.path);

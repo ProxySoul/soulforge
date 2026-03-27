@@ -47,7 +47,7 @@ interface SoulGrepArgs {
 export const soulGrepTool = {
   name: "soul_grep",
   description:
-    "Token-efficient search with count mode and word-boundary matching. Count mode returns per-file counts. Non-count mode includes symbol context.",
+    "[TIER-1] Token-efficient search — prefer over grep. Count mode returns per-file counts instantly from repo map. Non-count mode includes symbol context. Use for all code search.",
   createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulGrepArgs): Promise<ToolResult> => {
       const { pattern, count, wordBoundary, dep } = args;

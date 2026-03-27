@@ -18,14 +18,10 @@ const MAX_SEARCH_OUTPUT_BYTES = 32_000;
 export const grepTool = {
   name: "grep",
   description:
-    "Fast content search using ripgrep regex. Returns matching file paths sorted by modification time. " +
-    "WHEN TO USE: Finding files containing specific text, function names, error messages, or patterns. " +
+    "[TIER-2] Raw ripgrep search — use soul_grep first, fall back to this for complex regex or non-code files. " +
+    "Returns matching file paths sorted by modification time. " +
     "HOW TO USE: Provide a regex pattern. Optionally specify path to narrow scope, glob to filter file types. " +
-    "REGEX EXAMPLES: 'function\\s+\\w+' finds function declarations, 'import.*from' finds imports. " +
-    "INCLUDE EXAMPLES: '*.ts' for TypeScript, '*.{ts,tsx}' for TS+TSX, '*.go' for Go. " +
-    "LIMITATIONS: Results limited to 100 files (newest first). Hidden files are skipped. " +
-    "TIPS: For iterative exploration requiring multiple rounds, use the dispatch tool instead to keep context small. " +
-    "Always check if results are truncated and refine your pattern if needed.",
+    "LIMITATIONS: Results limited to 100 files (newest first). Hidden files are skipped.",
   execute: async (args: GrepArgs): Promise<ToolResult> => {
     const pattern = args.pattern;
     const searchPath = args.path ?? ".";

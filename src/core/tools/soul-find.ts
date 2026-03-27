@@ -12,7 +12,8 @@ interface SoulFindArgs {
 
 export const soulFindTool = {
   name: "soul_find",
-  description: "Fuzzy file and symbol search ranked by importance. Supports multi-word queries.",
+  description:
+    "[TIER-1] Fuzzy file and symbol search ranked by PageRank importance. Use when you don't know the exact name or file path. Supports multi-word queries.",
 
   createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulFindArgs): Promise<ToolResult> => {

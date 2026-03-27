@@ -709,15 +709,15 @@ export class RepoMap {
           .query<
             { id: number; name: string; kind: string; line: number; end_line: number },
             [number]
-          >("SELECT id, name, kind, line, end_line FROM symbols WHERE file_id = ? ORDER BY line ASC")
+          >(
+            "SELECT id, name, kind, line, end_line FROM symbols WHERE file_id = ? ORDER BY line ASC",
+          )
           .all(fileId);
         const containers = fileSyms.filter(
           (s) => CONTAINER_KINDS.has(s.kind) && s.end_line > s.line,
         );
         if (containers.length > 0) {
-          const updateQname = this.db.prepare(
-            "UPDATE symbols SET qualified_name = ? WHERE id = ?",
-          );
+          const updateQname = this.db.prepare("UPDATE symbols SET qualified_name = ? WHERE id = ?");
           const qTx = this.db.transaction(() => {
             for (const sym of fileSyms) {
               let enclosing: (typeof containers)[number] | undefined;
@@ -768,15 +768,10 @@ export class RepoMap {
 
         let isBarrel = false;
         if (hasBarrelName && originalDefs <= 2) isBarrel = true;
-        else if (
-          reexportCount >= 3 &&
-          originalDefs / (reexportCount + originalDefs + 1) < 0.2
-        )
+        else if (reexportCount >= 3 && originalDefs / (reexportCount + originalDefs + 1) < 0.2)
           isBarrel = true;
 
-        this.db
-          .query("UPDATE files SET is_barrel = ? WHERE id = ?")
-          .run(isBarrel ? 1 : 0, fileId);
+        this.db.query("UPDATE files SET is_barrel = ? WHERE id = ?").run(isBarrel ? 1 : 0, fileId);
       }
 
       // Re-link orphaned LLM summaries to new symbol IDs (by file_path + symbol_name)
@@ -970,12 +965,7 @@ export class RepoMap {
     for (const pattern of patterns) {
       for (const match of content.matchAll(pattern)) {
         const id = match[1];
-        if (
-          id &&
-          id.length > 3 &&
-          id.length < 60 &&
-          !IDENTIFIER_KEYWORDS.has(id)
-        ) {
+        if (id && id.length > 3 && id.length < 60 && !IDENTIFIER_KEYWORDS.has(id)) {
           ids.add(id);
         }
       }
@@ -1487,7 +1477,7 @@ export class RepoMap {
         if (sources.length > 0) barrelSources.set(bid, sources);
       }
 
-      const additions: Array<[number, number, number, number]> = [];
+      const additions: [number, number, number, number][] = [];
       for (const [key, edge] of edgeMap) {
         const [src, tgt] = key.split(":").map(Number) as [number, number];
         const sources = barrelSources.get(tgt);
@@ -1524,6 +1514,88 @@ export class RepoMap {
       }
       if (i + BATCH < entries.length) await tick();
     }
+  }
+
+  async enrichWithLsp(maxFiles = 50): Promise<number> {
+    if (!this.ready) return 0;
+    const { documentSymbols } = await import("./backends/lsp/nvim-bridge.js");
+
+    // Target top files by PageRank — these benefit most from disambiguation
+    const files = this.db
+      .query<{ id: number; path: string }, [number]>(
+        "SELECT id, path FROM files WHERE language IN ('typescript','javascript','python','rust','go','java','kotlin') ORDER BY pagerank DESC LIMIT ?",
+      )
+      .all(maxFiles);
+
+    const update = this.db.prepare("UPDATE symbols SET qualified_name = ? WHERE id = ?");
+    let enriched = 0;
+
+    for (const file of files) {
+      const absPath = join(this.cwd, file.path);
+      let raw: unknown[] | null;
+      try {
+        raw = await documentSymbols(absPath);
+      } catch {
+        continue;
+      }
+      if (!raw || raw.length === 0) continue;
+
+      // Extract containerName from LSP document symbols (walk tree structure)
+      const containerMap = new Map<string, string>(); // "name:line" → containerName
+      const walk = (symbols: unknown[], container?: string): void => {
+        for (const sym of symbols) {
+          const s = sym as Record<string, unknown>;
+          const name = s.name as string;
+          if (!name) continue;
+
+          let line: number | undefined;
+          if (s.range) {
+            const r = s.range as { start: { line: number } };
+            line = r.start.line + 1; // LSP is 0-indexed
+          } else if (s.location) {
+            const l = s.location as { range: { start: { line: number } } };
+            line = l.range.start.line + 1;
+          }
+
+          if (line !== undefined && container) {
+            containerMap.set(`${name}:${String(line)}`, container);
+          }
+
+          // Recurse into children (DocumentSymbol tree)
+          if (s.children && Array.isArray(s.children)) {
+            walk(s.children as unknown[], name);
+          }
+
+          // SymbolInformation has containerName directly
+          if (s.containerName && typeof s.containerName === "string" && line !== undefined) {
+            containerMap.set(`${name}:${String(line)}`, s.containerName as string);
+          }
+        }
+      };
+      walk(raw);
+
+      if (containerMap.size === 0) continue;
+
+      // Match LSP container info to DB symbols by name+line
+      const dbSymbols = this.db
+        .query<{ id: number; name: string; line: number }, [number]>(
+          "SELECT id, name, line FROM symbols WHERE file_id = ?",
+        )
+        .all(file.id);
+
+      const tx = this.db.transaction(() => {
+        for (const sym of dbSymbols) {
+          const container = containerMap.get(`${sym.name}:${String(sym.line)}`);
+          if (container) {
+            update.run(`${container}.${sym.name}`, sym.id);
+            enriched++;
+          }
+        }
+      });
+      tx();
+    }
+
+    return enriched;
   }
 
   private linkTestFiles(): void {
@@ -1567,7 +1639,7 @@ export class RepoMap {
       if (this.db.query("SELECT 1 FROM files WHERE path = ?").get(stripped)) return stripped;
     }
     // tests/foo.test.ts → src/foo.ts
-    const mirrors: Array<[RegExp, string]> = [
+    const mirrors: [RegExp, string][] = [
       [/^tests\//, "src/"],
       [/^test\//, "src/"],
       [/\/__tests__\//, "/"],
@@ -2637,20 +2709,17 @@ export class RepoMap {
     // [NEW] marks files modified within the last 48h — recency signal, not session memory
     const recentCutoff = Date.now() - 48 * 60 * 60 * 1000;
 
-    // Re-export detection: use structural is_barrel flag instead of line===1 heuristic
+    // Re-export detection: only structural is_barrel files show ← arrows
     const reexportSources = new Map<number, Map<string, number>>(); // file_id → source_path → count
+    const barrelIdSet = new Set<number>();
     {
       const barrelFileIds = this.db
         .query<{ id: number }, []>("SELECT id FROM files WHERE is_barrel = 1")
         .all()
         .map((r) => r.id);
-      // Also include files with line-1 re-exported symbols (legacy star-export expansions)
-      const lineOneFileIds = [
-        ...new Set(allSymbols.filter((s) => s.line === 1 && s.is_exported).map((s) => s.file_id)),
-      ];
-      const fileIdSet = [...new Set([...barrelFileIds, ...lineOneFileIds])];
-      if (fileIdSet.length > 0) {
-        const ph = fileIdSet.map(() => "?").join(",");
+      for (const id of barrelFileIds) barrelIdSet.add(id);
+      if (barrelFileIds.length > 0) {
+        const ph = barrelFileIds.map(() => "?").join(",");
         const rows = this.db
           .query<{ file_id: number; source_path: string; cnt: number }, number[]>(
             `SELECT r.file_id, f2.path AS source_path, COUNT(*) AS cnt
@@ -2659,7 +2728,7 @@ export class RepoMap {
              WHERE r.file_id IN (${ph}) AND r.source_file_id IS NOT NULL
              GROUP BY r.file_id, r.source_file_id`,
           )
-          .all(...fileIdSet);
+          .all(...barrelFileIds);
         for (const row of rows) {
           let m = reexportSources.get(row.file_id);
           if (!m) {
@@ -2671,6 +2740,19 @@ export class RepoMap {
       }
     }
 
+    // Symbol cap: prioritize functions > classes > types > variables
+    const KIND_PRIORITY: Record<string, number> = {
+      function: 0,
+      method: 0,
+      class: 1,
+      enum: 2,
+      interface: 3,
+      type: 3,
+      variable: 4,
+      constant: 4,
+    };
+    const MAX_SYMBOLS_PER_FILE = 12;
+
     // Pre-compute all file blocks for binary search
     const blocks: Array<{ path: string; fileLine: string; symbolLines: string; tokens: number }> =
       [];
@@ -2681,31 +2763,65 @@ export class RepoMap {
       const fileLine = `${file.path}:${radiusTag}${newTag}`;
       const symbols = symbolsByFile.get(file.id) ?? [];
       const sources = reexportSources.get(file.id);
+      const isBarrel = barrelIdSet.has(file.id);
       let symbolLines = "";
 
-      // Collapse re-exports into grouped import lines
-      if (sources && sources.size > 0) {
+      // Barrel files: show only ← arrows, skip individual symbols
+      if (isBarrel && sources && sources.size > 0) {
         const parts: string[] = [];
         for (const [srcPath, cnt] of [...sources.entries()].sort((a, b) => b[1] - a[1])) {
           parts.push(`${srcPath} (${String(cnt)})`);
         }
         symbolLines += `  ← ${parts.join(", ")}\n`;
-      }
+      } else {
+        // Filter out line-1 synthetic re-exports (created by star-export expansion)
+        const filtered = symbols.filter((s) => !(s.line === 1 && s.is_exported && s.end_line <= 1));
 
-      // Show real definitions (line > 1, or line 1 without a re-export source)
-      for (const sym of symbols) {
-        if (sym.line === 1 && sym.is_exported && sources && sources.size > 0) continue;
-        const exported = sym.is_exported ? "+" : " ";
-        const semantic = semanticMap.get(sym.id);
-        const rawSig = sym.signature
-          ? sym.kind === "variable" || sym.kind === "constant"
-            ? sym.signature.replace(/^export\s+(const|let|var)\s+/, "")
-            : sym.signature
-          : null;
-        const display = semantic
-          ? `${sym.name} — ${semantic}`
-          : (rawSig ?? `${kindTag(sym.kind as SymbolKind)}${sym.name}`);
-        symbolLines += `  ${exported}${display}\n`;
+        // Sort by kind priority (functions first), then line number, and cap
+        const sorted = [...filtered].sort((a, b) => {
+          const pa = KIND_PRIORITY[a.kind] ?? 5;
+          const pb = KIND_PRIORITY[b.kind] ?? 5;
+          return pa !== pb ? pa - pb : a.line - b.line;
+        });
+        const capped = sorted.slice(0, MAX_SYMBOLS_PER_FILE);
+        const overflow = filtered.length - capped.length;
+
+        for (const sym of capped) {
+          const exported = sym.is_exported ? "+" : " ";
+          const semantic = semanticMap.get(sym.id);
+          const rawSig = sym.signature
+            ? sym.kind === "variable" || sym.kind === "constant"
+              ? sym.signature.replace(/^export\s+(const|let|var)\s+/, "")
+              : sym.signature
+            : null;
+
+          // Skip trivial synthetic summaries that just restate the identifier name
+          let display: string;
+          if (semantic) {
+            const colonIdx = semantic.indexOf(": ");
+            if (colonIdx !== -1) {
+              const afterColon = semantic.slice(colonIdx + 2).trim();
+              const nameWords = sym.name
+                .replace(/([a-z])([A-Z])/g, "$1 $2")
+                .replace(/_/g, " ")
+                .toLowerCase();
+              if (afterColon === nameWords) {
+                display = rawSig ?? `${kindTag(sym.kind as SymbolKind)}${sym.name}`;
+              } else {
+                display = `${sym.name} — ${semantic}`;
+              }
+            } else {
+              display = `${sym.name} — ${semantic}`;
+            }
+          } else {
+            display = rawSig ?? `${kindTag(sym.kind as SymbolKind)}${sym.name}`;
+          }
+
+          symbolLines += `  ${exported}${display} :${String(sym.line)}\n`;
+        }
+        if (overflow > 0) {
+          symbolLines += `  ... +${String(overflow)} more exports\n`;
+        }
       }
       const blockTokens = estimateTokens(fileLine) + estimateTokens(symbolLines);
       blocks.push({ path: file.path, fileLine, symbolLines, tokens: blockTokens });

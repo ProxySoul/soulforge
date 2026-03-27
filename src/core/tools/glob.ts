@@ -71,14 +71,9 @@ function filterForbidden(result: ToolResult): ToolResult {
 export const globTool = {
   name: "glob",
   description:
-    "Fast file pattern matching. Returns matching paths sorted by modification time. " +
-    "WHEN TO USE: Finding files by name or extension. " +
-    "HOW TO USE: Provide a glob pattern. Optionally specify a starting path. " +
-    "PATTERN SYNTAX: '*' matches non-separator chars, '**' matches any path, '?' matches one char, '[...]' matches chars in brackets. " +
-    "EXAMPLES: '**/*.ts' all TypeScript files, 'src/**/*.test.*' all test files in src, '*.{html,css,js}' multiple extensions. " +
-    "LIMITATIONS: Results limited to 100 files (newest first). Hidden files are skipped. " +
-    "TIPS: Combine with grep — find files with glob, then search contents with grep. " +
-    "For iterative exploration requiring multiple rounds, use the dispatch tool instead.",
+    "[TIER-2] File pattern matching — use soul_find first for fuzzy search. " +
+    "Glob patterns: '**/*.ts', 'src/**/*.test.*'. Returns paths sorted by modification time. " +
+    "LIMITATIONS: Max 100 files. Hidden files skipped.",
   execute: async (args: GlobArgs): Promise<ToolResult> => {
     const pattern = args.pattern;
     const basePath = args.path ?? ".";

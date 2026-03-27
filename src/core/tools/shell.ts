@@ -334,14 +334,9 @@ function detectProjectCommand(command: string): string | null {
 export const shellTool = {
   name: "shell",
   description:
-    "Executes a shell command with optional timeout. " +
-    "WHEN TO USE: For running build commands, git operations, installing packages, or any system command. " +
-    "AVOID using for: reading files (use read_file), searching code (use grep/glob), listing directories (use glob). " +
-    "HOW TO USE: Provide the command string. Optional timeout in ms (max 600000, default 30s). " +
-    "LIMITATIONS: Output truncated at 30000 characters. Some commands are banned for security. " +
-    "TIPS: Use ';' or '&&' to chain commands. Avoid 'cd' — use absolute paths or the cwd parameter. " +
-    "When issuing multiple commands, use '&&' to chain them — do NOT use newlines to separate. " +
-    "NEVER commit unless the user explicitly asks. NEVER update git config.",
+    "[TIER-2] Shell command execution. Use for git operations, package installs, system commands. " +
+    "AVOID for: reading files (use read_file), searching code (use soul_grep), verifying edits (use project). " +
+    "LIMITATIONS: Output truncated at 30000 chars. Use '&&' to chain commands, not newlines.",
   execute: async (args: ShellArgs, abortSignal?: AbortSignal): Promise<ToolResult> => {
     const command = injectCoAuthor(args.command);
     const cwd = args.cwd ?? process.cwd();

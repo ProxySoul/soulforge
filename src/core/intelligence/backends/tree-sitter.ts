@@ -23,6 +23,7 @@ const QUERIES: Record<string, string> = {
     (function_declaration name: (identifier) @name) @func
     (export_statement (function_declaration name: (identifier) @name)) @func
     (class_declaration name: (type_identifier) @name) @class
+    (method_definition name: (property_identifier) @name) @method
     (interface_declaration name: (type_identifier) @name) @iface
     (type_alias_declaration name: (type_identifier) @name) @type
     (lexical_declaration (variable_declarator name: (identifier) @name)) @var
@@ -32,6 +33,7 @@ const QUERIES: Record<string, string> = {
   javascript: `
     (function_declaration name: (identifier) @name) @func
     (class_declaration name: (identifier) @name) @class
+    (method_definition name: (property_identifier) @name) @method
     (lexical_declaration (variable_declarator name: (identifier) @name)) @var
     (import_statement source: (string) @source) @import
     (export_statement) @export
@@ -39,6 +41,7 @@ const QUERIES: Record<string, string> = {
   python: `
     (function_definition name: (identifier) @name) @func
     (class_definition name: (identifier) @name) @class
+    (class_definition body: (block (function_definition name: (identifier) @name) @method))
     (import_statement) @import
     (import_from_statement) @import
   `,
@@ -53,6 +56,7 @@ const QUERIES: Record<string, string> = {
     (struct_item name: (type_identifier) @name) @struct
     (trait_item name: (type_identifier) @name) @trait
     (type_item name: (type_identifier) @name) @type
+    (impl_item (declaration_list (function_item name: (identifier) @name) @method))
     (use_declaration) @import
     (impl_item) @impl
   `,
@@ -1497,6 +1501,8 @@ export class TreeSitterBackend implements IntelligenceBackend {
     switch (captureName) {
       case "func":
         return "function";
+      case "method":
+        return "method";
       case "class":
       case "struct":
         return "class";

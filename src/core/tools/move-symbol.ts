@@ -523,7 +523,8 @@ function findLastImportLine(lines: string[], language: Language): number {
 
 export const moveSymbolTool = {
   name: "move_symbol",
-  description: "Move a symbol from one file to another with import updates.",
+  description:
+    "[TIER-3] Move a symbol between files with automatic import updates across the codebase.",
   execute: async (args: MoveSymbolArgs): Promise<ToolResult> => {
     try {
       const from = resolve(args.from);

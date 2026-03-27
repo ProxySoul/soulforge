@@ -6,6 +6,13 @@ import { getNvimPid } from "../core/editor/instance.js";
 import { getIntelligenceChildPids } from "../core/intelligence/index.js";
 import { getProxyPid } from "../core/proxy/lifecycle.js";
 
+export interface PerModelUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface TokenUsage {
   prompt: number;
   completion: number;
@@ -17,6 +24,7 @@ export interface TokenUsage {
   lastStepInput: number;
   lastStepOutput: number;
   lastStepCacheRead: number;
+  modelBreakdown: Record<string, PerModelUsage>;
 }
 
 interface ModelPricing {
@@ -71,6 +79,49 @@ export function computeCost(usage: TokenUsage, modelId: string): number {
   );
 }
 
+/** Compute total cost from per-model breakdown. More accurate than computeCost when router mixes models. */
+export function computeTotalCostFromBreakdown(breakdown: Record<string, PerModelUsage>): number {
+  let total = 0;
+  for (const [modelId, usage] of Object.entries(breakdown)) {
+    const p = matchPricing(modelId);
+    total +=
+      (usage.input / 1e6) * p.input +
+      (usage.cacheWrite / 1e6) * p.cacheWrite +
+      (usage.cacheRead / 1e6) * p.cacheRead +
+      (usage.output / 1e6) * p.output;
+  }
+  return total;
+}
+
+/** Compute cost for a single model from the breakdown. */
+export function computeModelCost(modelId: string, usage: PerModelUsage): number {
+  const p = matchPricing(modelId);
+  return (
+    (usage.input / 1e6) * p.input +
+    (usage.cacheWrite / 1e6) * p.cacheWrite +
+    (usage.cacheRead / 1e6) * p.cacheRead +
+    (usage.output / 1e6) * p.output
+  );
+}
+
+/** Accumulate tokens for a specific model in the breakdown. Returns a new breakdown object. */
+export function accumulateModelUsage(
+  breakdown: Record<string, PerModelUsage>,
+  modelId: string,
+  delta: Partial<PerModelUsage>,
+): Record<string, PerModelUsage> {
+  const prev = breakdown[modelId] ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  return {
+    ...breakdown,
+    [modelId]: {
+      input: prev.input + (delta.input ?? 0),
+      output: prev.output + (delta.output ?? 0),
+      cacheRead: prev.cacheRead + (delta.cacheRead ?? 0),
+      cacheWrite: prev.cacheWrite + (delta.cacheWrite ?? 0),
+    },
+  };
+}
+
 const ZERO_USAGE: TokenUsage = {
   prompt: 0,
   completion: 0,
@@ -82,6 +133,7 @@ const ZERO_USAGE: TokenUsage = {
   lastStepInput: 0,
   lastStepOutput: 0,
   lastStepCacheRead: 0,
+  modelBreakdown: {},
 };
 
 export interface ProcessRss {
@@ -99,6 +151,7 @@ interface StatusBarState {
   contextTokens: number;
   contextWindow: number;
   chatChars: number;
+  chatCharsAtSnapshot: number;
   subagentChars: number;
   rssMB: number;
   processRss: ProcessRss;
@@ -127,6 +180,7 @@ export const useStatusBarStore = create<StatusBarState>()(
     contextTokens: 0,
     contextWindow: 200_000,
     chatChars: 0,
+    chatCharsAtSnapshot: 0,
     subagentChars: 0,
     rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     processRss: {
@@ -141,7 +195,13 @@ export const useStatusBarStore = create<StatusBarState>()(
     setTokenUsage: (usage, modelId) =>
       set({ tokenUsage: usage, ...(modelId ? { activeModel: modelId } : {}) }),
     resetTokenUsage: () => set({ tokenUsage: { ...ZERO_USAGE } }),
-    setContext: (contextTokens, chatChars) => set({ contextTokens, chatChars, subagentChars: 0 }),
+    setContext: (contextTokens, chatChars) =>
+      set({
+        contextTokens,
+        chatChars,
+        chatCharsAtSnapshot: contextTokens > 0 ? chatChars : 0,
+        subagentChars: 0,
+      }),
     setContextWindow: (tokens) => set({ contextWindow: tokens }),
     setSubagentChars: (chars) => set({ subagentChars: chars }),
     setRssMB: (mb) => set({ rssMB: mb }),
@@ -169,6 +229,7 @@ export function resetStatusBarStore(): void {
     contextTokens: 0,
     contextWindow: 200_000,
     chatChars: 0,
+    chatCharsAtSnapshot: 0,
     subagentChars: 0,
     rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     processRss: {

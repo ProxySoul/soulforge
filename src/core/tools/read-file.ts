@@ -26,16 +26,9 @@ const MAX_READ_SIZE = 250 * 1024;
 export const readFileTool = {
   name: "read_file",
   description:
-    "Reads file contents with line numbers. " +
-    "WHEN TO USE: Use when you need to read the contents of a specific file. " +
-    "HOW TO USE: Provide the file path. Optionally specify startLine/endLine to read a range, " +
-    "or target + name for AST-based symbol extraction (function/class/type/interface/variable/enum/scope). " +
-    "LIMITATIONS: Maximum file size is 250KB. Default reading limit is 2000 lines. " +
-    "Lines longer than 2000 characters are truncated. Cannot display binary files. " +
-    "TIPS: Most files fit in one read — don't chunk small files. " +
-    "For code exploration, first use Grep to find relevant files, then read them. " +
-    "NEVER re-read a file you already read — use the content you have. " +
-    "Read ALL needed files in a single parallel tool call to minimize round-trips.",
+    "[TIER-1] Read file contents with line numbers. Use Soul Map :line numbers to jump directly to symbols. " +
+    "Supports startLine/endLine ranges, or target + name for AST-based symbol extraction. " +
+    "TIPS: Read ALL needed files in a single parallel call. NEVER re-read a file you already have.",
   execute: async (args: ReadFileArgs): Promise<ToolResult> => {
     try {
       const filePath = resolve(args.path);

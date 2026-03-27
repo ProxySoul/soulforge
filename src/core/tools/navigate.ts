@@ -158,10 +158,10 @@ async function autoResolveFile(
 export const navigateTool = {
   name: "navigate",
   description:
-    "Look up symbols across the codebase via LSP — returns file:line locations, caller/callee lists, type hierarchies. " +
-    "WHEN TO USE: Finding where a function is defined, who calls it, what it references, or getting type info. " +
-    "HOW TO USE: Provide action (definition/references/hover/symbols/incoming_calls/outgoing_calls) and a symbol name. " +
-    "Auto-resolves file from symbol name — no need to know the file path first.",
+    "[TIER-1] LSP-powered symbol lookup — prefer over grep for definitions and references. " +
+    "Returns file:line locations, caller/callee lists, type hierarchies. " +
+    "Actions: definition, references, hover, symbols, incoming_calls, outgoing_calls. " +
+    "Auto-resolves file from symbol name — no file path needed.",
   execute: async (args: NavigateArgs, repoMap?: RepoMapLike): Promise<ToolResult> => {
     try {
       const router = getIntelligenceRouter(process.cwd());

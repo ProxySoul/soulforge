@@ -72,6 +72,7 @@ interface Props {
   onClear?: (scope: ConfigScope) => void;
   onRegenerate?: () => void;
   onClearSummaries?: () => void;
+  onLspEnrich?: () => void;
   onApply?: (
     mode: string,
     limit: number,
@@ -101,6 +102,7 @@ export function RepoMapStatusPopup({
   onClear,
   onRegenerate,
   onClearSummaries,
+  onLspEnrich,
   onApply,
 }: Props) {
   const { width: termCols } = useTerminalDimensions();
@@ -266,6 +268,10 @@ export function RepoMapStatusPopup({
       setSelectedAutoRegen((v) => !v);
       return;
     }
+    if (evt.sequence === "l" && onLspEnrich && enabled) {
+      onLspEnrich();
+      return;
+    }
     if (evt.sequence === "e" && onToggle) {
       onToggle(!enabled, selectedScope);
       return;
@@ -427,12 +433,12 @@ export function RepoMapStatusPopup({
                 {"  "}
                 {onToggle && (
                   <span fg={enabled ? "#FF0040" : "#2d5"}>
-                    {enabled ? "e disable" : "e enable"}
+                    {enabled ? "[E] disable" : "[E] enable"}
                     {"   "}
                   </span>
                 )}
-                {enabled && <span fg="#5CBBF6">{"r refresh"}</span>}
-                {enabled && <span fg="#FF8C00">{"   x clear index"}</span>}
+                {enabled && <span fg="#5CBBF6">{"[R] refresh"}</span>}
+                {enabled && <span fg="#FF8C00">{"   [X] clear index"}</span>}
               </text>
             </PopupRow>
             {!enabled && (
@@ -548,14 +554,15 @@ export function RepoMapStatusPopup({
             <PopupRow w={innerW}>
               <text bg={POPUP_BG}>
                 {"  "}
-                <span fg="#5CBBF6">{"g regenerate"}</span>
+                <span fg="#5CBBF6">{"[G] regenerate"}</span>
                 {confirmClear ? (
                   <span fg="#FF0040" attributes={TextAttributes.BOLD}>
-                    {"   c CONFIRM clear (includes LLM)"}
+                    {"   [C] CONFIRM clear (includes LLM)"}
                   </span>
                 ) : (
-                  <span fg="#FF8C00">{"   c clear summaries"}</span>
+                  <span fg="#FF8C00">{"   [C] clear summaries"}</span>
                 )}
+                {onLspEnrich ? <span fg="#2d5">{"   [L] lsp enrich"}</span> : null}
               </text>
             </PopupRow>
 
@@ -640,7 +647,7 @@ export function RepoMapStatusPopup({
         {!hasConfig && (
           <PopupRow w={innerW}>
             <text bg={POPUP_BG} fg="#555">
-              {`  e ${enabled ? "disable" : "enable"} | r refresh | x clear | tab scope | esc close`}
+              {`  [E] ${enabled ? "disable" : "enable"} | [R] refresh | [X] clear | tab scope | esc close`}
             </text>
           </PopupRow>
         )}
