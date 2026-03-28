@@ -20,6 +20,12 @@ Workflow:
    - steps[].targetFiles: files each step touches
 3. User accepts/revises/cancels. On revision: update and call \`plan\` again.
 
+Before calling plan, present a visual summary to the user:
+- ASCII tables for file change overview (| File | Action | What changes |)
+- Dependency/flow diagrams showing how components connect (A → B → C)
+- Before/after comparisons for architectural shifts
+This helps the user evaluate the plan before accepting.
+
 If you're past 10 tool calls, call plan with what you have.`;
 
 const PLAN_LIGHT = `PLAN MODE — research then plan. No implementation tools.
@@ -35,6 +41,11 @@ Workflow:
    - steps[].details: what to change (not exact diffs)
 3. User accepts/revises/cancels.
 
+Before calling plan, present a visual summary to the user:
+- ASCII tables for file change overview (| File | Action | What changes |)
+- Dependency/flow diagrams showing how components connect (A → B → C)
+This helps the user evaluate the plan before accepting.
+
 If you're past 8 tool calls, call plan with what you have.`;
 
 const MODE_INSTRUCTIONS: Record<ForgeMode, string | null> = {
@@ -45,6 +56,14 @@ ${READ_ONLY}
 Use soul_impact for blast radius, soul_analyze for file profiles, navigate for cross-file relationships.
 Produce: 1) Current architecture 2) Proposed changes 3) Risks 4) Recommendation.
 Think in boundaries: interfaces, data ownership, error propagation, testability.
+
+Visualize your analysis — use ASCII diagrams, tables, and flow charts to make architecture tangible:
+- Dependency graphs: A → B → C
+- Tables for comparisons (| Option | Pros | Cons |), file lists, risk matrices
+- Box diagrams for component boundaries
+- Flow charts for data/control flow
+Visual output helps the user reason about the design faster than prose alone.
+
 When the design is solid: "Switch to default mode to implement."`,
 
   socratic: `SOCRATIC MODE — understand before implementing.
