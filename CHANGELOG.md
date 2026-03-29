@@ -2,6 +2,14 @@
 
 All notable changes to SoulForge are documented here.
 
+## [1.0.1] — 2026-03-29
+
+### Bug Fixes
+
+- wire agent-managed tools, rename DEFERRED_TOOL_CATALOG, fix npm publish docs
+### Miscellaneous
+
+- untrack .agents/skills, remove stale homebrew/ copy
 ## [1.0.0] — 2026-03-29
 
 ### Bug Fixes
