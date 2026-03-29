@@ -4,6 +4,336 @@ All notable changes to SoulForge are documented here.
 
 ## [1.0.0] — 2026-03-29
 
+### Bug Fixes
+
+- **analytics**: fix sales report bugs, add date filtering, add API routes
+- correct neovim linux arm64 asset name
+- npm pack tar extraction on macOS, tolerate published versions
+- use npm pack for cross-platform native deps, retry uploads
+- patch dynamic platform import in bundled JS before compile
+- cross-platform bundle — stub native libs for compiled binaries
+- use available CI runners for all platforms
+- npm registry, publish workflow, and build plugin fixes
+- dead barrel detection for Python packages\n\n- isForbidden() returned truthy when uninitialized, causing collectFiles()\n  to skip all files and break repo map indexing in tests\n- Dead barrel edge check now excludes sibling files within the same\n  package directory (e.g. core.py → __init__.py is internal, not external)\n- Fallback ref check also excludes refs from files inside the barrel dir
+- worker thread missing initForbidden — scan found 0 files
+- wait-for-repomap UX + timeout increase
+- sync symbol cache on IntelligenceClient for buildSymbolLookup
+- shell guard no longer blocks code strings in node -e / python -c
+- token-budget-only pruning for forge, z.preprocess coercion for numeric tool params
+- enable pruning
+- TabBar mode label reads stale registry on Ctrl+D cycle
+- project format action uses dedicated formatter instead of lint+fix
+- StatusDashboard bar alignment and popup width
+- StatusDashboard data matches topbar, bar style improved
+- remove misleading ^K hint from InputBox
+- remove deprecated baseUrl, fix web-search agent callback types
+- remove non-null assertions in intelligence router
+- move Soul Map from message pair to system block, memoize LlmSelector rows
+- add compaction to NESTED_KEYS, replace last scattered keepRecent default
+- seed compaction defaults in DEFAULT_CONFIG
+- centralize compaction defaults, LlmSelector fetch timeout
+- await flushPromise on close, .aiignore hot reload, soul tool warnings, first-run hint, headless model fallback logging
+- LSP race dedup, failedServer cooldown, shell env filtering, config hardening, UX guards
+- reindexTimer cleanup, dynamic tool guidance, config dir hardening, agent-bus tests
+- add action descriptions to soul_impact and subagent soul_analyze/soul_impact
+- final claim sweep — correct all stale numbers across README and docs
+- claim verification — correct all README/docs numbers, wire OpenRouter provider
+- contested file edit stops agent, faster claim release, lock icon cleanup
+- tool registration audit — remove invalid entries, add missing tools
+- reduce dispatch token waste — scarier description, strip rejected attempts
+- reject single-task dispatch, disable desloppify/verify by default, fix /changes per-tab
+- secure auth system in little_backend
+- close audit gaps — subagent shell claims, compound pre-checks, test coverage
+- cross-tab coordination hardening — git blocking, cache staleness, agent sweep
+- smoother text streaming, forge mode per-tab, edit tool cleanup
+- tab bar lock icon formatting, add trailing newline
+- deduplicate multi_edit result display, fix completed time not showing
+- lint — replace non-null assertion with guard clause
+- tab numbering in context popup, planning effort level, enriched API error messages
+- prevent CI timeout on read-file outline test
+- lint errors and add tabId to subagent explore tools type
+- prevent steering message bar from wrapping to two lines
+- scope tasks to owning tab, add attention indicator for pending input
+- robust parent agent re-read blocking with full invalidation
+- extract human-readable output from edit tool results in message history
+- bump subagent step limits +3 to compensate for forced final step
+- prevent NoObjectGeneratedError on subagent final step
+- increase timeout for read-file outline tests to prevent CI flakiness
+- add explicit return in useEffect to satisfy strict typecheck
+- increase timeout for read-file outline tests to prevent CI flakiness
+- show edit results inline in tool call displays
+- async session saves, agent improvements, reasoning block & UI fixes
+- report directory creation in edit_file output
+- auto-create parent directories when edit_file creates new files
+- relax circuit breaker threshold for dispatch agents
+- wire checkAndClaim into buildTools edit_file/multi_edit (was missing)
+- add leading slash to claims command registrations
+- remove duplicate plan message injection in useChat
+- downgrade zod for structured outputs consistency
+- update paste handlers to use PasteEvent.bytes API
+- deep re-export chains, FTS rebuild, pruning input mutation
+- edit_file rich errors with lineStart, editor auto-open and file navigation
+- two-pass ref resolution, Python normalization bug, buildEdges precision
+- LLM semantic summaries UI consistency
+- repo map live updates for neovim user saves and shell commands
+- remove ghost recall tool refs, fix token ratio consistency, WSM cap
+- salvage partial results from failed dispatch agents
+- repo map import specifier extraction, refs priority, steering render bug
+- improve dispatch agent collaboration — context-aware desloppify/verifier, file overlap warnings
+- reduce flush interval 150ms→50ms, remove 100ms throttle — real-time UI updates
+- remove startTransition from streaming flush — was deferring UI updates indefinitely causing frozen display
+- tasks always resolve — complete on success, reset on error/abort, taskId for per-agent updates
+- auto-complete in-progress tasks when agent finishes streaming
+- Ctrl+X abort preserves partial chat content instead of clearing it\n\nSnapshot liveToolCallsBuffer and streamSegmentsBuffer before abort()\nclears them, so the catch block can reconstruct in-flight tool calls\nand partial assistant messages. Previously the buffers were empty by\nthe time the catch block ran, causing content to vanish on cancel.
+- alphabetize /help and autocomplete commands, add 7 missing entries to help
+- dispatch UI freeze — mark toolCallsDirty on agent stats + multi-agent events so streaming display updates during dispatch
+- steering flush includes in-progress tool calls — shows progress before steering message
+- StatusIcon shows warning for failed tool results
+- dedupe installed skills by name, prefer project-scoped over global
+- project tool reports lint warnings as failures — agent sees issues and can auto-fix
+- SystemBanner useMemo exhaustive deps
+- SystemBanner hooks after early return, rename icon to bannerIcon
+- lint — move biome-ignore comments to correct lines
+- wrap all raw numbers in String() for OpenTUI text compatibility
+- wrap hiddenCount in String() — OpenTUI rejects raw numbers as text children
+- nudge-aware tokenStop eliminates race condition where a single step could jump past both nudge threshold and stopWhen budget
+- UI stability — stop scroll leaks, timer blink, reasoning duplication, picker cursor drift
+- update step-utils tests for cache-aware pruning + done removal
+- dispatch cache bugs + subagent fallback + forge pruning revert
+- dispatch cache bugs + subagent fallback + forge pruning revert
+- flush token display on finish-step, rename dispatch agents label
+- async plugin bootstrap on first editor launch
+- update Mason registry URL — moved from raw content to release artifacts
+- prevent UI freeze during repo map indexing
+- ContextBar content preserved across re-renders via ref
+- git commit modal background, update /commit description
+- complete modal stacking fix for toggleModal and openCommandPicker
+- modal stacking, transient renders, keyboard early returns, scan throttle
+- show dark red border on input during loading/compaction instead of invisible gray
+- ContextBar token reset on modal open, repo-map picker live updates, scan progress labels
+- health check readSymbol probe picks valid identifier name
+- tree-sitter grammar for ALL typescript/tsx files — no tree-sitter-typescript.wasm exists
+- tree-sitter tsx grammar lookup in findImports/findExports/getFileOutline + wider diagnose popup
+- tree-sitter tsx grammar mismatch + smarter health check readSymbol probe
+- improve steering message injection — drain all queued messages at once, stronger framing
+- ASCII fallback icons for all providers, remove hardcoded Nerd Font glyph
+- teach subagents to use startLine/endLine when task provides line ranges\n\nAdds WORKFLOW hint to explore and code agent prompts: when the dispatch\ntask includes line numbers, use read_file with startLine/endLine to\nbypass the 500-line truncation cap and get exact content.\n\nAlso removes fixresearch.md — all fixes verified as implemented.
+- dispatch UI — late agent seeding, broken tree connectors, render storms
+- strip contextManagement from subagent provider options
+- steering race conditions — abort gate, ref sync, postAction queue drain
+- add missing @openrouter/ai-sdk-provider dependency
+- SQLite "database is locked" crash on concurrent repo map access
+- SSRF protection hardening, rename-symbol comment awareness, shell path parsing
+- shell timeout tests — fallback resolve after SIGKILL, bump test timeout
+- CI test failures — git default branch, clone dirs, spawn timeout
+- lint issues and add test step to CI
+### Documentation
+
+- add theme attribution credits
+- audit and polish Mintlify documentation
+- add Mintlify documentation site
+- add Mintlify documentation site
+- expand README comparison table with full intelligence stack
+- full license compliance audit
+- update third-party licenses for LazyVim migration
+- add cross-tab coordination doc, fix commands-reference
+- fix help popup — add missing commands, remove mislabeled entry
+- fix wrong claims, update counts, add missing features
+- update README with new headless CLI flags
+- update README and repo-map docs for universal language support
+- roadmap — SoulForge intelligence as library, MCP server, headless CLI
+- command reference (60 commands), expanded security, docs index
+- update contact email and website in license files
+- fix Vercel Gateway and Proxy provider info + links
+- fix ECC link, remove false Claude Code inspiration claim
+- fix provider table — links, correct env vars, LLM Gateway description
+- add inspirations section — Aider, Claude Code, ECC, AI SDK, Neovim
+- honest comparison table against Claude Code, Copilot CLI, Aider
+- sharpen differentiators, add hero screenshot, roadmap
+- fix architecture diagrams, add hero screenshot, deep-dive links
+- comprehensive README with logo, mermaid diagrams, feature deep-dives
+- update readme and relevant docs
+- slim README to highlights with deep dive links
+- comprehensive documentation overhaul and architecture deep dives
+### Features
+
+- **little_backend**: add search, enrich products, fix notifications
+- floating terminals, 22 builtin themes, install script, edit-stack API fix
+- terminals panel, worker bundling, dispatch role transitions, headless fixes
+- add floating terminal, ghostty integration, command restructuring & theme fixes
+- theme system, UI rebrand, docs refresh, and headless color updates
+- add ASCII visualization guidance to plan & architect modes\n\n- Architect mode now instructs use of dependency graphs, comparison\n  tables, box diagrams, and flow charts for design analysis\n- Plan mode (both full and light) presents visual file change summaries\n  and dependency diagrams before calling the plan tool
+- tab bar UX improvements and subagent fix\n\n- Hide model label in tab when it matches the default model\n- Restyle tab model labels with brackets and move after edit count\n- Fix explore subagent provider options not being stripped for mini-forge
+- extended git tools, mini-forge dispatch display, tab UX improvements
+- first-run wizard, UI polish, and toolchain improvements
+- per-model cost breakdown with accurate multi-provider pricing
+- /lsp now opens full management popup with disable/enable support
+- max file cap for repo map — 10k file limit with git recency prioritization
+- worker architecture — intelligence & IO workers, async FS migration, RPC framework
+- cache-safe architecture, accurate cost tracking, tools management
+- repo map toggle, shared tool schemas, zod 4 + biome bump
+- distinct UI for code execution (node -e, bun -e, python -c, etc.)
+- token optimization — two-layer pruning, subagent context management, slim dispatch output
+- parallel tool display, multi-edit line tracking, cache breakpoints, scan animation + fixes
+- editing model routing, tool-loop detection, scan animation, pruning toggle + bug fixes
+- release infrastructure, changelog config, and skills lock update
+- release infrastructure, install docs overhaul, OpenRouter support, and UX improvements
+- redesign /changes sidebar with tree connectors and git status
+- command palette, popup consolidation, and UX overhaul
+- modular per-family prompt system, Soul Map as user message, streaming fixes
+- dispatch overhaul, token optimization, LSP-first tiers, key priority
+- agent editor access control, /export all diagnostic, text drip streaming, repo map always-on
+- LazyVim editor, multi-lang LSP warmup, headless markdown rendering, UI unification
+- integrate shiki + marked for syntax highlighting and markdown rendering
+- semantic summaries, multi-lang LSP warmup, repo map UX overhaul
+- model picker refresh, binary detection, tool & UI improvements
+- cross-platform bundle, version sync, lint fixes
+- LazyVim editor, async repo map, multi-provider proxy, tool grouping
+- add project format action — explicit alternative to lint --fix
+- cross-tab coordination hardening — shell guards, prompt guidance, dispatch gates, memory safety
+- dispatch reliability — auto-split oversized tasks + complexity warnings
+- mechanical re-read blocking for parent agent read_file
+- export clipboard, per-tab expand state, reasoning context, input history fix
+- subagent step limits, coordinator hardening, and test improvements
+- post-edit formatter integration — authoritative indent fix
+- WorkspaceCoordinator cross-tab file coordination (Tier 2 Soft Claims)
+- add disablePruning option and "disabled" compaction strategy
+- headless --chat multi-turn mode, session resume, SIGINT cleanup
+- modular headless CLI, undo stack for all edit tools
+- instruction files system, headless events/mode/timeout, InputBox history improvements
+- custom providers, InputBox paste/history improvements, headless provider support
+- read_file outline mode for large code files, InputBox history fixes
+- merge read_code into read_file, soul_grep dep search, textarea input, headless CLI, mtime cache invalidation\n\n- Merge read_code tool into read_file via target/name params (delete read-code.ts)\n- Update all references across agents, prompts, intercepts, tool display (~15 files)\n- soul_grep: add dep param to search node_modules/vendor dirs with --no-ignore\n- InputBox: replace <input> + InputEditor with native <textarea> from @opentui/core\n  - Paste collapse (4+ lines → placeholder, ^E toggle)\n  - History navigation with isNavigatingHistory guard\n  - Proper visual line tracking for char-wrap height\n- Headless CLI mode: --headless, --list-providers, --list-models, --set-key\n- Read tracker: mtime-based cache invalidation (re-read if file changed on disk)\n- Docs: CLI flags in README/CLAUDE.md, headless.md documentation
+- add call graph, fix ref resolution, filter non-code refs
+- semantic summaries — merged AST+LLM mode, smart targeting, lazy regen, token tracking
+- comprehensive unused_exports with dead files, barrels, clusters, test-only detection
+- CommonJS exports, export * wildcards, Go modules, tsconfig paths
+- source-resolved refs for precise unused export detection
+- expose repo map data — top files, packages, symbol signatures, symbol-by-kind queries
+- universal language support for repo map, dead code accuracy improvements
+- ReadTracker, skill injection, dispatch returnFormat
+- link tasks to dispatch agents via taskId — auto-updates on agent start/done/error
+- add /keys command — manage LLM provider API keys from UI
+- steering flush + LSP fixes + forge improvements
+- project tool — raw mode skips preset flags, failure hints suggest raw: true for version issues
+- legacy flag fallback for lint fix — auto-retries with older syntax on unknown-flag errors
+- extend project lint fix support — oxlint, dart, swiftlint, hlint, gofmt, clippy allow-dirty
+- fix subagent budget, skills loading, task UI, context drop, stop logging
+- expand LSP server registry — 30+ servers, auto-discovered from PATH/Mason
+- context-aware subagent limits — no step caps, proportional token thresholds
+- remove done tool — output schema is the sole structured result mechanism
+- Output schema for guaranteed structured subagent results
+- cap 5 files per explore agent — auto-split large tasks for done reliability
+- guaranteed done results — auto-synthesize DoneToolResult when agents exhaust steps
+- question-driven tool routing + grep→navigate code hint
+- prohibition-style prompts — FORBIDDEN enforcement + turnover discipline
+- strip markdown formatting from system prompt — save tokens
+- cache-aware pruning — skip tool result compaction when context is low
+- token efficiency overhaul — dispatch contract, done-call fixes, system prompt split, outline filtering
+- token optimization — forge-level pruning, escalating read nudges, richer summaries
+- verification specialist, auto mode, dispatch quality, compaction UX
+- dispatch validation gates + destructive action approval + compaction fix
+- nerd font auto-detection, UI polish, chat export, bundle improvements
+- project toolchain hardening, pre-commit checks, monorepo discovery, v2 compaction improvements
+- co-author shell injection, LSP uninstall UI, biome lint fixes
+- add uninstall for soulforge-installed LSP servers
+- LSP backend — implement findImports, findExports, getFileOutline, readSymbol
+- intelligence health check — /diagnose command probes all backends
+- LSP installer with Mason registry, refactor name-based extraction, context bar improvements
+- quickfix list, terminal output capture, editor event wiring
+- neovim deep integration, pane splitting, git improvements, UI polish
+- new editor tools, fix co-author email, update readiness doc
+- new neovim editor tools + few subtle fixes
+- extract editor layout module, improve editor panel UX and performance
+- auto-install fd + lazygit, add licenses, extract UI components
+- add concrete read_file hint in edit error output
+- auto-enrich dispatch tasks with symbol line ranges from repo map
+- user steering, abort cleanup, shell abort signals, task reset, breakage tests
+- production hardening, outside-CWD security, open-source readiness
+- tool consolidation, clone detection, system prompt scaling, UI cleanup
+- UI refinements — blue user accent, message padding, queued message display
+- title-only memory, boot spinner, splash polish, safety fixes, 1M context windows
+- token optimization — slim subagent prompts, tighter pruning, progressive dispatch UI
+- UI polish — bordered input, user msg backgrounds, collapsible errors/plans, history fixes
+- ECC-enforced dispatch improvements, scoped model selection, UI rendering fixes
+- llmgateway provider, site link extraction, shell read-redirect, plan mode polish
+- unified web access approval gate for fetch_page + EventTarget listener fix
+- rolling tool result pruning with repo-map symbol enrichment
+- isolated tabs, smooth streaming, borderless input, icon centralization
+- responsive UI, popup overlays, /lsp command, boot granularity, web search fixes, dispatch thresholds
+- v2 compaction, git branch/stash ops, SSRF protection, agent bus hardening, and comprehensive test suite
+- context compaction, plan view overhaul, persistent system messages, and broad refinements
+- repo map intelligence, compound tools, web scraper, and Ink → OpenTUI migration
+- multi-tab chat, parallel agent dispatch, and provider config system
+### Miscellaneous
+
+- wrap tab bar indicators in brackets\n\n- Edited file count, unread dot, and error markers now use bracket styling\n- Consistent visual language across all tab bar indicators
+- upgrade deps
+- remove completed/obsolete improvement docs
+- add HTML coverage report script
+- add test coverage reporting + lcov artifact upload
+- biome formatting — normalize imports, indentation, line wrapping
+- fix lint formatting across refactored files
+- fix lint errors from dead code removal (trailing blank lines, let→const)
+- delete PlanView.tsx (dead file), remove dead exports from splash.ts and types/index.ts
+- remove 43 dead exports, delete highlight.ts (fully dead file)
+- remove 10 dead files (780 lines)
+- fix biome formatting across 5 files
+- remove JetBrains Mono from bundle, keep Symbols Only
+- biome format fixes
+### Performance
+
+- audit fixes — granular modal selectors, store selectors, concurrency guard, listener cleanup
+- audit fixes — smoothStream factory, unmount cleanup, abort-aware retry, error handling, memo & memoization
+- comprehensive React performance audit — 21 fixes across 25+ files
+### Refactor
+
+- prompt updates, async DiffView, compaction return type, cost breakdown improvements
+- UI polish, context bar simplification, repo map token budget, worker memory tracking, lint fixes & test updates
+- collapse re-export symbols in repo map render
+- remove shell search redirect gate\n\nRemove checkSearchAntiPattern and the blocking redirect layer that\nprevented shell from running grep/cat/find commands. This gate was\noverly aggressive and incorrectly blocked legitimate git and shell\noperations. The softer post-success hints in shell.ts are retained.
+- clean up stream options, subagent tools, tab instance, and context manager\n\nCo-Authored-By: SoulForge <soulforge@proxysoul.com>
+- fix dumb tests, reduce plan eagerness, clean up truncation messages
+- production-grade codebase cleanup — remove noise, deduplicate, tighten exports
+- production-grade codebase restructure
+- production-grade codebase restructure
+- remove ReadTracker (re-read prevention at tool execution time)
+- ReadTracker replaces RecallStore, remove dead code, cleanup agent wiring
+- centralize language detection — single EXT_TO_LANGUAGE map in types.ts
+### Testing
+
+- comprehensive tests for format detection across 18 ecosystems
+- comprehensive tests for WorkspaceCoordinator and tool-wrapper
+- comprehensive edge cases for custom providers
+- comprehensive edge case tests for unused export detection
+- update .vue extension test — now correctly detected as 'vue' via centralized map
+### Grep
+
+- add output truncation, max-columns, and source map exclusions
+### License
+
+- fix AGPL references across codebase to BSL 1.1
+- switch from AGPL-3.0 to Business Source License 1.1
+### Merge
+
+- worker architecture (phases 0-3) into main
+### Reliability
+
+- tab-scoped tasks, cache hardening, agent retry, prompt tightening
+### Tee
+
+- cap individual file size at 512KB
+### Ui
+
+- add Forge label to assistant message header
+### V1.0.0
+
+- bundled distribution, investigate agents, dispatch UI overhaul
+### Wip
+
+- pre-cost-breakdown checkpoint + misc improvements
+## [1.0.0] — 2026-03-29
+
 Initial public release.
 
 ### Core
