@@ -389,22 +389,47 @@ fi
 
 # Skip shell RC modification in quiet mode (Homebrew manages PATH via symlinks)
 if [[ -z "$QUIET" ]]; then
+  # Detect shell RC file based on user's actual shell
   SHELL_RC=""
-  if [[ -f "${HOME}/.zshrc" ]]; then
-    SHELL_RC="${HOME}/.zshrc"
-  elif [[ -f "${HOME}/.bashrc" ]]; then
-    SHELL_RC="${HOME}/.bashrc"
-  elif [[ -f "${HOME}/.bash_profile" ]]; then
-    SHELL_RC="${HOME}/.bash_profile"
-  fi
+  USER_SHELL="$(basename "${SHELL:-/bin/bash}")"
+  case "$USER_SHELL" in
+    zsh)  SHELL_RC="${HOME}/.zshrc" ;;
+    bash)
+      # macOS uses .bash_profile for login shells, Linux uses .bashrc
+      if [[ -f "${HOME}/.bashrc" ]]; then
+        SHELL_RC="${HOME}/.bashrc"
+      elif [[ -f "${HOME}/.bash_profile" ]]; then
+        SHELL_RC="${HOME}/.bash_profile"
+      else
+        SHELL_RC="${HOME}/.bashrc"
+      fi
+      ;;
+    fish) SHELL_RC="${HOME}/.config/fish/config.fish" ;;
+    ksh)  SHELL_RC="${HOME}/.kshrc" ;;
+    *)
+      # Fallback: check common files
+      for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile" "${HOME}/.profile"; do
+        if [[ -f "$rc" ]]; then SHELL_RC="$rc"; break; fi
+      done
+      ;;
+  esac
 
-  if [[ -n "$SHELL_RC" ]] && ! grep -q '.soulforge/bin' "$SHELL_RC" 2>/dev/null; then
-    echo '' >> "$SHELL_RC"
-    echo '# SoulForge' >> "$SHELL_RC"
-    echo 'export PATH="$HOME/.soulforge/bin:$PATH"' >> "$SHELL_RC"
-    step "Added to PATH in $(basename "$SHELL_RC")"
+  if [[ -n "$SHELL_RC" ]]; then
+    if ! grep -q '.soulforge/bin' "$SHELL_RC" 2>/dev/null; then
+      mkdir -p "$(dirname "$SHELL_RC")"
+      echo '' >> "$SHELL_RC"
+      echo '# SoulForge' >> "$SHELL_RC"
+      if [[ "$USER_SHELL" == "fish" ]]; then
+        echo 'set -gx PATH $HOME/.soulforge/bin $PATH' >> "$SHELL_RC"
+      else
+        echo 'export PATH="$HOME/.soulforge/bin:$PATH"' >> "$SHELL_RC"
+      fi
+      step "Added to PATH in $(basename "$SHELL_RC")"
+    else
+      step "PATH already configured"
+    fi
   else
-    step "PATH already configured"
+    dim "Could not detect shell config — add ~/.soulforge/bin to your PATH manually"
   fi
 
   printf "\n"
@@ -490,7 +515,7 @@ else
   printf "  ${M}Nothing to remove at ${SOULFORGE_DIR}${RST}\n"
 fi
 
-for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile" "${HOME}/.profile" "${HOME}/.kshrc" "${HOME}/.config/fish/config.fish"; do
   if [[ -f "$rc" ]] && grep -q '.soulforge/bin' "$rc" 2>/dev/null; then
     sed -i.bak '/# SoulForge/d' "$rc"
     sed -i.bak '/\.soulforge\/bin/d' "$rc"
