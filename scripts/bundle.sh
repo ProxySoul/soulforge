@@ -334,48 +334,96 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-(cp "${SCRIPT_DIR}/soulforge" "${BIN_DIR}/soulforge" && chmod +x "${BIN_DIR}/soulforge" && ln -sf "${BIN_DIR}/soulforge" "${BIN_DIR}/sf") &
-spin "Forging the soul binary" $!
+if [[ -n "$QUIET" ]]; then
+  # Synchronous install — no background jobs (Homebrew kills orphaned bg processes)
+  cp "${SCRIPT_DIR}/soulforge" "${BIN_DIR}/soulforge" && chmod +x "${BIN_DIR}/soulforge" && ln -sf "${BIN_DIR}/soulforge" "${BIN_DIR}/sf"
+  step "Forging the soul binary"
 
-(for bin in rg fd lazygit cli-proxy-api; do
-  cp "${SCRIPT_DIR}/deps/${bin}" "${BIN_DIR}/${bin}"
-  chmod +x "${BIN_DIR}/${bin}"
-done) &
-spin "Sharpening the search blades" $!
+  for bin in rg fd lazygit cli-proxy-api; do
+    cp "${SCRIPT_DIR}/deps/${bin}" "${BIN_DIR}/${bin}"
+    chmod +x "${BIN_DIR}/${bin}"
+  done
+  step "Sharpening the search blades"
 
-(NVIM_DIR="${SOULFORGE_DIR}/installs/nvim-bundled"
-mkdir -p "${SOULFORGE_DIR}/installs"
-rm -rf "$NVIM_DIR"
-cp -r "${SCRIPT_DIR}/deps/nvim" "$NVIM_DIR"
-ln -sf "${NVIM_DIR}/bin/nvim" "${BIN_DIR}/nvim") &
-spin "Summoning the editor spirit" $!
+  NVIM_DIR="${SOULFORGE_DIR}/installs/nvim-bundled"
+  mkdir -p "${SOULFORGE_DIR}/installs"
+  rm -rf "$NVIM_DIR"
+  cp -r "${SCRIPT_DIR}/deps/nvim" "$NVIM_DIR"
+  ln -sf "${NVIM_DIR}/bin/nvim" "${BIN_DIR}/nvim"
+  step "Summoning the editor spirit"
 
-(mkdir -p "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/workers"
-cp "${SCRIPT_DIR}/deps/wasm/"*.wasm "${SOULFORGE_DIR}/wasm/"
-cp "${SCRIPT_DIR}/deps/workers/"*.js "${SOULFORGE_DIR}/workers/"
-if [[ -d "${SCRIPT_DIR}/deps/native" ]]; then
-  cp -r "${SCRIPT_DIR}/deps/native" "${SOULFORGE_DIR}/native"
-fi
-rm -rf "${SOULFORGE_DIR}/opentui-assets"
-cp -r "${SCRIPT_DIR}/deps/opentui-assets" "${SOULFORGE_DIR}/opentui-assets"
-cp "${SCRIPT_DIR}/deps/init.lua" "${SOULFORGE_DIR}/init.lua") &
-spin "Inscribing the tree-sitter runes" $!
+  mkdir -p "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/workers"
+  cp "${SCRIPT_DIR}/deps/wasm/"*.wasm "${SOULFORGE_DIR}/wasm/"
+  cp "${SCRIPT_DIR}/deps/workers/"*.js "${SOULFORGE_DIR}/workers/"
+  if [[ -d "${SCRIPT_DIR}/deps/native" ]]; then
+    cp -r "${SCRIPT_DIR}/deps/native" "${SOULFORGE_DIR}/native"
+  fi
+  rm -rf "${SOULFORGE_DIR}/opentui-assets"
+  cp -r "${SCRIPT_DIR}/deps/opentui-assets" "${SOULFORGE_DIR}/opentui-assets"
+  cp "${SCRIPT_DIR}/deps/init.lua" "${SOULFORGE_DIR}/init.lua"
+  step "Inscribing the tree-sitter runes"
 
-(if [[ "$(uname)" == "Darwin" ]]; then
-  FONT_DIR="${HOME}/Library/Fonts"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    FONT_DIR="${HOME}/Library/Fonts"
+  else
+    FONT_DIR="${HOME}/.local/share/fonts"
+  fi
+  mkdir -p "$FONT_DIR"
+  cp "${SCRIPT_DIR}/deps/nerd-fonts/"*.ttf "$FONT_DIR/" 2>/dev/null || true
+  if [[ "$(uname)" != "Darwin" ]]; then
+    fc-cache -f "$FONT_DIR" 2>/dev/null || true
+  fi
+  step "Etching the sacred glyphs"
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    xattr -cr "${SOULFORGE_DIR}" 2>/dev/null || true
+    step "Warding off Gatekeeper curses"
+  fi
 else
-  FONT_DIR="${HOME}/.local/share/fonts"
-fi
-mkdir -p "$FONT_DIR"
-cp "${SCRIPT_DIR}/deps/nerd-fonts/"*.ttf "$FONT_DIR/" 2>/dev/null || true
-if [[ "$(uname)" != "Darwin" ]]; then
-  fc-cache -f "$FONT_DIR" 2>/dev/null || true
-fi) &
-spin "Etching the sacred glyphs" $!
+  # Interactive install — background jobs with spinners
+  (cp "${SCRIPT_DIR}/soulforge" "${BIN_DIR}/soulforge" && chmod +x "${BIN_DIR}/soulforge" && ln -sf "${BIN_DIR}/soulforge" "${BIN_DIR}/sf") &
+  spin "Forging the soul binary" $!
 
-if [[ "$(uname)" == "Darwin" ]]; then
-  (xattr -cr "${SOULFORGE_DIR}" 2>/dev/null || true) &
-  spin "Warding off Gatekeeper curses" $!
+  (for bin in rg fd lazygit cli-proxy-api; do
+    cp "${SCRIPT_DIR}/deps/${bin}" "${BIN_DIR}/${bin}"
+    chmod +x "${BIN_DIR}/${bin}"
+  done) &
+  spin "Sharpening the search blades" $!
+
+  (NVIM_DIR="${SOULFORGE_DIR}/installs/nvim-bundled"
+  mkdir -p "${SOULFORGE_DIR}/installs"
+  rm -rf "$NVIM_DIR"
+  cp -r "${SCRIPT_DIR}/deps/nvim" "$NVIM_DIR"
+  ln -sf "${NVIM_DIR}/bin/nvim" "${BIN_DIR}/nvim") &
+  spin "Summoning the editor spirit" $!
+
+  (mkdir -p "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/workers"
+  cp "${SCRIPT_DIR}/deps/wasm/"*.wasm "${SOULFORGE_DIR}/wasm/"
+  cp "${SCRIPT_DIR}/deps/workers/"*.js "${SOULFORGE_DIR}/workers/"
+  if [[ -d "${SCRIPT_DIR}/deps/native" ]]; then
+    cp -r "${SCRIPT_DIR}/deps/native" "${SOULFORGE_DIR}/native"
+  fi
+  rm -rf "${SOULFORGE_DIR}/opentui-assets"
+  cp -r "${SCRIPT_DIR}/deps/opentui-assets" "${SOULFORGE_DIR}/opentui-assets"
+  cp "${SCRIPT_DIR}/deps/init.lua" "${SOULFORGE_DIR}/init.lua") &
+  spin "Inscribing the tree-sitter runes" $!
+
+  (if [[ "$(uname)" == "Darwin" ]]; then
+    FONT_DIR="${HOME}/Library/Fonts"
+  else
+    FONT_DIR="${HOME}/.local/share/fonts"
+  fi
+  mkdir -p "$FONT_DIR"
+  cp "${SCRIPT_DIR}/deps/nerd-fonts/"*.ttf "$FONT_DIR/" 2>/dev/null || true
+  if [[ "$(uname)" != "Darwin" ]]; then
+    fc-cache -f "$FONT_DIR" 2>/dev/null || true
+  fi) &
+  spin "Etching the sacred glyphs" $!
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    (xattr -cr "${SOULFORGE_DIR}" 2>/dev/null || true) &
+    spin "Warding off Gatekeeper curses" $!
+  fi
 fi
 
 # Enable nerd font icons (Symbols Only font is always installed)
