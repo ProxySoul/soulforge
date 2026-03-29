@@ -1,3 +1,21 @@
+/**
+ * Built-in theme palettes — color values derived from the following projects:
+ *
+ * Solarized        — Ethan Schoonover        MIT     github.com/altercation/solarized
+ * Catppuccin        — Catppuccin Org           MIT     github.com/catppuccin/catppuccin
+ * Gruvbox           — Pavel Pertsev            MIT     github.com/morhetz/gruvbox
+ * Tokyo Night       — Folke Lemaitre           Apache  github.com/folke/tokyonight.nvim
+ * Dracula           — Dracula Theme            MIT     github.com/dracula/dracula-theme
+ * Nord              — Arctic Ice Studio        MIT     github.com/nordtheme/nord
+ * One Dark / Light  — Atom (GitHub)            MIT     github.com/atom/one-dark-syntax
+ * Rosé Pine         — Rosé Pine               MIT     github.com/rose-pine/rose-pine-theme
+ * Kanagawa          — Tommaso Laureati         MIT     github.com/rebelot/kanagawa.nvim
+ * GitHub Dark/Light — GitHub Primer            MIT     github.com/primer/primitives
+ * Everforest        — Sainnhe Park             MIT     github.com/sainnhe/everforest
+ * Ayu               — Ayu Theme               MIT     github.com/ayu-theme/ayu-colors
+ * Nightfox          — EdenEast                 MIT     github.com/EdenEast/nightfox.nvim
+ */
+
 export interface ThemeTokens {
   // Brand
   brand: string;
