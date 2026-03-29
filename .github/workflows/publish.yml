@@ -12,18 +12,19 @@ permissions:
 jobs:
   bundles:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
             arch: arm64
             platform: darwin
-          - os: macos-13
+          - os: macos-latest
             arch: x64
             platform: darwin
           - os: ubuntu-latest
             arch: x64
             platform: linux
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-latest
             arch: arm64
             platform: linux
 
