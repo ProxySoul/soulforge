@@ -140,7 +140,11 @@ export const multiEditTool = {
           const occurrences = content.split(edit.oldString).length - 1;
           if (occurrences > 1) {
             const msg = `${label}: found ${String(occurrences)} matches. Provide lineStart to disambiguate. NO edits were applied (atomic rollback).`;
-            return { success: false, output: msg, error: `${label}: ambiguous match (0 edits applied)` };
+            return {
+              success: false,
+              output: msg,
+              error: `${label}: ambiguous match (0 edits applied)`,
+            };
           }
           // Single occurrence — safe to replace
           const idx = content.indexOf(edit.oldString);
@@ -211,7 +215,8 @@ export const multiEditTool = {
       // CAS: verify file hasn't been modified since we read it
       const currentOnDisk = await readFile(filePath, "utf-8");
       if (currentOnDisk !== originalContent) {
-        const msg = "File was modified concurrently since last read. NO edits were applied (atomic rollback). Re-read and retry ALL edits.";
+        const msg =
+          "File was modified concurrently since last read. NO edits were applied (atomic rollback). Re-read and retry ALL edits.";
         return { success: false, output: msg, error: "concurrent modification (0 edits applied)" };
       }
 
