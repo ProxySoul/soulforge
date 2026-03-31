@@ -65,7 +65,12 @@ export class IntelligenceClient extends WorkerClient {
   onScanComplete: ((success: boolean) => void) | null = null;
   onStaleSymbols: ((count: number) => void) | null = null;
 
-  private static readonly SCAN_IDLE_TIMEOUT = 120_000; // 2 min without progress = stuck
+  // Large repos (React: 6k files, 36k symbols) have post-indexing phases
+  // with heavy synchronous SQLite transactions that block the worker thread
+  // for minutes at a time — no heartbeats can be delivered during these.
+  // Worker crash detection (handleWorkerClose/handleWorkerError) is the
+  // primary safety net. This timeout is a last resort for true hangs.
+  private static readonly SCAN_IDLE_TIMEOUT = 600_000; // 10 min
 
   constructor(cwd: string) {
     const workerPath = IS_COMPILED

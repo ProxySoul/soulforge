@@ -187,9 +187,11 @@ export class ContextManager {
     this.repoMap.onProgress = (indexed: number, total: number) => {
       const store = useRepoMapStore.getState();
       const phaseLabels: Record<number, string> = {
-        [-1]: "building edges",
-        [-2]: "computing pagerank",
-        [-3]: "analyzing git history",
+        [-1]: "resolving refs",
+        [-2]: "building call graph",
+        [-3]: "building edges",
+        [-4]: "linking tests",
+        [-5]: "analyzing git history",
       };
       const label = phaseLabels[indexed] ?? `${String(indexed)}/${String(total)}`;
       store.setScanProgress(label);

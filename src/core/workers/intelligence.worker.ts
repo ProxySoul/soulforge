@@ -560,12 +560,24 @@ ctx = createWorkerHandler(
       repoMap.maxFiles = config.maxFiles;
     }
 
+    let lastStats = { files: 0, symbols: 0, edges: 0, summaries: 0, calls: 0 };
+    let lastDbSize = 0;
+
     repoMap.onProgress = (indexed, total) => {
       const rm = repoMap;
       if (!rm) return;
-      const stats = rm.getStats();
-      const dbSize = rm.dbSizeBytes();
-      ctx.emit("progress", { indexed, total, stats, dbSize });
+      // Negative sentinels are heartbeats from post-indexing phases.
+      // Skip expensive DB stats queries for heartbeats — they can fail
+      // inside write transactions and would kill the heartbeat silently.
+      if (indexed < 0) {
+        ctx.emit("progress", { indexed, total, stats: lastStats, dbSize: lastDbSize });
+        return;
+      }
+      try {
+        lastStats = rm.getStats();
+        lastDbSize = rm.dbSizeBytes();
+      } catch {}
+      ctx.emit("progress", { indexed, total, stats: lastStats, dbSize: lastDbSize });
     };
     repoMap.onScanComplete = (success) => {
       const rm = repoMap;

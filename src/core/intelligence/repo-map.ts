@@ -192,6 +192,8 @@ export class RepoMap {
       );
       CREATE INDEX IF NOT EXISTS idx_refs_file ON refs(file_id);
       CREATE INDEX IF NOT EXISTS idx_refs_name ON refs(name);
+      CREATE INDEX IF NOT EXISTS idx_refs_source ON refs(source_file_id);
+      CREATE INDEX IF NOT EXISTS idx_refs_import ON refs(import_source);
     `);
 
     // Migration: add source_file_id and import_source columns if missing
@@ -517,7 +519,12 @@ export class RepoMap {
         this.onProgress?.(toIndex.length, toIndex.length);
       }
 
-      if (toIndex.length > 0 || stale.length > 0) {
+      // Re-run post-indexing if previous scan failed mid-way (files exist but 0 edges)
+      const edgeCount =
+        this.db.query<{ c: number }, []>("SELECT COUNT(*) as c FROM edges").get()?.c ?? 0;
+      const needsPostIndexing = toIndex.length > 0 || stale.length > 0 || edgeCount === 0;
+
+      if (needsPostIndexing) {
         this.onProgress?.(-1, -1); // resolving refs
         await tick();
         await this.resolveUnresolvedRefs();
@@ -527,9 +534,10 @@ export class RepoMap {
         this.onProgress?.(-2, -2); // call graph
         await tick();
         await this.buildCallGraph();
-        this.onProgress?.(-3, -3); // edges + PageRank
+        this.onProgress?.(-3, -3); // edges
         await tick();
         await this.buildEdges();
+        this.onProgress?.(-4, -4); // test linking + orphans
         this.linkTestFiles();
         this.rescueOrphans();
         this.onProgress?.(-4, -4);
@@ -1381,6 +1389,7 @@ export class RepoMap {
       const row = trueImportRows[i] as (typeof trueImportRows)[number];
       addEdge(row.source_file_id, row.target_file_id, Math.sqrt(row.ref_count) * 3, 3);
       if (i % 500 === 499) await tick();
+      if (i % 2000 === 0) this.onProgress?.(-3, -3);
     }
 
     // Pre-compute ref document frequency for IDF (used in Phase 1b and Phase 2)
@@ -1428,10 +1437,21 @@ export class RepoMap {
       if (row.name.startsWith("_")) w *= 0.1;
       addEdge(row.source_file_id, row.target_file_id, w, 1);
       if (i % 500 === 499) await tick();
+      if (i % 2000 === 0) this.onProgress?.(-3, -3);
     }
 
     // Phase 2: Inferred edges (confidence=1) — unique exports only + BM25 IDF
+    this.onProgress?.(-3, -3);
     await tick();
+
+    // Pre-compute export uniqueness to avoid correlated subquery in the main JOIN
+    const uniqueExportNames = new Set<string>();
+    const exportNameCounts = this.db
+      .query<{ name: string; fc: number }, []>(
+        "SELECT name, COUNT(DISTINCT file_id) as fc FROM symbols WHERE is_exported = 1 GROUP BY name HAVING fc = 1",
+      )
+      .all();
+    for (const row of exportNameCounts) uniqueExportNames.add(row.name);
 
     const inferredRows = this.db
       .query<
@@ -1440,25 +1460,22 @@ export class RepoMap {
           target_file_id: number;
           name: string;
           ref_count: number;
-          def_count: number;
         },
         []
       >(
         `SELECT r.file_id AS source_file_id, s.file_id AS target_file_id,
-                r.name, COUNT(*) AS ref_count,
-                (SELECT COUNT(DISTINCT s2.file_id) FROM symbols s2
-                 WHERE s2.name = r.name AND s2.is_exported = 1) AS def_count
+                r.name, COUNT(*) AS ref_count
          FROM refs r
          JOIN symbols s ON r.name = s.name AND s.is_exported = 1
          WHERE r.source_file_id IS NULL AND r.import_source IS NULL
            AND r.file_id != s.file_id
-         GROUP BY r.file_id, s.file_id, r.name
-         HAVING def_count = 1`,
+         GROUP BY r.file_id, s.file_id, r.name`,
       )
       .all();
 
     for (let i = 0; i < inferredRows.length; i++) {
       const row = inferredRows[i] as (typeof inferredRows)[number];
+      if (!uniqueExportNames.has(row.name)) continue; // skip non-unique exports
       const refDf = refDfMap.get(row.name) ?? 1;
       // BM25-style IDF: negative = appears in >50% of files, skip
       const idf = Math.log((totalFiles - refDf + 0.5) / (refDf + 0.5));
@@ -1471,6 +1488,7 @@ export class RepoMap {
 
       addEdge(row.source_file_id, row.target_file_id, w, 1);
       if (i % 500 === 499) await tick();
+      if (i % 2000 === 0) this.onProgress?.(-3, -3);
     }
 
     // Phase 3: Co-change edges (confidence=2) — only where no import edge exists
@@ -1550,6 +1568,7 @@ export class RepoMap {
       } catch {
         // database locked — edges will be rebuilt on next flush
       }
+      if (i % 2000 === 0) this.onProgress?.(-3, -3);
       if (i + BATCH < entries.length) await tick();
     }
   }
@@ -1967,6 +1986,7 @@ export class RepoMap {
     const pairCounts = new Map<string, number>();
     const commits = logOutput.split("---COMMIT---").filter((s) => s.trim());
 
+    const tick = () => new Promise<void>((r) => setTimeout(r, 1));
     for (let ci = 0; ci < commits.length; ci++) {
       const commit = commits[ci] as string;
       const files = commit
@@ -1984,7 +2004,10 @@ export class RepoMap {
           pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
         }
       }
-      if (ci % 50 === 0) this.onProgress?.(-5, -5); // heartbeat
+      if (ci % 50 === 0) {
+        this.onProgress?.(-5, -5);
+        await tick(); // yield so heartbeat can be delivered
+      }
     }
 
     if (pairCounts.size === 0) return;
