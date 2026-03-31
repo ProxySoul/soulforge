@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentStatsEvent, SubagentStep } from "../../core/agents/subagent-events.js";
-import { icon } from "../../core/icons.js";
+import { icon as getIcon, icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import {
   CATEGORY_COLORS,
@@ -13,6 +13,7 @@ import {
 import type { PlanOutput } from "../../types/index.js";
 import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
+import { DiffView } from "./DiffView.js";
 import { useDispatchDisplay } from "./dispatch-display.js";
 import {
   type AgentInfo,
@@ -469,17 +470,47 @@ const MultiAgentChildRow = memo(
     prev.liveStats?.cacheHits === next.liveStats?.cacheHits,
 );
 
+// Tree continuation border chars — pipe for non-last items, space for last
+export const TREE_PIPE = {
+  vertical: "│",
+  horizontal: " ",
+  topLeft: " ",
+  topRight: " ",
+  bottomLeft: " ",
+  bottomRight: " ",
+  topT: " ",
+  bottomT: " ",
+  leftT: " ",
+  rightT: " ",
+  cross: " ",
+};
+export const TREE_SPACE = {
+  vertical: " ",
+  horizontal: " ",
+  topLeft: " ",
+  topRight: " ",
+  bottomLeft: " ",
+  bottomRight: " ",
+  topT: " ",
+  bottomT: " ",
+  leftT: " ",
+  rightT: " ",
+  cross: " ",
+};
+
+export type TreePosition = { isFirst: boolean; isLast: boolean };
+
 const ToolRow = memo(
   function ToolRow({
     tc,
     seconds,
     diffStyle = "default",
-    connectorChar,
+    treePosition,
   }: {
     tc: LiveToolCall;
     seconds?: number;
     diffStyle?: "default" | "sidebyside" | "compact";
-    connectorChar?: string;
+    treePosition?: TreePosition;
   }) {
     const t = useTheme();
     const isSubagent = SUBAGENT_NAMES.has(tc.toolName);
@@ -603,6 +634,13 @@ const ToolRow = memo(
           return <span fg={t.success}>✓</span>;
         })()
       );
+    const connectorChar = treePosition
+      ? treePosition.isLast
+        ? "└ "
+        : treePosition.isFirst
+          ? "┌ "
+          : "├ "
+      : undefined;
     const statusContent = connectorChar ? (
       <>
         <span fg={t.textFaint}>{connectorChar}</span>
@@ -612,80 +650,150 @@ const ToolRow = memo(
       statusIcon
     );
 
-    return (
-      <box flexDirection="column">
-        <StaticToolRow {...staticProps} statusContent={statusContent} />
-        {isMultiAgent &&
+    const inTree = !!treePosition;
+    const hasExpanded =
+      inTree &&
+      (!!staticProps.diff ||
+        (staticProps.imageArt && staticProps.imageArt.length > 0) ||
+        (isMultiAgent &&
           multiProgress !== null &&
           multiProgress.agents.size > 0 &&
-          !dispatchRejection && (
-            <box flexDirection="column" marginLeft={2}>
-              {[...multiProgress.agents.entries()].map(([agentId, info], idx, arr) => {
-                const agentSteps = allChildSteps.filter((s) => s.agentId === agentId);
-                const isLastVisible = idx === arr.length - 1;
-                const allAccountedFor = arr.length >= (multiProgress.totalAgents ?? arr.length);
-                return (
-                  <MultiAgentChildRow
-                    key={agentId}
-                    agentId={agentId}
-                    info={info}
-                    isFirst={idx === 0}
-                    isLast={isLastVisible && allAccountedFor}
-                    childSteps={agentSteps}
-                    liveStats={liveStats.get(agentId)}
-                  />
-                );
-              })}
-            </box>
-          )}
-        {isSubagent && !isMultiAgent && allChildSteps.length > 0 && (
-          <box flexDirection="column">
-            {(() => {
-              const MAX_SINGLE = 5;
-              const filtered = allChildSteps.filter((s) => !QUIET_TOOLS.has(s.toolName));
-              const running = filtered.filter((s) => s.state === "running");
-              const done = filtered.filter((s) => s.state !== "running");
-              const doneSlots = Math.max(0, MAX_SINGLE - running.length);
-              const visibleDone = done.slice(-doneSlots);
-              const hiddenCount = done.length - visibleDone.length;
-              const visible = [...visibleDone, ...running];
-              const agentRunning = tc.state === "running";
-              const showThinking = agentRunning && running.length === 0 && done.length > 0;
+          !dispatchRejection) ||
+        (isSubagent && !isMultiAgent && allChildSteps.length > 0));
 
-              return (
-                <>
-                  {hiddenCount > 0 && (
-                    <box height={1} flexShrink={0} marginLeft={3}>
-                      <text truncate>
-                        <span fg={t.textFaint}>├ </span>
-                        <span fg={t.textDim}>+{String(hiddenCount)} completed</span>
-                      </text>
-                    </box>
-                  )}
-                  {visible.map((step, si) => {
-                    const stableIdx = allChildSteps.indexOf(step);
-                    const last = si === visible.length - 1 && !showThinking;
-                    return (
-                      <ChildStepRow
-                        key={`${step.toolName}-${String(stableIdx)}`}
-                        step={step}
-                        isLast={last}
-                      />
-                    );
-                  })}
-                  {showThinking && (
-                    <box height={1} flexShrink={0} marginLeft={3}>
-                      <text truncate>
-                        <span fg={t.textFaint}>└ </span>
-                        <Spinner color={t.textMuted} />
-                        <span fg={t.textMuted}> thinking...</span>
-                      </text>
-                    </box>
-                  )}
-                </>
-              );
-            })()}
+    // Expanded content elements (rendered inside continuation box when in tree, or inline otherwise)
+    const multiAgentContent =
+      isMultiAgent &&
+      multiProgress !== null &&
+      multiProgress.agents.size > 0 &&
+      !dispatchRejection ? (
+        <box flexDirection="column" marginLeft={2}>
+          {[...multiProgress.agents.entries()].map(([agentId, info], idx, arr) => {
+            const agentSteps = allChildSteps.filter((s) => s.agentId === agentId);
+            const isLastVisible = idx === arr.length - 1;
+            const allAccountedFor = arr.length >= (multiProgress.totalAgents ?? arr.length);
+            return (
+              <MultiAgentChildRow
+                key={agentId}
+                agentId={agentId}
+                info={info}
+                isFirst={idx === 0}
+                isLast={isLastVisible && allAccountedFor}
+                childSteps={agentSteps}
+                liveStats={liveStats.get(agentId)}
+              />
+            );
+          })}
+        </box>
+      ) : null;
+
+    const singleAgentContent =
+      isSubagent && !isMultiAgent && allChildSteps.length > 0 ? (
+        <box flexDirection="column">
+          {(() => {
+            const MAX_SINGLE = 5;
+            const filtered = allChildSteps.filter((s) => !QUIET_TOOLS.has(s.toolName));
+            const running = filtered.filter((s) => s.state === "running");
+            const done = filtered.filter((s) => s.state !== "running");
+            const doneSlots = Math.max(0, MAX_SINGLE - running.length);
+            const visibleDone = done.slice(-doneSlots);
+            const hiddenCount = done.length - visibleDone.length;
+            const visible = [...visibleDone, ...running];
+            const agentRunning = tc.state === "running";
+            const showThinking = agentRunning && running.length === 0 && done.length > 0;
+
+            return (
+              <>
+                {hiddenCount > 0 && (
+                  <box height={1} flexShrink={0} marginLeft={3}>
+                    <text truncate>
+                      <span fg={t.textFaint}>├ </span>
+                      <span fg={t.textDim}>+{String(hiddenCount)} completed</span>
+                    </text>
+                  </box>
+                )}
+                {visible.map((step, si) => {
+                  const stableIdx = allChildSteps.indexOf(step);
+                  const last = si === visible.length - 1 && !showThinking;
+                  return (
+                    <ChildStepRow
+                      key={`${step.toolName}-${String(stableIdx)}`}
+                      step={step}
+                      isLast={last}
+                    />
+                  );
+                })}
+                {showThinking && (
+                  <box height={1} flexShrink={0} marginLeft={3}>
+                    <text truncate>
+                      <span fg={t.textFaint}>└ </span>
+                      <Spinner color={t.textMuted} />
+                      <span fg={t.textMuted}> thinking...</span>
+                    </text>
+                  </box>
+                )}
+              </>
+            );
+          })()}
+        </box>
+      ) : null;
+
+    const diffContent = staticProps.diff ? (
+      <box marginTop={1} flexDirection="column">
+        <DiffView
+          filePath={staticProps.diff.path}
+          oldString={staticProps.diff.oldString}
+          newString={staticProps.diff.newString}
+          success={staticProps.diff.success}
+          errorMessage={staticProps.diff.errorMessage}
+          mode={diffStyle}
+        />
+        {staticProps.diff.impact ? (
+          <text fg={t.textMuted}>
+            {"  "}
+            <span fg={t.amber}>{getIcon("impact")}</span>
+            <span fg={t.textSecondary}> {staticProps.diff.impact}</span>
+          </text>
+        ) : null}
+      </box>
+    ) : null;
+
+    const imageContent =
+      staticProps.imageArt && staticProps.imageArt.length > 0
+        ? staticProps.imageArt.map((img) => (
+            <box key={img.name} flexDirection="column" marginTop={1}>
+              <ghostty-terminal
+                ansi={img.lines.join("\n")}
+                cols={130}
+                rows={img.lines.length}
+                trimEnd
+              />
+            </box>
+          ))
+        : null;
+
+    return (
+      <box flexDirection="column">
+        <StaticToolRow {...staticProps} statusContent={statusContent} suppressExpanded={inTree} />
+        {hasExpanded ? (
+          <box
+            border={["left"]}
+            customBorderChars={treePosition?.isLast ? TREE_SPACE : TREE_PIPE}
+            borderColor={t.textFaint}
+            paddingLeft={1}
+          >
+            <box flexDirection="column">
+              {diffContent}
+              {imageContent}
+              {multiAgentContent}
+              {singleAgentContent}
+            </box>
           </box>
+        ) : (
+          <>
+            {multiAgentContent}
+            {singleAgentContent}
+          </>
         )}
       </box>
     );
@@ -698,7 +806,9 @@ const ToolRow = memo(
     prev.tc.error === next.tc.error &&
     prev.tc.backend === next.tc.backend &&
     prev.seconds === next.seconds &&
-    prev.diffStyle === next.diffStyle,
+    prev.diffStyle === next.diffStyle &&
+    prev.treePosition?.isFirst === next.treePosition?.isFirst &&
+    prev.treePosition?.isLast === next.treePosition?.isLast,
 );
 
 const QUIET_TOOLS = new Set(["update_plan_step", "ask_user", "task_list"]);
@@ -742,14 +852,14 @@ function renderToolCall(
   seconds: number | undefined,
   diffStyle: "default" | "sidebyside" | "compact",
   t: { textMuted: string; amber: string; textFaint: string },
-  connector?: { isFirst: boolean; isLast: boolean },
+  connector?: TreePosition,
 ) {
   if ((tc.toolName === "write_plan" || tc.toolName === "plan") && tc.args) {
     try {
       const plan = JSON.parse(tc.args) as PlanOutput;
       if (plan.title && Array.isArray(plan.steps) && Array.isArray(plan.files)) {
-        return (
-          <box key={tc.id} flexDirection="column">
+        const planContent = (
+          <>
             <StructuredPlanView plan={plan} result={tc.result} />
             {tc.state === "running" && (
               <box height={1} flexShrink={0} marginTop={1}>
@@ -760,15 +870,45 @@ function renderToolCall(
                 </text>
               </box>
             )}
+          </>
+        );
+        if (connector) {
+          const char = connector.isLast ? "└ " : connector.isFirst ? "┌ " : "├ ";
+          return (
+            <box key={tc.id} flexDirection="column">
+              <box height={1} flexShrink={0}>
+                <text>
+                  <span fg={t.textFaint}>{char}</span>
+                </text>
+              </box>
+              <box
+                border={["left"]}
+                customBorderChars={connector.isLast ? TREE_SPACE : TREE_PIPE}
+                borderColor={t.textFaint}
+                paddingLeft={1}
+              >
+                <box flexDirection="column">{planContent}</box>
+              </box>
+            </box>
+          );
+        }
+        return (
+          <box key={tc.id} flexDirection="column">
+            {planContent}
           </box>
         );
       }
     } catch {}
   }
   if (connector) {
-    const char = connector.isLast ? "└ " : connector.isFirst ? "┌ " : "├ ";
     return (
-      <ToolRow key={tc.id} tc={tc} seconds={seconds} diffStyle={diffStyle} connectorChar={char} />
+      <ToolRow
+        key={tc.id}
+        tc={tc}
+        seconds={seconds}
+        diffStyle={diffStyle}
+        treePosition={connector}
+      />
     );
   }
   return <ToolRow key={tc.id} tc={tc} seconds={seconds} diffStyle={diffStyle} />;

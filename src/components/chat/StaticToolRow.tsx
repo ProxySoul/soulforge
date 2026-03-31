@@ -46,6 +46,8 @@ interface StaticToolRowProps {
   diffStyle?: "default" | "sidebyside" | "compact";
   /** Half-block ANSI art for inline image display. */
   imageArt?: Array<{ name: string; lines: string[] }>;
+  /** When true, skip rendering diff and imageArt — caller handles them in a tree continuation box. */
+  suppressExpanded?: boolean;
 }
 
 /**
@@ -70,6 +72,7 @@ export function StaticToolRow({
   diff,
   diffStyle = "default",
   imageArt,
+  suppressExpanded = false,
 }: StaticToolRowProps) {
   const t = useTheme();
   const rc = {
@@ -110,7 +113,7 @@ export function StaticToolRow({
           {suffix ? <span fg={suffixColor ?? rc.textDone}>{suffix}</span> : null}
         </text>
       </box>
-      {diff ? (
+      {!suppressExpanded && diff ? (
         <box marginTop={1} flexDirection="column">
           <DiffView
             filePath={diff.path}
@@ -129,7 +132,7 @@ export function StaticToolRow({
           ) : null}
         </box>
       ) : null}
-      {imageArt && imageArt.length > 0
+      {!suppressExpanded && imageArt && imageArt.length > 0
         ? imageArt.map((img) => (
             <box key={img.name} flexDirection="column" marginTop={1}>
               <ghostty-terminal

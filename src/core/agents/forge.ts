@@ -65,6 +65,12 @@ function buildForgePrepareStep(
   },
   tabId?: string,
 ) {
+  // Cache-stable inject tracking: the ToolLoopAgent discards prepareStep message
+  // modifications after each step (it rebuilds from initialMessages + responseMessages).
+  // To maintain prefix stability for Anthropic prompt caching, we re-insert previous
+  // injects at their original positions so the API always sees an append-only history.
+  const previousInjects: Array<{ cleanInsertAt: number; message: ModelMessage }> = [];
+
   // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
   return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): any => {
     const sanitized = sanitizeMessages(messages);
@@ -109,6 +115,7 @@ function buildForgePrepareStep(
       // [5] Loop detection — hint only, no activeTools blocking
       const LOOP_THRESHOLD = 3;
       const LOOP_WINDOW = 16;
+      // Count tool calls in the raw messages (before inject re-insertion)
       const callCounts = new Map<string, { toolName: string; count: number }>();
       const startIdx = Math.max(0, messages.length - LOOP_WINDOW);
       for (let i = startIdx; i < messages.length; i++) {
@@ -168,12 +175,41 @@ function buildForgePrepareStep(
       }
     }
 
-    if (tailParts.length > 0) {
+    // Re-insert previous injects + append new one for cache-stable prefix.
+    // The ToolLoopAgent rebuilds messages fresh each step (initialMessages + responseMessages),
+    // discarding our injected user messages. We re-insert them at their original positions
+    // so Anthropic sees a byte-identical, append-only prefix → auto-cache hits.
+    //
+    // Position tracking uses cleanInsertAt — the index in the CLEAN message array
+    // (before any re-insertions). This ensures correct placement across steps:
+    //   Step N:   [...clean_17, INJECT_9]
+    //   Step N+1: [...clean_17, INJECT_9, asst, tool, INJECT_10]
+    //   Step N+2: [...clean_17, INJECT_9, asst, tool, INJECT_10, asst, tool, INJECT_11]
+    if (tailParts.length > 0 || previousInjects.length > 0) {
       const msgs = result.messages ?? [...sanitized];
-      msgs.push({
-        role: "user" as const,
-        content: [{ type: "text" as const, text: tailParts.join("\n\n") }],
-      });
+      const cleanMsgCount = msgs.length;
+
+      // Re-insert all previous injects at their original positions.
+      // cleanInsertAt is relative to the clean array; offset accounts for prior splices.
+      let offset = 0;
+      for (const prev of previousInjects) {
+        const insertAt = prev.cleanInsertAt + offset;
+        if (insertAt <= msgs.length) {
+          msgs.splice(insertAt, 0, prev.message);
+          offset++;
+        }
+      }
+
+      // Append the new inject (if any content this step)
+      if (tailParts.length > 0) {
+        const injectMessage: ModelMessage = {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: tailParts.join("\n\n") }],
+        };
+        previousInjects.push({ cleanInsertAt: cleanMsgCount, message: injectMessage });
+        msgs.push(injectMessage);
+      }
+
       result.messages = msgs;
     }
 

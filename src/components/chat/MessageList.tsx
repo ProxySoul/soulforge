@@ -10,7 +10,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { icon } from "../../core/icons.js";
+import { icon as getIcon, icon } from "../../core/icons.js";
 import { getThemeTokens, type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { resolveToolDisplay, TOOL_ICONS, TOOL_LABELS } from "../../core/tool-display.js";
 import type {
@@ -22,9 +22,11 @@ import type {
 } from "../../types/index.js";
 import { Spinner } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
+import { DiffView } from "./DiffView.js";
 import { Markdown, useCodeExpanded } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
 import { buildFinalToolRowProps, StaticToolRow } from "./StaticToolRow.js";
+import { TREE_PIPE, TREE_SPACE, type TreePosition } from "./ToolCallDisplay.js";
 
 const ReasoningExpandedContext = createContext(false);
 export const ReasoningExpandedProvider = ReasoningExpandedContext.Provider;
@@ -205,10 +207,14 @@ function ToolCallRow({
   tc,
   diffStyle,
   autoCompactDiffs = false,
+  connectorChar,
+  treePosition,
 }: {
   tc: ToolCall;
   diffStyle?: "default" | "sidebyside" | "compact";
   autoCompactDiffs?: boolean;
+  connectorChar?: string;
+  treePosition?: TreePosition;
 }) {
   const t = useTheme();
   const expanded = useCodeExpanded();
@@ -216,25 +222,113 @@ function ToolCallRow({
   const props = buildFinalToolRowProps(tc);
 
   // For edit tools, use compact diff by default (unless autoCompactDiffs is off), expanded on Ctrl+O
+  const effectiveDiffStyle = props.diff
+    ? expanded || !autoCompactDiffs
+      ? diffStyle
+      : "compact"
+    : diffStyle;
   if (props.diff) {
-    props.diffStyle = expanded || !autoCompactDiffs ? diffStyle : "compact";
+    props.diffStyle = effectiveDiffStyle;
   }
+
+  // Prepend tree connector to status content
+  if (connectorChar) {
+    const origStatus = props.statusContent;
+    props.statusContent = (
+      <>
+        <span fg={t.textFaint}>{connectorChar}</span>
+        {origStatus}
+      </>
+    );
+  }
+
+  const inTree = !!treePosition;
+  const hasExpandedContent =
+    inTree && (!!props.diff || (props.imageArt && props.imageArt.length > 0));
 
   // Expanded error detail (2-line view)
   const fullError = tc.result?.error ?? "";
   const isError = !!tc.result && !tc.result.success && !isDenied(tc.result?.error);
-  if (isError && errorsExpanded && fullError.length > 0) {
-    const errorPreview = fullError.length > 120 ? `${fullError.slice(0, 117)}…` : fullError;
-    const hasMore = fullError.length > 120;
+  const showErrorDetail = isError && errorsExpanded && fullError.length > 0;
+
+  const errorContent = showErrorDetail
+    ? (() => {
+        const errorPreview = fullError.length > 120 ? `${fullError.slice(0, 117)}…` : fullError;
+        const hasMore = fullError.length > 120;
+        return (
+          <box paddingLeft={3} height={1} flexShrink={0}>
+            <text truncate fg={t.error}>
+              {errorPreview}
+              {hasMore ? <span fg={t.textMuted}> /errors for full</span> : null}
+            </text>
+          </box>
+        );
+      })()
+    : null;
+
+  // Build expanded content for tree continuation
+  const diffContent =
+    hasExpandedContent && props.diff ? (
+      <box marginTop={1} flexDirection="column">
+        <DiffView
+          filePath={props.diff.path}
+          oldString={props.diff.oldString}
+          newString={props.diff.newString}
+          success={props.diff.success}
+          errorMessage={props.diff.errorMessage}
+          mode={effectiveDiffStyle}
+        />
+        {props.diff.impact ? (
+          <text fg={t.textMuted}>
+            {"  "}
+            <span fg={t.amber}>{getIcon("impact")}</span>
+            <span fg={t.textSecondary}> {props.diff.impact}</span>
+          </text>
+        ) : null}
+      </box>
+    ) : null;
+
+  const imageContent =
+    hasExpandedContent && props.imageArt && props.imageArt.length > 0
+      ? props.imageArt.map((img) => (
+          <box key={img.name} flexDirection="column" marginTop={1}>
+            <ghostty-terminal
+              ansi={img.lines.join("\n")}
+              cols={130}
+              rows={img.lines.length}
+              trimEnd
+            />
+          </box>
+        ))
+      : null;
+
+  const needsContinuation = diffContent || imageContent || (inTree && errorContent);
+
+  if (needsContinuation) {
+    return (
+      <box flexDirection="column" flexShrink={0}>
+        <StaticToolRow {...props} suppressExpanded />
+        <box
+          border={["left"]}
+          customBorderChars={treePosition?.isLast ? TREE_SPACE : TREE_PIPE}
+          borderColor={t.textFaint}
+          paddingLeft={1}
+        >
+          <box flexDirection="column">
+            {diffContent}
+            {imageContent}
+            {errorContent}
+          </box>
+        </box>
+      </box>
+    );
+  }
+
+  if (showErrorDetail) {
     return (
       <box flexDirection="column" flexShrink={0}>
         <StaticToolRow {...props} />
-        <box paddingLeft={3} height={1} flexShrink={0}>
-          <text truncate fg={t.error}>
-            {errorPreview}
-            {hasMore ? <span fg={t.textMuted}> /errors for full</span> : null}
-          </text>
-        </box>
+        {errorContent}
       </box>
     );
   }
@@ -242,13 +336,20 @@ function ToolCallRow({
   return <StaticToolRow {...props} />;
 }
 
-function CollapsedToolGroup({ calls }: { calls: ToolCall[] }) {
+function CollapsedToolGroup({
+  calls,
+  connectorChar,
+}: {
+  calls: ToolCall[];
+  connectorChar?: string;
+}) {
   const t = useTheme();
   const count = calls.length;
   const allOk = calls.every((tc) => tc.result?.success);
   return (
     <box height={1} flexShrink={0}>
       <text truncate>
+        {connectorChar ? <span fg={t.textFaint}>{connectorChar}</span> : null}
         <span fg={allOk ? t.success : t.error}>{allOk ? "✓" : "✗"} </span>
         <span fg={t.textSecondary}>
           {String(count)} tool call{count > 1 ? "s" : ""} (
@@ -281,7 +382,15 @@ function parsePlanResult(tc: ToolCall): { file?: string; resultStr?: string } {
   }
 }
 
-function WritePlanCall({ tc }: { tc: ToolCall }) {
+function WritePlanCall({
+  tc,
+  connectorChar,
+  treePosition,
+}: {
+  tc: ToolCall;
+  connectorChar?: string;
+  treePosition?: TreePosition;
+}) {
   const t = useTheme();
   const plan = parsePlanFromArgs(tc);
   const expanded = useCodeExpanded();
@@ -293,13 +402,14 @@ function WritePlanCall({ tc }: { tc: ToolCall }) {
       .then(setMarkdown)
       .catch(() => setMarkdown(null));
   }, [planFile]);
-  if (!plan) return <ToolCallRow tc={tc} />;
+  if (!plan)
+    return <ToolCallRow tc={tc} connectorChar={connectorChar} treePosition={treePosition} />;
 
   // Collapse accepted plans by default — Ctrl+O toggles expanded
   const hasResult = !!resultStr;
   const collapsed = hasResult && !expanded;
 
-  return (
+  const planContent = (
     <>
       <StructuredPlanView
         plan={plan}
@@ -322,6 +432,28 @@ function WritePlanCall({ tc }: { tc: ToolCall }) {
       )}
     </>
   );
+
+  if (connectorChar && treePosition) {
+    return (
+      <box flexDirection="column">
+        <box height={1} flexShrink={0}>
+          <text>
+            <span fg={t.textFaint}>{connectorChar}</span>
+          </text>
+        </box>
+        <box
+          border={["left"]}
+          customBorderChars={treePosition.isLast ? TREE_SPACE : TREE_PIPE}
+          borderColor={t.textFaint}
+          paddingLeft={1}
+        >
+          <box flexDirection="column">{planContent}</box>
+        </box>
+      </box>
+    );
+  }
+
+  return planContent;
 }
 
 const TRUNCATE_THRESHOLD = 10;
@@ -453,23 +585,35 @@ function renderSegments(
   reasoningExpanded = false,
   t: ThemeTokens = getThemeTokens(),
 ) {
+  // Merge consecutive tool segments (skip empty text between) so they share one tree
+  const merged: MessageSegment[] = [];
+  for (const seg of segments) {
+    if (seg.type === "text" && seg.content.trim() === "") continue;
+    const prev = merged[merged.length - 1];
+    if (seg.type === "tools" && prev?.type === "tools") {
+      prev.toolCallIds.push(...seg.toolCallIds);
+    } else {
+      merged.push(seg.type === "tools" ? { ...seg, toolCallIds: [...seg.toolCallIds] } : seg);
+    }
+  }
+
   let firstToolsIdx = -1;
-  for (let k = 0; k < segments.length; k++) {
-    if (segments[k]?.type === "tools") {
+  for (let k = 0; k < merged.length; k++) {
+    if (merged[k]?.type === "tools") {
       firstToolsIdx = k;
       break;
     }
   }
 
   let lastVisibleType: string | null = null;
-  return segments.map((seg, i) => {
+  return merged.map((seg, i) => {
     if (seg.type === "reasoning" && !showReasoning) return null;
 
     const needsGap = lastVisibleType !== null && lastVisibleType !== seg.type;
     lastVisibleType = seg.type;
 
     if (seg.type === "text") {
-      const isLastSegment = i === segments.length - 1;
+      const isLastSegment = i === merged.length - 1;
       const hasToolsBefore = firstToolsIdx >= 0 && firstToolsIdx < i;
       const isFinalAnswer = isLastSegment && hasToolsBefore && seg.content.trim().length > 20;
       return (
@@ -573,12 +717,33 @@ function renderSegments(
 
     const groups = groupToolCalls(calls);
 
+    // Count total visible group items for tree connector logic
+    const totalItems = groups.length;
+    const useTree = totalItems >= 2;
+
     const toolsKey = `tools-${seg.toolCallIds[0] ?? String(i)}`;
     return (
       <box key={toolsKey} flexDirection="column" marginTop={needsGap ? 1 : 0}>
         {groups.map((g, gi) => {
+          const treePos: TreePosition | undefined = useTree
+            ? { isFirst: gi === 0, isLast: gi === totalItems - 1 }
+            : undefined;
+          const connChar = treePos
+            ? treePos.isLast
+              ? "└ "
+              : treePos.isFirst
+                ? "┌ "
+                : "├ "
+            : undefined;
+
           if (g.type === "meta") {
-            return <CollapsedToolGroup key={`meta-${String(gi)}`} calls={g.calls} />;
+            return (
+              <CollapsedToolGroup
+                key={`meta-${String(gi)}`}
+                calls={g.calls}
+                connectorChar={connChar}
+              />
+            );
           }
           if (g.type === "batch") {
             const fileCounts = new Map<string, number>();
@@ -626,6 +791,7 @@ function renderSegments(
             return (
               <box key={`batch-${String(gi)}`} height={1} flexShrink={0}>
                 <text truncate>
+                  {connChar ? <span fg={t.textFaint}>{connChar}</span> : null}
                   <span fg={statusColor}>{statusIcon} </span>
                   <span fg={iconColor}>{batchIcon} </span>
                   <span fg={t.textSecondary}>{label}</span>
@@ -643,9 +809,15 @@ function renderSegments(
           return (
             <box key={g.tc.id} flexDirection="column">
               {g.tc.name === "write_plan" || g.tc.name === "plan" ? (
-                <WritePlanCall tc={g.tc} />
+                <WritePlanCall tc={g.tc} connectorChar={connChar} treePosition={treePos} />
               ) : (
-                <ToolCallRow tc={g.tc} diffStyle={diffStyle} autoCompactDiffs={autoCompactDiffs} />
+                <ToolCallRow
+                  tc={g.tc}
+                  diffStyle={diffStyle}
+                  autoCompactDiffs={autoCompactDiffs}
+                  connectorChar={connChar}
+                  treePosition={treePos}
+                />
               )}
             </box>
           );
