@@ -388,6 +388,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Clear injected context (memory, skills)",
     category: "Intelligence",
     tags: ["reset"],
+    hidden: true,
   },
   {
     cmd: "/diagnose",

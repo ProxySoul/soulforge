@@ -18,11 +18,10 @@ export const SHARED_RULES = `
 - The user does not see full tool output — summarize results when relevant to your response
 
 # Conventions
-- Mimic existing code style, imports, and patterns. Check neighboring files before creating new ones.
-- Never assume a library is available — check imports and package files first.
+- Mimic existing code style, imports, and patterns.
 - Add comments only when the code is complex and requires context.
 - Follow security best practices. Keep secrets out of code.
-- Don't waste turns fixing indentation or formatting mid-session — use project(format) at the end to auto-fix.
+- Indentation and formatting should be fixed at the end of your response using the Project tool which automatically handles the toolchain and way cheaper than you trying to fix it yourself. Don't waste tokens on formatting issues.
 
 # Code architecture (${CURRENT_YEAR} standards)
 - Avoid god files — split large files (300+ lines) into focused modules with clear responsibilities when possible.
