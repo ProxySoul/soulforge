@@ -149,6 +149,24 @@ export function formatArgs(toolName: string, args?: string): string {
       }
       return String(parsed.action);
     }
+    if (toolName === "soul_grep" && parsed.pattern) {
+      const p = String(parsed.pattern);
+      const path = parsed.path ? ` ${String(parsed.path)}` : "";
+      const label = `/${p}/${path}`;
+      return label.length > 55 ? `${label.slice(0, 52)}...` : label;
+    }
+    if (toolName === "soul_find" && parsed.query) {
+      const q = String(parsed.query);
+      return q.length > 50 ? `${q.slice(0, 47)}...` : q;
+    }
+    if (
+      (toolName === "soul_impact" || toolName === "soul_analyze") &&
+      (parsed.action || parsed.file)
+    ) {
+      const parts = [parsed.action, parsed.file ?? parsed.symbol].filter(Boolean).map(String);
+      const label = parts.join(" ");
+      return label.length > 50 ? `${label.slice(0, 47)}...` : label;
+    }
     if (toolName === "code_execution") {
       if (parsed.code) {
         const code = String(parsed.code);
@@ -286,24 +304,18 @@ export function formatResult(toolName: string, result?: string): string {
     try {
       const p = JSON.parse(result);
       if (p.success === false && p.error) return String(p.error).slice(0, 50);
-      if (Array.isArray(p.reads)) {
-        const paths = new Set((p.reads as Array<{ path: string }>).map((r) => r.path));
+      if (Array.isArray(p.reads) || Array.isArray(p.filesEdited)) {
         const parts: string[] = [];
-        if (paths.size > 0) parts.push(`${String(paths.size)} files read`);
+        if (Array.isArray(p.reads)) {
+          const paths = new Set((p.reads as Array<{ path: string }>).map((r) => r.path));
+          if (paths.size > 0) parts.push(`${String(paths.size)} files read`);
+        }
         if (Array.isArray(p.filesEdited) && p.filesEdited.length > 0)
           parts.push(`${String(p.filesEdited.length)} edited`);
-        return parts.join(", ") || "done";
-      }
-      if (p.output) {
-        const out = String(p.output);
-        const lines = out.split("\n").length;
-        if (lines > 1) return `${String(lines)} lines`;
-        return out.length > 40 ? `${out.slice(0, 37)}...` : out;
+        return parts.join(", ") || "";
       }
     } catch {}
-    const lines = result.split("\n").length;
-    if (lines > 1) return `${String(lines)} lines`;
-    return result.length > 40 ? `${result.slice(0, 37)}...` : result;
+    return "";
   }
   if (toolName === "code_execution") {
     const lines = result.split("\n").length;
