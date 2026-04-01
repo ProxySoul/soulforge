@@ -23,10 +23,12 @@ import type {
 import { Spinner } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
 import { DiffView } from "./DiffView.js";
+import { filterQuietTools, LOCKIN_EDIT_TOOLS, LockInWrapper } from "./LockInStreamView.js";
 import { Markdown, useCodeExpanded } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
 import { buildFinalToolRowProps, StaticToolRow } from "./StaticToolRow.js";
-import { TREE_PIPE, TREE_SPACE, type TreePosition } from "./ToolCallDisplay.js";
+import { SUBAGENT_NAMES, TREE_PIPE, TREE_SPACE, type TreePosition } from "./ToolCallDisplay.js";
+import { formatArgs } from "./tool-formatters.js";
 
 const ReasoningExpandedContext = createContext(false);
 export const ReasoningExpandedProvider = ReasoningExpandedContext.Provider;
@@ -58,6 +60,7 @@ interface Props {
   autoCompactDiffs?: boolean;
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
+  lockIn?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -584,6 +587,7 @@ function renderSegments(
   showReasoning = true,
   reasoningExpanded = false,
   t: ThemeTokens = getThemeTokens(),
+  lockIn = false,
 ) {
   // Merge consecutive tool segments (skip empty text between) so they share one tree
   const merged: MessageSegment[] = [];
@@ -610,12 +614,15 @@ function renderSegments(
     if (seg.type === "reasoning" && !showReasoning) return null;
 
     const needsGap = lastVisibleType !== null && lastVisibleType !== seg.type;
-    lastVisibleType = seg.type;
 
     if (seg.type === "text") {
       const isLastSegment = i === merged.length - 1;
       const hasToolsBefore = firstToolsIdx >= 0 && firstToolsIdx < i;
       const isFinalAnswer = isLastSegment && hasToolsBefore && seg.content.trim().length > 20;
+      // Lock-in mode: hide ALL text (tools-only view). Final answer rendered separately by caller.
+      // Don't suppress text-only messages (no tools = normal conversation)
+      if (lockIn && firstToolsIdx >= 0) return null;
+      lastVisibleType = seg.type;
       return (
         // biome-ignore lint/suspicious/noArrayIndexKey: stable segment order
         <box key={`text-${i}`} flexDirection="column" marginTop={needsGap ? 1 : 0}>
@@ -631,6 +638,7 @@ function renderSegments(
       );
     }
     if (seg.type === "reasoning") {
+      lastVisibleType = seg.type;
       const rkey = `${seg.id}-${reasoningExpanded ? "exp" : "col"}`;
       return (
         <box key={rkey} flexDirection="column" marginTop={needsGap ? 1 : 0}>
@@ -639,6 +647,7 @@ function renderSegments(
       );
     }
     if (seg.type === "plan") {
+      lastVisibleType = seg.type;
       const doneSteps = seg.plan.steps.filter((s) => s.status === "done").length;
       const totalSteps = seg.plan.steps.length;
       const allDone = doneSteps === totalSteps;
@@ -714,6 +723,7 @@ function renderSegments(
       return true;
     });
     if (calls.length === 0) return null;
+    lastVisibleType = seg.type;
 
     const groups = groupToolCalls(calls);
 
@@ -833,12 +843,14 @@ const AssistantMessage = memo(function AssistantMessage({
   autoCompactDiffs = false,
   showReasoning = true,
   reasoningExpanded = false,
+  lockIn = false,
 }: {
   msg: ChatMessage;
   diffStyle?: "default" | "sidebyside" | "compact";
   autoCompactDiffs?: boolean;
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
+  lockIn?: boolean;
 }) {
   const t = useTheme();
   const time = formatTime(msg.timestamp);
@@ -856,6 +868,51 @@ const AssistantMessage = memo(function AssistantMessage({
   const hasTools = msg.toolCalls && msg.toolCalls.length > 0;
   const isEmpty = !hasSegments && !hasContent && !hasTools;
 
+  // Lock-in: extract final answer (last text after tools, >20 chars) for separate rendering
+  const lockInFinalAnswer = useMemo(() => {
+    if (!lockIn || !msg.segments) return null;
+    const segs = msg.segments;
+    let sawTools = false;
+    for (const s of segs) {
+      if (s.type === "tools") sawTools = true;
+    }
+    if (!sawTools) return null;
+    const last = segs[segs.length - 1];
+    if (last?.type === "text" && last.content.trim().length > 20) return last.content;
+    return null;
+  }, [lockIn, msg.segments]);
+
+  const lockInHasEdits = useMemo(
+    () =>
+      lockIn && hasTools ? msg.toolCalls?.some((tc) => LOCKIN_EDIT_TOOLS.has(tc.name)) : false,
+    [lockIn, hasTools, msg.toolCalls],
+  );
+
+  // Stable seed from message id for deterministic silly-message selection
+  const lockInSeed = useMemo(() => {
+    let h = 0;
+    for (let i = 0; i < msg.id.length; i++) h = (h * 31 + msg.id.charCodeAt(i)) | 0;
+    return h;
+  }, [msg.id]);
+
+  const lockInTools = useMemo(() => {
+    if (!lockIn || !hasTools) return [];
+    return (msg.toolCalls ?? [])
+      .filter((tc) => filterQuietTools(tc.name) && !SUBAGENT_NAMES.has(tc.name))
+      .map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        done: true,
+        error: !!tc.result && !tc.result.success,
+        argStr: formatArgs(tc.name, JSON.stringify(tc.args)),
+      }));
+  }, [lockIn, hasTools, msg.toolCalls]);
+
+  const lockInDispatchCalls = useMemo(() => {
+    if (!lockIn || !hasTools) return [];
+    return (msg.toolCalls ?? []).filter((tc) => SUBAGENT_NAMES.has(tc.name));
+  }, [lockIn, hasTools, msg.toolCalls]);
+
   return (
     <box
       flexDirection="column"
@@ -867,7 +924,10 @@ const AssistantMessage = memo(function AssistantMessage({
       paddingY={1}
     >
       <box flexDirection="row">
-        <text fg={t.brand}>{icon("ai")} Forge</text>
+        <text fg={t.brand}>
+          {icon("ai")} Forge
+          {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
+        </text>
         <text fg={t.textDim}> {time}</text>
       </box>
 
@@ -875,6 +935,32 @@ const AssistantMessage = memo(function AssistantMessage({
         <text fg={t.textMuted} attributes={TextAttributes.ITALIC}>
           Empty response — model returned no content.
         </text>
+      ) : lockIn && hasTools ? (
+        <>
+          <LockInWrapper
+            hasEdits={!!lockInHasEdits}
+            hasDispatch={lockInDispatchCalls.length > 0}
+            done
+            seed={lockInSeed}
+            tools={lockInTools}
+          >
+            {lockInDispatchCalls.length > 0
+              ? lockInDispatchCalls.map((tc) => (
+                  <ToolCallRow key={tc.id} tc={tc} diffStyle="compact" autoCompactDiffs />
+                ))
+              : null}
+          </LockInWrapper>
+          {lockInFinalAnswer ? (
+            <box flexDirection="column" marginTop={1}>
+              <box height={1} flexShrink={0} marginBottom={1}>
+                <text fg={t.textFaint} truncate>
+                  {"─".repeat(60)}
+                </text>
+              </box>
+              <Markdown text={lockInFinalAnswer} />
+            </box>
+          ) : null}
+        </>
       ) : hasSegments ? (
         renderSegments(
           msg.segments as MessageSegment[],
@@ -884,11 +970,12 @@ const AssistantMessage = memo(function AssistantMessage({
           showReasoning,
           reasoningExpanded,
           t,
+          lockIn,
         )
       ) : (
         <>
-          {hasContent && <Markdown text={msg.content} />}
-          {hasTools && (
+          {hasContent ? <Markdown text={msg.content} /> : null}
+          {hasTools ? (
             <box flexDirection="column">
               {msg.toolCalls
                 ?.filter((tc) => tc.name !== "task_list" && tc.name !== "update_plan_step")
@@ -902,7 +989,7 @@ const AssistantMessage = memo(function AssistantMessage({
                   </box>
                 ))}
             </box>
-          )}
+          ) : null}
         </>
       )}
     </box>
@@ -917,6 +1004,7 @@ export const StaticMessage = memo(function StaticMessage({
   showReasoning = true,
   reasoningExpanded = false,
   animate = false,
+  lockIn = false,
 }: {
   msg: ChatMessage;
   chatStyle: ChatStyle;
@@ -925,6 +1013,7 @@ export const StaticMessage = memo(function StaticMessage({
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
   animate?: boolean;
+  lockIn?: boolean;
 }) {
   if (msg.role === "system") {
     return (
@@ -948,6 +1037,7 @@ export const StaticMessage = memo(function StaticMessage({
         autoCompactDiffs={autoCompactDiffs}
         showReasoning={showReasoning}
         reasoningExpanded={reasoningExpanded}
+        lockIn={lockIn}
       />
     </box>
   );
@@ -959,6 +1049,7 @@ export const MessageList = memo(function MessageList({
   diffStyle = "default",
   autoCompactDiffs = false,
   showReasoning = true,
+  lockIn = false,
 }: Props) {
   const t = useTheme();
   const lastSystemIdx = useMemo(() => {
@@ -1002,6 +1093,7 @@ export const MessageList = memo(function MessageList({
             diffStyle={diffStyle}
             autoCompactDiffs={autoCompactDiffs}
             showReasoning={showReasoning}
+            lockIn={lockIn}
           />
         );
       })}

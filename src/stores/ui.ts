@@ -78,6 +78,7 @@ interface UIState {
   reasoningExpanded: Record<string, boolean>;
   suspended: boolean;
   editorSplit: number;
+  lockIn: boolean;
 
   openModal: (name: ModalName) => void;
   closeModal: (name: ModalName) => void;
@@ -103,6 +104,8 @@ interface UIState {
   toggleAllExpanded: (tabId: string) => void;
   setSuspended: (v: boolean) => void;
   cycleEditorSplit: () => void;
+  setLockIn: (v: boolean) => void;
+  toggleLockIn: () => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -121,6 +124,7 @@ export const useUIStore = create<UIState>()(
     reasoningExpanded: {},
     suspended: false,
     editorSplit: 60,
+    lockIn: false,
 
     openModal: (name) => set(() => ({ modals: { ...INITIAL_MODALS, [name]: true } })),
     closeModal: (name) => set((s) => ({ modals: { ...s.modals, [name]: false } })),
@@ -183,6 +187,8 @@ export const useUIStore = create<UIState>()(
         };
       }),
     setSuspended: (v) => set({ suspended: v }),
+    setLockIn: (v) => set({ lockIn: v }),
+    toggleLockIn: () => set((s) => ({ lockIn: !s.lockIn })),
     cycleEditorSplit: () =>
       set((s) => {
         const splits = [40, 50, 60, 70];
@@ -208,5 +214,6 @@ export function resetUIStore(): void {
     showReasoning: true,
     reasoningExpanded: {},
     suspended: false,
+    lockIn: false,
   });
 }

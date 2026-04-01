@@ -44,6 +44,8 @@ export interface CommandContext {
   compactionStrategy: CompactionStrategy;
   showReasoning: boolean;
   setShowReasoning: (v: boolean) => void;
+  lockIn: boolean;
+  setLockIn: (v: boolean) => void;
   openSetup: () => void;
   openEditorSettings: () => void;
   openRouterSettings: () => void;

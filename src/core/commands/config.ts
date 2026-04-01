@@ -286,6 +286,18 @@ const handleVerbose = createTogglePicker({
   messageTemplate: (v, s) => `Verbose mode ${v === "on" ? "on" : "off"} (${s})`,
 });
 
+function handleLockIn(_input: string, ctx: CommandContext): void {
+  const next = !ctx.lockIn;
+  ctx.setLockIn(next);
+  ctx.saveToScope({ lockIn: next }, "project");
+  sysMsg(
+    ctx,
+    next
+      ? "🔒 Locked in — narration hidden, tools + final answer only"
+      : "🔓 Lock-in off — full narration visible",
+  );
+}
+
 function handleReasoning(_input: string, ctx: CommandContext): void {
   const patch = (v: string) => ({ showReasoning: v === "on" });
   ctx.openCommandPicker({
@@ -591,6 +603,7 @@ const settingsHandlers: Record<string, (input: string, ctx: CommandContext) => v
   "chat-style": handleChatStyle,
   verbose: handleVerbose as CommandHandler,
   reasoning: handleReasoning,
+  "lock-in": handleLockIn,
   compaction: handleCompaction,
   "diff-style": handleDiffStyle,
   "agent-features": handleAgentFeatures,
@@ -608,6 +621,7 @@ function handleSettingsHub(_input: string, ctx: CommandContext): void {
   const chatStyle = ctx.chatStyle ?? "accent";
   const verbose = ctx.verbose ? "on" : "off";
   const reasoning = ctx.showReasoning ? "on" : "off";
+  const lockInStatus = ctx.lockIn ? "on" : "off";
   const compaction = ctx.compactionStrategy ?? "v2";
   const diffStyle = ctx.diffStyle ?? "default";
   const nvimConfig = ctx.effectiveNvimConfig ?? "default";
@@ -621,6 +635,7 @@ function handleSettingsHub(_input: string, ctx: CommandContext): void {
       { value: "chat-style", label: `${icon("chat_style")} Chat Style`, description: chatStyle },
       { value: "verbose", label: `${icon("verbose")} Verbose`, description: verbose },
       { value: "reasoning", label: `${icon("brain")} Reasoning`, description: reasoning },
+      { value: "lock-in", label: `${icon("ghost")} Lock-in`, description: lockInStatus },
       { value: "compaction", label: `${icon("compact")} Compaction`, description: compaction },
       { value: "diff-style", label: `${icon("git")} Diff Style`, description: diffStyle },
       { value: "agent-features", label: `${icon("system")} Agent Features`, description: "toggle" },
@@ -848,6 +863,7 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/font nerd", handleNerdFont);
   map.set("/font set", handleFont);
   map.set("/settings", handleSettingsHub);
+  map.set("/lock-in", handleLockIn);
   map.set("/theme", handleTheme);
 }
 

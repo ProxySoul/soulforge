@@ -547,6 +547,13 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["debug", "output"],
   },
   {
+    cmd: "/lock-in",
+    ic: "ghost",
+    desc: "Toggle lock-in mode — hide narration, show tools + final answer",
+    category: "Settings",
+    tags: ["focus", "quiet", "narration", "shush"],
+  },
+  {
     cmd: "/vim-hints",
     ic: "pencil",
     desc: "Toggle vim keybinding hints",

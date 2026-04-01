@@ -189,9 +189,9 @@ type PruningTarget = "none" | "main" | "subagents" | "both";
 export interface ContextManagementConfig {
   /** Enable server-side context compaction for 200K+ models */
   compact?: boolean;
-  /** Clear old tool use results (keep last 10) */
+  /** Clear old tool use results server-side (triggers at 65% context window, busts cache) */
   clearToolUses?: boolean;
-  /** Clear old thinking blocks (keep last 5 turns) */
+  /** Preserve thinking blocks with keep:"all" for cache stability (default: on) */
   clearThinking?: boolean;
   /** @deprecated Use pruningTarget instead */
   disablePruning?: boolean;
@@ -282,6 +282,8 @@ export interface AppConfig {
   nerdFont?: boolean | null;
   /** Chat layout style. Default: "accent" */
   chatStyle?: ChatStyle;
+  /** Lock-in mode — hide agent narration during work, show only tools + final answer. Default: false */
+  lockIn?: boolean;
   /** Show reasoning/thinking content in chat. Default: true */
   showReasoning?: boolean;
   /** Add co-author trailer on AI-assisted commits. Default: true */

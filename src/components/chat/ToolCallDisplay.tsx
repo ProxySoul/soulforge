@@ -211,6 +211,7 @@ const MultiAgentChildRow = memo(
     isLast,
     childSteps,
     liveStats,
+    compact = false,
   }: {
     agentId: string;
     info: AgentInfo;
@@ -218,6 +219,7 @@ const MultiAgentChildRow = memo(
     isLast: boolean;
     childSteps: SubagentStep[];
     liveStats?: AgentStatsEvent;
+    compact?: boolean;
   }) {
     const t = useTheme();
     const roleIcon =
@@ -317,7 +319,7 @@ const MultiAgentChildRow = memo(
           const agentDone = info.state === "done" || info.state === "error";
           // Collapse finished agents — show no child steps
           if (agentDone) return null;
-          const MAX_VISIBLE = 6;
+          const MAX_VISIBLE = compact ? 1 : 6;
           const filtered = childSteps.filter((s) => !QUIET_TOOLS.has(s.toolName));
           const running = filtered.filter((s) => s.state === "running");
           const done = filtered.filter((s) => s.state !== "running");
@@ -506,11 +508,13 @@ const ToolRow = memo(
     seconds,
     diffStyle = "default",
     treePosition,
+    compact = false,
   }: {
     tc: LiveToolCall;
     seconds?: number;
     diffStyle?: "default" | "sidebyside" | "compact";
     treePosition?: TreePosition;
+    compact?: boolean;
   }) {
     const t = useTheme();
     const isSubagent = SUBAGENT_NAMES.has(tc.toolName);
@@ -681,6 +685,7 @@ const ToolRow = memo(
                 isLast={isLastVisible && allAccountedFor}
                 childSteps={agentSteps}
                 liveStats={liveStats.get(agentId)}
+                compact={compact}
               />
             );
           })}
@@ -691,7 +696,7 @@ const ToolRow = memo(
       isSubagent && !isMultiAgent && allChildSteps.length > 0 ? (
         <box flexDirection="column">
           {(() => {
-            const MAX_SINGLE = 5;
+            const MAX_SINGLE = compact ? 1 : 5;
             const filtered = allChildSteps.filter((s) => !QUIET_TOOLS.has(s.toolName));
             const running = filtered.filter((s) => s.state === "running");
             const done = filtered.filter((s) => s.state !== "running");
@@ -808,7 +813,8 @@ const ToolRow = memo(
     prev.seconds === next.seconds &&
     prev.diffStyle === next.diffStyle &&
     prev.treePosition?.isFirst === next.treePosition?.isFirst &&
-    prev.treePosition?.isLast === next.treePosition?.isLast,
+    prev.treePosition?.isLast === next.treePosition?.isLast &&
+    prev.compact === next.compact,
 );
 
 const QUIET_TOOLS = new Set(["update_plan_step", "ask_user", "task_list"]);
@@ -844,6 +850,8 @@ interface Props {
   calls: LiveToolCall[];
   verbose?: boolean;
   diffStyle?: "default" | "sidebyside" | "compact";
+  /** Lock-in compact mode — limit child steps per agent to 1 */
+  compact?: boolean;
 }
 
 /** Render a single tool call row with optional tree connector prefix. */
@@ -853,6 +861,7 @@ function renderToolCall(
   diffStyle: "default" | "sidebyside" | "compact",
   t: { textMuted: string; amber: string; textFaint: string },
   connector?: TreePosition,
+  compact?: boolean,
 ) {
   if ((tc.toolName === "write_plan" || tc.toolName === "plan") && tc.args) {
     try {
@@ -908,16 +917,18 @@ function renderToolCall(
         seconds={seconds}
         diffStyle={diffStyle}
         treePosition={connector}
+        compact={compact}
       />
     );
   }
-  return <ToolRow key={tc.id} tc={tc} seconds={seconds} diffStyle={diffStyle} />;
+  return <ToolRow key={tc.id} tc={tc} seconds={seconds} diffStyle={diffStyle} compact={compact} />;
 }
 
 export const ToolCallDisplay = memo(function ToolCallDisplay({
   calls,
   verbose = false,
   diffStyle = "default",
+  compact = false,
 }: Props) {
   const t = useTheme();
   const elapsed = useElapsedTimers(calls);
@@ -943,7 +954,9 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
   if (visible.length <= 1) {
     return (
       <box flexDirection="column">
-        {visible.map((tc) => renderToolCall(tc, elapsed.get(tc.id), diffStyle, t))}
+        {visible.map((tc) =>
+          renderToolCall(tc, elapsed.get(tc.id), diffStyle, t, undefined, compact),
+        )}
       </box>
     );
   }
@@ -952,10 +965,14 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
   return (
     <box flexDirection="column">
       {visible.map((tc, i) =>
-        renderToolCall(tc, elapsed.get(tc.id), diffStyle, t, {
-          isFirst: i === 0,
-          isLast: i === visible.length - 1,
-        }),
+        renderToolCall(
+          tc,
+          elapsed.get(tc.id),
+          diffStyle,
+          t,
+          { isFirst: i === 0, isLast: i === visible.length - 1 },
+          compact,
+        ),
       )}
     </box>
   );

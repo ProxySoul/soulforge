@@ -38,6 +38,7 @@ export const StreamSegmentList = memo(function StreamSegmentList({
   diffStyle = "default",
   showReasoning = true,
   reasoningExpanded = false,
+  lockIn = false,
 }: {
   segments: StreamSegment[];
   toolCalls: LiveToolCall[];
@@ -46,6 +47,7 @@ export const StreamSegmentList = memo(function StreamSegmentList({
   diffStyle?: "default" | "sidebyside" | "compact";
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
+  lockIn?: boolean;
 }) {
   const toolCallMap = useMemo(() => new Map(toolCalls.map((tc) => [tc.id, tc])), [toolCalls]);
 
@@ -79,8 +81,11 @@ export const StreamSegmentList = memo(function StreamSegmentList({
         if (seg.type === "reasoning" && !showReasoning) return null;
 
         const needsGap = lastVisibleType !== null && lastVisibleType !== seg.type ? 1 : 0;
-        lastVisibleType = seg.type;
         if (seg.type === "text") {
+          // Lock-in mode: suppress all text during streaming.
+          // Final answer appears when the message goes static.
+          if (lockIn) return null;
+          lastVisibleType = seg.type;
           const isActiveSegment = i === lastTextIndex;
           const display = trimToCompleteLines(seg.content);
           if (display.length === 0) return null;
@@ -98,6 +103,7 @@ export const StreamSegmentList = memo(function StreamSegmentList({
           );
         }
         if (seg.type === "reasoning") {
+          lastVisibleType = seg.type;
           const rkey = `${seg.id}-${reasoningExpanded ? "exp" : "col"}`;
           return (
             <box key={rkey} flexDirection="column" marginTop={needsGap}>
@@ -110,10 +116,13 @@ export const StreamSegmentList = memo(function StreamSegmentList({
             </box>
           );
         }
+        // Lock-in mode: tools rendered by LockInWrapper, skip here
+        if (lockIn) return null;
         const calls = seg.callIds
           .map((id: string) => toolCallMap.get(id))
           .filter((tc): tc is LiveToolCall => tc != null);
         if (calls.length === 0) return null;
+        lastVisibleType = seg.type;
         return (
           <box key={seg.callIds[0]} marginTop={needsGap}>
             <ToolCallDisplay calls={calls} verbose={verbose} diffStyle={diffStyle} />

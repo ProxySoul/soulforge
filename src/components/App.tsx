@@ -837,6 +837,8 @@ export function App({
         compactionStrategy: effectiveConfig.compaction?.strategy ?? "v2",
         showReasoning: uiState.showReasoning,
         setShowReasoning: uiState.setShowReasoning,
+        lockIn: uiState.lockIn,
+        setLockIn: uiState.setLockIn,
         openSetup: () => uiState.openModal("setup"),
         openEditorSettings: () => uiState.openModal("editorSettings"),
         openRouterSettings: () => {

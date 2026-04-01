@@ -25,9 +25,12 @@ import { useStatusBarStore } from "../../stores/statusbar.js";
 import { useUIStore } from "../../stores/ui.js";
 import type { AppConfig, ChatMessage, EditorIntegration } from "../../types/index.js";
 import { InputBox } from "../chat/InputBox.js";
+import { filterQuietTools, LOCKIN_EDIT_TOOLS, LockInWrapper } from "../chat/LockInStreamView.js";
 import { CodeExpandedProvider } from "../chat/Markdown.js";
 import { RAIL_BORDER, ReasoningExpandedProvider, StaticMessage } from "../chat/MessageList.js";
 import { StreamSegmentList } from "../chat/StreamSegmentList.js";
+import { SUBAGENT_NAMES, ToolCallDisplay } from "../chat/ToolCallDisplay.js";
+import { formatArgs } from "../chat/tool-formatters.js";
 import { PlanProgress } from "../plan/PlanProgress.js";
 import { PlanReviewPrompt } from "../plan/PlanReviewPrompt.js";
 import { TaskProgress, useTaskList } from "../plan/TaskProgress.js";
@@ -321,6 +324,7 @@ export const TabInstance = memo(function TabInstance({
     editorSplit,
     showReasoning,
     reasoningExpandedMap,
+    lockIn,
   } = useUIStore(
     useShallow((s) => ({
       codeExpandedMap: s.codeExpanded,
@@ -330,6 +334,7 @@ export const TabInstance = memo(function TabInstance({
       editorSplit: s.editorSplit,
       showReasoning: s.showReasoning,
       reasoningExpandedMap: s.reasoningExpanded,
+      lockIn: s.lockIn,
     })),
   );
   const codeExpanded = !!codeExpandedMap[tabId];
@@ -486,6 +491,7 @@ export const TabInstance = memo(function TabInstance({
                       showReasoning={showReasoning}
                       reasoningExpanded={reasoningExpanded}
                       animate={false}
+                      lockIn={lockIn}
                     />
                   ))}
                   {isStreaming && (
@@ -498,17 +504,69 @@ export const TabInstance = memo(function TabInstance({
                         paddingLeft={2}
                       >
                         <box>
-                          <text fg={t.brand}>{icon("ai")} Forge</text>
+                          <text fg={t.brand}>
+                            {icon("ai")} Forge
+                            {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
+                          </text>
                         </box>
-                        <StreamSegmentList
-                          segments={chat.streamSegments}
-                          toolCalls={chat.liveToolCalls}
-                          streaming={chat.isLoading}
-                          verbose={effectiveConfig.verbose === true}
-                          diffStyle={effectiveConfig.diffStyle}
-                          showReasoning={showReasoning}
-                          reasoningExpanded={reasoningExpanded}
-                        />
+                        {lockIn ? (
+                          <>
+                            <LockInWrapper
+                              hasEdits={chat.liveToolCalls.some((tc) =>
+                                LOCKIN_EDIT_TOOLS.has(tc.toolName),
+                              )}
+                              hasDispatch={chat.liveToolCalls.some((tc) =>
+                                SUBAGENT_NAMES.has(tc.toolName),
+                              )}
+                              done={false}
+                              seed={chat.messages.length}
+                              tools={chat.liveToolCalls
+                                .filter(
+                                  (tc) =>
+                                    filterQuietTools(tc.toolName) &&
+                                    !SUBAGENT_NAMES.has(tc.toolName),
+                                )
+                                .map((tc) => ({
+                                  id: tc.id,
+                                  name: tc.toolName,
+                                  done: tc.state !== "running",
+                                  error: tc.state === "error",
+                                  argStr: formatArgs(tc.toolName, tc.args),
+                                }))}
+                            >
+                              {chat.liveToolCalls.some((tc) => SUBAGENT_NAMES.has(tc.toolName)) ? (
+                                <ToolCallDisplay
+                                  calls={chat.liveToolCalls.filter((tc) =>
+                                    SUBAGENT_NAMES.has(tc.toolName),
+                                  )}
+                                  diffStyle="compact"
+                                  compact
+                                />
+                              ) : null}
+                            </LockInWrapper>
+                            <StreamSegmentList
+                              segments={chat.streamSegments}
+                              toolCalls={chat.liveToolCalls}
+                              streaming={chat.isLoading}
+                              verbose={effectiveConfig.verbose === true}
+                              diffStyle="compact"
+                              showReasoning={showReasoning}
+                              reasoningExpanded={reasoningExpanded}
+                              lockIn
+                            />
+                          </>
+                        ) : (
+                          <StreamSegmentList
+                            segments={chat.streamSegments}
+                            toolCalls={chat.liveToolCalls}
+                            streaming={chat.isLoading}
+                            verbose={effectiveConfig.verbose === true}
+                            diffStyle={effectiveConfig.diffStyle}
+                            showReasoning={showReasoning}
+                            reasoningExpanded={reasoningExpanded}
+                            lockIn={lockIn}
+                          />
+                        )}
                       </box>
                     </box>
                   )}
