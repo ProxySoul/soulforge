@@ -1920,6 +1920,7 @@ export function useChat({
         let lastToolActivityTs = Date.now();
         let toolsInFlight = 0;
         let gotFirstChunk = false;
+        let betweenSteps = false; // true after finish-step until next start-step
         const markActivity = () => {
           gotFirstChunk = true;
           lastActivityTs = Date.now();
@@ -1963,7 +1964,11 @@ export function useChat({
           if (toolsInFlight > 0) {
             if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
           } else {
-            const threshold = gotFirstChunk ? STALL_CHUNK_MS : STALL_FIRST_CHUNK_MS;
+            // Between steps (SDK making a new API call) or before first chunk:
+            // use the generous first-chunk timeout since the provider may be
+            // processing a large context or queueing the request.
+            const threshold =
+              !gotFirstChunk || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
             if (Date.now() - lastActivityTs <= threshold) return;
           }
           stallTriggered = true;
@@ -1994,6 +1999,7 @@ export function useChat({
           }
           switch (part.type) {
             case "start-step": {
+              betweenSteps = false;
               const warnings = (part as { warnings?: Array<{ type: string; message?: string }> })
                 .warnings;
               if (warnings && warnings.length > 0) {
@@ -2205,6 +2211,7 @@ export function useChat({
               break;
             }
             case "finish-step": {
+              betweenSteps = true;
               const stepTotal = part.usage.inputTokens ?? 0;
               const stepOut = part.usage.outputTokens ?? 0;
               const details = (
