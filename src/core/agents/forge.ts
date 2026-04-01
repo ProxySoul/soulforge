@@ -431,10 +431,12 @@ export function createForgeAgent({
     activeDeferredTools,
   });
 
-  // miniForge: share the forge system prompt with subagents for prefix cache hits.
-  // Works across all providers with automatic caching (OpenAI, Gemini, DeepSeek, Mistral, etc.)
+  // miniForge: share the forge system prompt + tool definitions with subagents for prefix cache hits.
+  // The Anthropic cache prefix is tools → system → messages. Sharing both tools AND instructions
+  // means the entire [tools + system] prefix is a cache HIT on every miniforge's first step.
   // buildInstructions is WeakMap-cached, so this call is effectively free.
   const forgeInstructions = buildInstructions(contextManager, modelId);
+  const forgeTools = directTools;
 
   // OpenAI prompt cache routing: session-level key co-locates requests sharing
   // the same prefix on the same backend, improving hit rates (~60% → ~87%).
@@ -461,6 +463,7 @@ export function createForgeAgent({
           disablePruning,
           tabId: tabId ?? contextManager.getTabId() ?? undefined,
           forgeInstructions,
+          forgeTools,
         }).dispatch,
       }
     : buildSubagentTools({
@@ -482,6 +485,7 @@ export function createForgeAgent({
         disablePruning,
         tabId: tabId ?? contextManager.getTabId() ?? undefined,
         forgeInstructions,
+        forgeTools,
       });
 
   const cachedReadFile =

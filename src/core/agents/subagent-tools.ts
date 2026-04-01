@@ -52,6 +52,52 @@ export interface SubagentModels {
   disablePruning?: boolean;
   tabId?: string;
   forgeInstructions?: string;
+  /** Forge tool definitions — shared with miniforges for cache prefix hits. */
+  forgeTools?: Record<string, unknown>;
+}
+
+// Tools that explore/investigate miniforges must not execute.
+// Definitions are still sent (same as forge) for cache prefix hits.
+const EXPLORE_BLOCKED = new Set([
+  "edit_file",
+  "multi_edit",
+  "write_file",
+  "create_file",
+  "rename_symbol",
+  "move_symbol",
+  "refactor",
+  "dispatch",
+  "shell",
+]);
+
+// Tools that code miniforges must not execute (prevent nested dispatch).
+const CODE_BLOCKED = new Set(["dispatch"]);
+
+/** Wrap forge tools with role-based execute guards for miniforges.
+ *  Tool definitions (description + schema) stay identical → same cache prefix.
+ *  Only the execute function changes — it's local, never sent to the API. */
+function guardForgeTools(
+  forgeTools: Record<string, unknown>,
+  role: "explore" | "investigate" | "code",
+): Record<string, unknown> {
+  const blocked = role === "code" ? CODE_BLOCKED : EXPLORE_BLOCKED;
+  const guarded: Record<string, unknown> = {};
+  const rejectMsg = (name: string) =>
+    `${name} is not available in ${role} mode. Use report_finding to suggest changes instead.`;
+
+  for (const [name, t] of Object.entries(forgeTools)) {
+    if (blocked.has(name)) {
+      // Spread the original tool object to preserve description + schema for cache,
+      // then override execute to reject at runtime.
+      guarded[name] = {
+        ...(t as object),
+        execute: async () => ({ success: false, error: rejectMsg(name) }),
+      };
+    } else {
+      guarded[name] = t;
+    }
+  }
+  return guarded;
 }
 
 function formatToolArgs(toolCall: { toolName: string; input?: unknown }): string {
@@ -211,6 +257,20 @@ export function createAgent(
 
   const contextWindow = getModelContextWindow(modelId);
   const forgeInstructions = useMiniForge ? models.forgeInstructions : undefined;
+
+  // miniForge: use forge's tool definitions (guarded by role) for cache prefix hits.
+  // Tool definitions (description + schema) are byte-identical to the main forge →
+  // the [tools + system] prefix is a cache HIT on every miniforge's first step.
+  const agentRole = useExplore
+    ? task.role === "investigate"
+      ? ("investigate" as const)
+      : ("explore" as const)
+    : ("code" as const);
+  const forgeToolsGuarded =
+    useMiniForge && models.forgeTools
+      ? guardForgeTools(models.forgeTools as Record<string, unknown>, agentRole)
+      : undefined;
+
   const opts = {
     bus,
     agentId: task.agentId,
@@ -223,9 +283,10 @@ export function createAgent(
     repoMap: models.repoMap,
     contextWindow,
     disablePruning: models.disablePruning,
-    role: task.role === "investigate" ? ("investigate" as const) : ("explore" as const),
+    role: agentRole === "code" ? ("explore" as const) : agentRole,
     tabId: models.tabId,
     forgeInstructions,
+    forgeTools: forgeToolsGuarded,
   };
   const hasPreloadedFiles = !useExplore && task.task.includes("--- Preloaded file contents");
   const agent = useExplore

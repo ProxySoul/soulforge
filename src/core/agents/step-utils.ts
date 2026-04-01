@@ -37,16 +37,6 @@ const MAX_SUBAGENT_CONTEXT = 200_000;
 
 const KEEP_RECENT_MESSAGES = 4;
 
-// Token-budget pruning: protect last N tokens of tool results,
-// blank everything older. More forgiving than message-count for subagents.
-const PRUNE_PROTECT_TOKENS = 40_000;
-const PRUNE_MINIMUM_TOKENS = 20_000;
-const PRUNED_PLACEHOLDER = "[Old tool result content cleared]";
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
 // Step-count limits — hard caps to prevent runaway loops.
 // Bumped +3 from original (25/15) to compensate for the final step being
 // forced to toolChoice:"none" (text-only) — agents need room to finish work
@@ -353,61 +343,14 @@ function compactOldToolResults(
   return result as ModelMessage[];
 }
 
-/** Token-budget pruning: walk backward through tool results, protect last
- *  PRUNE_PROTECT_TOKENS worth of content, blank everything older.
- *  Less aggressive than message-count pruning — suitable for subagents. */
-function pruneByTokenBudget(messages: ModelMessage[]): ModelMessage[] {
-  // Walk backward, accumulate tool result token estimates
-  type PruneTarget = { msgIdx: number; partIdx: number; tokens: number };
-  const targets: PruneTarget[] = [];
-  let totalTokens = 0;
-
-  for (let mi = messages.length - 1; mi >= 0; mi--) {
-    const msg = messages[mi];
-    if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
-    for (let pi = msg.content.length - 1; pi >= 0; pi--) {
-      const part = msg.content[pi] as
-        | { type: string; toolName: string; output: unknown }
-        | undefined;
-      if (!part || part.type !== "tool-result") continue;
-      if (EDIT_TOOLS.has(part.toolName)) continue;
-      const text = extractText(part.output);
-      const tokens = estimateTokens(text);
-      if (tokens <= 50) continue;
-      totalTokens += tokens;
-      targets.push({ msgIdx: mi, partIdx: pi, tokens });
-    }
-  }
-
-  // Only prune if we'd free enough tokens
-  const excess = totalTokens - PRUNE_PROTECT_TOKENS;
-  if (excess < PRUNE_MINIMUM_TOKENS) return messages;
-
-  // Mark oldest targets for pruning (they're in reverse order, so the end of the array is oldest)
-  let freed = 0;
-  const pruneSet = new Set<string>();
-  for (let i = targets.length - 1; i >= 0 && freed < excess; i--) {
-    const t = targets[i];
-    if (!t) continue;
-    pruneSet.add(`${String(t.msgIdx)}:${String(t.partIdx)}`);
-    freed += t.tokens;
-  }
-
-  if (pruneSet.size === 0) return messages;
-
-  return messages.map((msg, mi) => {
-    if (msg.role !== "tool" || !Array.isArray(msg.content)) return msg;
-    let changed = false;
-    const newContent = msg.content.map((part, pi) => {
-      if (pruneSet.has(`${String(mi)}:${String(pi)}`)) {
-        changed = true;
-        return { ...part, output: { type: "text" as const, value: PRUNED_PLACEHOLDER } };
-      }
-      return part;
-    });
-    return changed ? { ...msg, content: newContent } : msg;
-  }) as ModelMessage[];
-}
+// TODO: pruneByTokenBudget removed — it replaced old tool result content with placeholders,
+// which mutated the message prefix and broke Anthropic auto-caching.
+// Server-side clear_tool_uses (enabled by default) handles this now.
+// If client-side pruning is needed again, it must use the cache-stable re-insertion pattern.
+//
+// function pruneByTokenBudget(messages: ModelMessage[]): ModelMessage[] {
+//   ... see git history for implementation ...
+// }
 
 interface PrepareStepResult {
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
@@ -434,6 +377,11 @@ export function buildPrepareStep({
   const isExplore = role === "explore" || role === "investigate";
   const stepNudgeAt = isExplore ? STEP_NUDGE_EXPLORE : STEP_NUDGE_CODE;
   const maxSteps = isExplore ? EXPLORE_MAX_STEPS : CODE_MAX_STEPS;
+
+  // Cache-stable inject tracking (same pattern as forge.ts).
+  // All dynamic hints go into user message injects instead of result.system
+  // to keep the system prompt stable for prefix caching.
+  const previousInjects: Array<{ cleanInsertAt: number; message: ModelMessage }> = [];
 
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
   const prepareStep: PrepareStepFunction<any> = ({ stepNumber, steps, messages }) => {
@@ -471,15 +419,16 @@ export function buildPrepareStep({
       result.toolChoice = "required";
     }
 
-    // Tool result pruning: compact old results into summaries to save tokens.
-    // Only runs when pruning is enabled (pruningTarget includes "subagents" or "both").
-    // Uses token-budget approach: protect last PRUNE_PROTECT_TOKENS, blank older results.
+    // Tool result compaction: summarize old results to save tokens.
+    // Only runs when pruning is enabled via /provider-settings toggle.
+    // TODO: pruneByTokenBudget was removed — it modified earlier message content which broke
+    // Anthropic prefix caching. Server-side clear_tool_uses handles this now.
+    // If we need client-side pruning back, it must use the re-insertion pattern to stay cache-stable.
     if (!disablePruning && stepNumber >= 2) {
       const src = result.messages ?? messages;
-      const pruned = pruneByTokenBudget(src);
-      if (pruned !== src) {
-        const compacted = compactOldToolResults(pruned, symbolLookup);
-        result.messages = compacted !== pruned ? compacted : pruned;
+      const compacted = compactOldToolResults(src, symbolLookup);
+      if (compacted !== src) {
+        result.messages = compacted;
       }
     }
 
@@ -582,19 +531,19 @@ export function buildPrepareStep({
 
     const contextSize = lastStep?.usage.inputTokens ?? 0;
 
+    // Collect all hints as user message injects (not result.system) for cache stability.
+    // System prompt stays byte-identical across steps → prefix caching works.
+    const hints: string[] = [];
+
     if (bus && agentId) {
       const unseen = bus.drainUnseenFindings(agentId);
       if (unseen) {
-        const existing = result.system ?? "";
-        result.system = `${existing}\n\n--- Peer findings (new) ---\n${unseen}`.trim();
+        hints.push(`--- Peer findings (new) ---\n${unseen}`);
       }
     }
 
-    // Inject task list so it survives compaction
     const taskBlock = renderTaskList(tabId);
-    if (taskBlock) {
-      result.system = `${result.system ?? ""}\n\n${taskBlock}`.trim();
-    }
+    if (taskBlock) hints.push(taskBlock);
 
     // Consecutive read detection: count trailing read-only tool calls
     if (stepNumber >= CONSECUTIVE_READ_LIMIT && !nudgeFired) {
@@ -610,11 +559,10 @@ export function buildPrepareStep({
         else break;
       }
       if (consecutiveReads >= CONSECUTIVE_READ_LIMIT) {
-        const existing = result.system ?? "";
         const hint = isExplore
           ? `[status: ${String(consecutiveReads)} read-only steps — summarize findings or use a search tool for remaining questions]`
           : `[status: ${String(consecutiveReads)} read-only steps — apply edits with multi_edit]`;
-        result.system = `${existing}\n\n${hint}`.trim();
+        hints.push(hint);
       }
     }
 
@@ -622,51 +570,35 @@ export function buildPrepareStep({
     if (stepNumber >= REPEAT_CALL_THRESHOLD) {
       const repeated = detectRepeatedCalls(steps);
       if (repeated) {
-        const existing = result.system ?? "";
-        result.system =
-          `${existing}\n\n🔁 ${repeated.toolName} called ${String(repeated.count)}× with identical arguments — same result each time. Use the result you already have, or try a different tool/approach.`.trim();
+        hints.push(
+          `🔁 ${repeated.toolName} called ${String(repeated.count)}× with identical arguments — same result each time. Use the result you already have, or try a different tool/approach.`,
+        );
       }
     }
 
     // Step-count nudge: progressively stronger as agent approaches step limit
     if (stepNumber >= stepNudgeAt) {
       const remaining = maxSteps - stepNumber;
-      const existing = result.system ?? "";
       if (remaining <= 1) {
-        // LAST STEP — force text-only response. No more tool calls.
         const hint = isExplore
-          ? "Write your final text summary NOW. Name files, line numbers, exact values found."
-          : "Apply edits with multi_edit NOW, then summarize what you changed.";
-        result.system = `${existing}\n\n🛑 FINAL STEP. ${hint}`.trim();
+          ? "🛑 FINAL STEP. Write your final text summary NOW. Name files, line numbers, exact values found."
+          : "🛑 FINAL STEP. Apply edits with multi_edit NOW, then summarize what you changed.";
+        hints.push(hint);
         result.toolChoice = "none";
         result.activeTools = [];
-        const msgs = result.messages ?? messages;
-        result.messages = [
-          ...msgs,
-          {
-            role: "user" as const,
-            content: [
-              {
-                type: "text" as const,
-                text: `FINAL step — write your text summary now: what you found or changed, which files, key details.`,
-              },
-            ],
-          },
-        ];
       } else if (remaining <= 2) {
         const hint = isExplore
-          ? "Write your text summary NOW. Name files, line numbers, exact values."
-          : "Apply edits with multi_edit NOW, then summarize what you changed.";
-        result.system = `${existing}\n\n🛑 ${String(remaining)} steps left. ${hint}`.trim();
+          ? `🛑 ${String(remaining)} steps left. Write your text summary NOW. Name files, line numbers, exact values.`
+          : `🛑 ${String(remaining)} steps left. Apply edits with multi_edit NOW, then summarize what you changed.`;
+        hints.push(hint);
         if (!isExplore) {
           result.activeTools = ["edit_file", "multi_edit", "done", "report_finding"];
         }
       } else {
         const hint = isExplore
-          ? "Write your text summary soon. Name files, line numbers, exact values found."
-          : "Apply your edits NOW with multi_edit.";
-        result.system =
-          `${existing}\n\n⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. ${hint}`.trim();
+          ? `⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. Write your text summary soon. Name files, line numbers, exact values found.`
+          : `⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. Apply your edits NOW with multi_edit.`;
+        hints.push(hint);
       }
     }
 
@@ -682,21 +614,42 @@ export function buildPrepareStep({
           agentId,
         });
       }
-      const msgs = result.messages ?? messages;
-      result.messages = [
-        ...msgs,
-        {
+      hints.push(
+        "Stop calling tools. Write a concise text summary now: what you found or changed, which files, key details.",
+      );
+      result.toolChoice = "none";
+      result.activeTools = [];
+    }
+
+    // Re-insert previous injects + append new one for cache-stable prefix.
+    if (hints.length > 0 || previousInjects.length > 0) {
+      const msgs = result.messages ?? [...(sanitizedMessages ?? messages)];
+      const cleanMsgCount = msgs.length;
+
+      let offset = 0;
+      for (const prev of previousInjects) {
+        const insertAt = prev.cleanInsertAt + offset;
+        if (insertAt <= msgs.length) {
+          msgs.splice(insertAt, 0, prev.message);
+          offset++;
+        }
+      }
+
+      if (hints.length > 0) {
+        const injectMessage: ModelMessage = {
           role: "user" as const,
           content: [
             {
               type: "text" as const,
-              text: "Stop calling tools. Write a concise text summary now: what you found or changed, which files, key details.",
+              text: hints.map((h) => `<system-reminder>\n${h}\n</system-reminder>`).join("\n\n"),
             },
           ],
-        },
-      ];
-      result.toolChoice = "none";
-      result.activeTools = [];
+        };
+        previousInjects.push({ cleanInsertAt: cleanMsgCount, message: injectMessage });
+        msgs.push(injectMessage);
+      }
+
+      result.messages = msgs;
     }
 
     return Object.keys(result).length > 0 ? result : undefined;

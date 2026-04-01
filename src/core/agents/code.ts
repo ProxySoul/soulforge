@@ -50,6 +50,8 @@ interface CodeAgentOptions {
   tabId?: string;
   hasPreloadedFiles?: boolean;
   forgeInstructions?: string;
+  /** Forge tool definitions with role guards — use instead of buildSubagentCodeTools for cache prefix hits. */
+  forgeTools?: Record<string, unknown>;
 }
 
 export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions) {
@@ -58,20 +60,23 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
   const hasBus = !!(bus && agentId);
   const busTools = hasBus ? buildBusTools(bus, agentId, "code") : {};
 
-  let tools = buildSubagentCodeTools({
-    webSearchModel: options?.webSearchModel,
-    onApproveWebSearch: options?.onApproveWebSearch,
-    onApproveFetchPage: options?.onApproveFetchPage,
-    repoMap: options?.repoMap,
-  });
-  if (hasBus) {
-    tools = wrapWithBusCache(tools, bus, agentId, options?.repoMap) as typeof tools;
+  // miniForge mode: use forge's tool definitions (with role guards) for cache prefix hits.
+  // Regular mode: build code-specific tools.
+  let allTools: Record<string, unknown>;
+  if (options?.forgeTools) {
+    allTools = { ...options.forgeTools, ...busTools };
+  } else {
+    let tools = buildSubagentCodeTools({
+      webSearchModel: options?.webSearchModel,
+      onApproveWebSearch: options?.onApproveWebSearch,
+      onApproveFetchPage: options?.onApproveFetchPage,
+      repoMap: options?.repoMap,
+    });
+    if (hasBus) {
+      tools = wrapWithBusCache(tools, bus, agentId, options?.repoMap) as typeof tools;
+    }
+    allTools = { ...tools, ...busTools };
   }
-
-  const allTools = {
-    ...tools,
-    ...busTools,
-  };
 
   const { prepareStep, stopConditions } = buildPrepareStep({
     bus,
@@ -89,7 +94,8 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
     id: options?.agentId ?? "code",
     model,
     temperature: 0,
-    tools: allTools,
+    // biome-ignore lint/suspicious/noExplicitAny: forgeTools come as Record<string, unknown> for cache sharing
+    tools: allTools as any,
     instructions: {
       role: "system" as const,
       content: options?.forgeInstructions
