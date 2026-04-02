@@ -453,12 +453,76 @@ export function createForgeAgent({
     activeDeferredTools,
   });
 
+  // Reorder tools: soul tools → LSP → core. Models prefer tools earlier in the list,
+  // and soul tools are TIER-1 (cheapest, most informative). This ordering reinforces
+  // the decision flow in the system prompt without adding tokens.
+  const STABLE_ORDER = [
+    // TIER-1: Soul tools (cheapest, graph-backed)
+    "soul_grep",
+    "soul_find",
+    "soul_analyze",
+    "soul_impact",
+    // TIER-1: LSP tools
+    "navigate",
+    "analyze",
+    // TIER-1: Core read/edit
+    "read_file",
+    "edit_file",
+    "multi_edit",
+    "project",
+    // TIER-2: Search fallbacks
+    "grep",
+    "glob",
+    "list_dir",
+    // TIER-2: Shell & git
+    "shell",
+    "git",
+    // TIER-3: Compound operations
+    "refactor",
+    "rename_symbol",
+    "move_symbol",
+    "rename_file",
+    // Scaffolding & discovery
+    "test_scaffold",
+    "discover_pattern",
+    // Web
+    "web_search",
+    "fetch_page",
+    // Agent & interactive
+    "dispatch",
+    "plan",
+    "update_plan_step",
+    "ask_user",
+    // Editor & session
+    "editor",
+    "task_list",
+    "undo_edit",
+    // Memory & skills
+    "memory",
+    "skills",
+    // Tool management
+    "request_tools",
+    "release_tools",
+    // Anthropic optional
+    "code_execution",
+    "web_fetch",
+    "computer",
+    "str_replace_based_edit_tool",
+  ];
+  const orderedTools: Record<string, unknown> = {};
+  for (const name of STABLE_ORDER) {
+    if (name in directTools) orderedTools[name] = (directTools as Record<string, unknown>)[name];
+  }
+  for (const [name, def] of Object.entries(directTools)) {
+    if (!(name in orderedTools)) orderedTools[name] = def;
+  }
+
   // miniForge: share the forge system prompt + tool definitions with subagents for prefix cache hits.
   // The Anthropic cache prefix is tools → system → messages. Sharing both tools AND instructions
   // means the entire [tools + system] prefix is a cache HIT on every miniforge's first step.
   // buildInstructions is WeakMap-cached, so this call is effectively free.
   const forgeInstructions = buildInstructions(contextManager, modelId);
-  const forgeTools = directTools;
+  const forgeTools = orderedTools;
 
   // OpenAI prompt cache routing: session-level key co-locates requests sharing
   // the same prefix on the same backend, improving hit rates (~60% → ~87%).
@@ -521,7 +585,7 @@ export function createForgeAgent({
       : directTools.read_file;
 
   const allTools = {
-    ...directTools,
+    ...orderedTools,
     read_file: cachedReadFile,
     ...subagentTools,
     ...(interactive ? buildInteractiveTools(interactive, { cwd, sessionId, forgeMode }) : {}),
