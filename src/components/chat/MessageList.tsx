@@ -84,22 +84,75 @@ function cleanErrorDetail(msg: string): string {
   return cleaned;
 }
 
-function categorizeError(msg: string): { category: string; detail: string } {
+function extractErrorCode(raw: string): string | null {
+  const statusMatch = raw.match(/\b(4\d{2}|5\d{2})\b/);
+  if (statusMatch) return statusMatch[1] as string;
+  const typeMatch = raw.match(/"type"\s*:\s*"([^"]+)"/);
+  if (typeMatch) return typeMatch[1] as string;
+  const codeMatch = raw.match(/\b(ECONNREFUSED|ETIMEDOUT|INTERNAL_ERROR)\b/);
+  if (codeMatch) return codeMatch[1] as string;
+  return null;
+}
+
+function categorizeError(msg: string): {
+  category: string;
+  flavor: string;
+  code: string | null;
+  detail: string;
+} {
   const raw = msg
     .replace(/^Error:\s*/, "")
     .replace(/^Request failed:\s*/, "")
     .replace(/^Failed[^:]*:\s*/, "");
+  const code = extractErrorCode(raw);
   if (/rate.?limit|too many requests|429|529/i.test(raw))
-    return { category: "Rate Limited", detail: cleanErrorDetail(raw) };
+    return {
+      category: "Rate Limited",
+      flavor: "The furnace is too hot — cooling down",
+      code,
+      detail: cleanErrorDetail(raw),
+    };
   if (/overloaded|503|capacity/i.test(raw))
-    return { category: "Service Overloaded", detail: cleanErrorDetail(raw) };
+    return {
+      category: "Overloaded",
+      flavor: "The anvil cracked under pressure",
+      code,
+      detail: cleanErrorDetail(raw),
+    };
   if (/unauthorized|401|403|api.?key|invalid.*key/i.test(raw))
-    return { category: "Auth Error", detail: cleanErrorDetail(raw) };
+    return {
+      category: "Auth Error",
+      flavor: "The guild rejected our credentials",
+      code,
+      detail: cleanErrorDetail(raw),
+    };
   if (/not permitted|not supported|invalid parameter|unknown parameter/i.test(raw))
-    return { category: "Config Error", detail: cleanErrorDetail(raw) };
+    return {
+      category: "Config Error",
+      flavor: "Wrong rune inscribed on the blade",
+      code,
+      detail: cleanErrorDetail(raw),
+    };
   if (/network|ECONNREFUSED|ETIMEDOUT|fetch failed|502/i.test(raw))
-    return { category: "Network Error", detail: cleanErrorDetail(raw) };
-  return { category: "Error", detail: cleanErrorDetail(raw) };
+    return {
+      category: "Network Error",
+      flavor: "The courier pigeon never arrived",
+      code,
+      detail: cleanErrorDetail(raw),
+    };
+  if (/stream error|INTERNAL_ERROR|api_error/i.test(raw))
+    return {
+      category: "Stream Error",
+      flavor: "The forge bellows burst mid-swing",
+      code,
+      detail: cleanErrorDetail(raw),
+    };
+  return {
+    category: "Error",
+    flavor: "Something broke in the workshop",
+    code,
+    detail: cleanErrorDetail(raw),
+  };
 }
 
 function parseRetry(text: string): { attempt: string; reason: string; delay: string } | null {
@@ -117,14 +170,17 @@ function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: bo
   const retry = parseRetry(text);
   const isInterrupt = text === "Generation interrupted.";
 
+  const errorInfo = isError ? categorizeError(text) : null;
+  const retryInfo = retry ? categorizeError(retry.reason) : null;
+
   const displayText = isError
-    ? categorizeError(text).detail
+    ? (errorInfo?.detail ?? text)
     : retry
-      ? `${categorizeError(retry.reason).category.toLowerCase()} — waiting ~${retry.delay}s`
+      ? `${retryInfo?.category.toLowerCase() ?? "error"} — waiting ~${retry.delay}s`
       : text;
 
   const railColor = isError ? t.error : retry ? t.warning : t.textMuted;
-  const textColor = isError ? t.error : t.textSecondary;
+  const textColor = isError ? t.textSecondary : t.textSecondary;
 
   const chunkSize = Math.max(1, Math.ceil(displayText.length / MAX_REVEAL_STEPS));
   const totalSteps = Math.ceil(displayText.length / chunkSize);
@@ -145,12 +201,17 @@ function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: bo
   const lines = visibleText.split("\n");
 
   const headerLabel = isError
-    ? categorizeError(text).category
+    ? (errorInfo?.category ?? "Error")
     : retry
       ? `Retry ${retry.attempt}`
       : isInterrupt
         ? "Interrupted"
         : "System";
+  const flavorText = isError
+    ? (errorInfo?.flavor ?? null)
+    : retry
+      ? (retryInfo?.flavor ?? null)
+      : null;
   const headerIcon = isError ? "✗" : retry ? "↻" : isInterrupt ? "⊘" : "›";
 
   return (
@@ -179,6 +240,8 @@ function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: bo
             {headerLabel}
           </text>
         )}
+        {errorInfo?.code ? <text fg={t.textDim}> [{errorInfo.code}]</text> : null}
+        {flavorText ? <text fg={t.textMuted}> — {flavorText}</text> : null}
         <text fg={t.textDim}> · {time}</text>
       </box>
       {lines.map((line, i) => (
@@ -499,7 +562,7 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
   const time = formatTime(msg.timestamp);
   const expanded = useReasoningExpanded();
   const isPlan = isPlanExecution(msg.content);
-  const borderColor = t.info;
+  const borderColor = t.accentUser;
 
   if (isPlan && !expanded) {
     const title = parsePlanTitle(msg.content);
@@ -568,7 +631,7 @@ const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMe
       <box
         borderStyle="rounded"
         border={true}
-        borderColor={t.info}
+        borderColor={t.accentUser}
         paddingX={2}
         paddingY={1}
         backgroundColor={t.bgUser}
@@ -821,7 +884,7 @@ function renderSegments(
                   : t.warning
               : t.textMuted;
             const kindLabel =
-              g.kind === "edits" ? "edit_file" : g.kind === "reads" ? "read_file" : "soul_grep";
+              g.kind === "edits" ? "edit_file" : g.kind === "reads" ? "read" : "soul_grep";
             const { icon: batchIcon, iconColor } = resolveToolDisplay(kindLabel);
             return (
               <box key={`batch-${String(gi)}`} height={1} flexShrink={0}>
@@ -976,7 +1039,7 @@ const AssistantMessage = memo(function AssistantMessage({
       paddingY={1}
     >
       <box flexDirection="row">
-        <text fg={t.brand}>
+        <text fg={t.accentAssistant}>
           {icon("ai")} Forge
           {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
         </text>
