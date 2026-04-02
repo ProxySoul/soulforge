@@ -1045,7 +1045,7 @@ export function App({
       </box>
 
       {tabMgr.tabCount > 1 ? (
-        <box flexShrink={0} marginTop={1}>
+        <box key="tab-bar" flexShrink={0} marginTop={1}>
           <TabBar
             tabs={tabMgr.tabs}
             activeTabId={tabMgr.activeTabId}
@@ -1065,7 +1065,7 @@ export function App({
           />
         </box>
       ) : !editorVisible ? (
-        <box height={1} flexShrink={0} />
+        <box key="tab-spacer" height={1} flexShrink={0} />
       ) : null}
 
       <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0}>

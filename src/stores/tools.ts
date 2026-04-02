@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-const DEFAULT_DISABLED = ["request_tools", "release_tools", "skills"];
+const DEFAULT_DISABLED = ["request_tools", "release_tools", "skills", "editor", "test_scaffold"];
 
 interface ToolsState {
   disabledTools: Set<string>;
