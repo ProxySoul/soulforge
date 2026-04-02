@@ -1356,7 +1356,7 @@ export function buildTools(
       description: projectTool.description,
       inputSchema: z.object({
         action: z
-          .enum(["test", "build", "lint", "format", "typecheck", "run", "list"])
+          .enum(["check", "test", "build", "lint", "format", "typecheck", "run", "list"])
           .describe(
             "Project action. format = auto-fix lint/style issues. list discovers monorepo packages.",
           ),
