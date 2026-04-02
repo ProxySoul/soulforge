@@ -1914,19 +1914,19 @@ export function useChat({
         //   - User Ctrl+X always wins — sets userAborted flag
         //   - After max retries, surfaces error to user
         //
-        // Stall threshold: 120s between chunks, 300s for first chunk
-        // (thinking models can take 2-3min before first token).
+        // Stall threshold: 300s between content chunks, 600s before first content.
+        // "First content" = actual text or tool-call, not just start-step metadata.
+        // First-content is generous for free tiers, deep reasoning, and large contexts.
         // Paused entirely while tools execute (they have their own timeouts).
-        const STALL_CHUNK_MS = 120_000;
-        const STALL_FIRST_CHUNK_MS = 300_000;
+        const STALL_CHUNK_MS = 300_000;
+        const STALL_FIRST_CHUNK_MS = 600_000;
         const STALL_TOOL_MAX_MS = 900_000; // 15min — dispatch worst case
         let lastActivityTs = Date.now();
         let lastToolActivityTs = Date.now();
         let toolsInFlight = 0;
-        let gotFirstChunk = false;
+        let gotFirstContent = false;
         let betweenSteps = false; // true after finish-step until next start-step
         const markActivity = () => {
-          gotFirstChunk = true;
           lastActivityTs = Date.now();
         };
         const markToolStart = () => {
@@ -1972,7 +1972,7 @@ export function useChat({
             // use the generous first-chunk timeout since the provider may be
             // processing a large context or queueing the request.
             const threshold =
-              !gotFirstChunk || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
+              !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
             if (Date.now() - lastActivityTs <= threshold) return;
           }
           stallTriggered = true;
@@ -2024,6 +2024,7 @@ export function useChat({
               break;
             }
             case "reasoning-delta": {
+              gotFirstContent = true;
               appendReasoningContent(part.text);
               break;
             }
@@ -2031,6 +2032,7 @@ export function useChat({
               markReasoningDone();
               break;
             case "text-delta": {
+              gotFirstContent = true;
               if (hasNativeReasoning) {
                 appendText(part.text);
               } else {
@@ -2056,6 +2058,7 @@ export function useChat({
               break;
             }
             case "tool-input-start": {
+              gotFirstContent = true;
               markToolStart();
               segmentsDirty.current = true;
               toolCallsDirty.current = true;
