@@ -1,9 +1,8 @@
-import { memo } from "react";
 import { useTheme } from "../../../core/theme/index.js";
 import { PopupRow, usePopupColors } from "../../layout/shared.js";
 import { BOLD } from "./theme.js";
 
-export const Gap = memo(function Gap({ iw, n = 1 }: { iw: number; n?: number }) {
+export function Gap({ iw, n = 1 }: { iw: number; n?: number }) {
   const { bg } = usePopupColors();
   const rows = [];
   for (let i = 0; i < n; i++)
@@ -13,9 +12,9 @@ export const Gap = memo(function Gap({ iw, n = 1 }: { iw: number; n?: number }) 
       </PopupRow>,
     );
   return <>{rows}</>;
-});
+}
 
-export const Hr = memo(function Hr({ iw }: { iw: number }) {
+export function Hr({ iw }: { iw: number }) {
   const t = useTheme();
   const { bg } = usePopupColors();
   return (
@@ -25,17 +24,9 @@ export const Hr = memo(function Hr({ iw }: { iw: number }) {
       </text>
     </PopupRow>
   );
-});
+}
 
-export const StepHeader = memo(function StepHeader({
-  iw,
-  ic,
-  title,
-}: {
-  iw: number;
-  ic: string;
-  title: string;
-}) {
+export function StepHeader({ iw, ic, title }: { iw: number; ic: string; title: string }) {
   const t = useTheme();
   const { bg } = usePopupColors();
   return (
@@ -49,15 +40,9 @@ export const StepHeader = memo(function StepHeader({
       </text>
     </PopupRow>
   );
-});
+}
 
-export const SectionLabel = memo(function SectionLabel({
-  iw,
-  label,
-}: {
-  iw: number;
-  label: string;
-}) {
+export function SectionLabel({ iw, label }: { iw: number; label: string }) {
   const t = useTheme();
   const { bg } = usePopupColors();
   return (
@@ -67,9 +52,9 @@ export const SectionLabel = memo(function SectionLabel({
       </text>
     </PopupRow>
   );
-});
+}
 
-export const Feat = memo(function Feat({
+export function Feat({
   iw,
   ic,
   title,
@@ -103,4 +88,4 @@ export const Feat = memo(function Feat({
       </text>
     </PopupRow>
   );
-});
+}

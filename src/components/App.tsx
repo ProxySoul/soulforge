@@ -1364,10 +1364,16 @@ export function App({
         visible={modalFirstRunWizard}
         hasModel={activeModelForHeader !== "none"}
         activeModel={activeModelForHeader}
-        onSelectModel={() => {
-          wizardOpenedLlm.current = true;
-          useUIStore.getState().closeModal("firstRunWizard");
-          useUIStore.getState().openModal("llmSelector");
+        onSelectModel={(modelId?: string) => {
+          if (modelId) {
+            notifyProviderSwitch(modelId);
+            setActiveModelForHeader(modelId);
+            saveToScope({ defaultModel: modelId }, modelScope);
+          } else {
+            wizardOpenedLlm.current = true;
+            useUIStore.getState().closeModal("firstRunWizard");
+            useUIStore.getState().openModal("llmSelector");
+          }
         }}
         onClose={() => {
           useUIStore.getState().closeModal("firstRunWizard");
