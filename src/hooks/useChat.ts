@@ -846,11 +846,9 @@ export function useChat({
           headers,
           contextWindow: compactCtxWindow,
         } = await buildProviderOptions(compactModelId, effectiveConfig);
-        // Update pinned context window for the compaction model too
+        // Update pinned context window for the compaction model (authoritative from API)
         if (compactCtxWindow > 0) {
-          const prev = pinnedContextWindow.current.get(compactModelId) ?? 0;
-          if (compactCtxWindow > prev)
-            pinnedContextWindow.current.set(compactModelId, compactCtxWindow);
+          pinnedContextWindow.current.set(compactModelId, compactCtxWindow);
         }
 
         let summary: string;
