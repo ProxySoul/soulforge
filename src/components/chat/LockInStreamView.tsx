@@ -4,7 +4,6 @@ import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { resolveToolDisplay } from "../../core/tool-display.js";
 import { garble } from "../../core/utils/splash.js";
-import { useElapsed } from "../../hooks/useElapsed.js";
 import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
 
 export const LOCKIN_EDIT_TOOLS = new Set([
@@ -138,6 +137,7 @@ export const LockInWrapper = memo(function LockInWrapper({
   seed: _seed,
   tools,
   children,
+  loadingStartedAt = 0,
 }: {
   hasEdits: boolean;
   hasDispatch?: boolean;
@@ -145,12 +145,20 @@ export const LockInWrapper = memo(function LockInWrapper({
   seed: number;
   tools: LockInTool[];
   children?: ReactNode;
+  loadingStartedAt?: number;
 }) {
   const t = useTheme();
   const frame = useSpinnerFrame();
 
   const effectiveDone = done;
-  const elapsed = useElapsed(!effectiveDone);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (effectiveDone || !loadingStartedAt) return;
+    const tick = () => setElapsed(Math.floor((Date.now() - loadingStartedAt) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [effectiveDone, loadingStartedAt]);
 
   const pairs = hasDispatch ? DISPATCH_PAIRS : hasEdits ? EDIT_PAIRS : EXPLORE_PAIRS;
   const statusMsg = useRotatingMessage(pairs, effectiveDone);
@@ -180,9 +188,13 @@ export const LockInWrapper = memo(function LockInWrapper({
             attributes={effectiveDone ? undefined : TextAttributes.BOLD}
           >
             {statusMsg}
-            {effectiveDone ? "" : DOTS_CYCLE[Math.floor(frame / 3) % DOTS_CYCLE.length]}
           </span>
-          {!effectiveDone && elapsed > 0 ? <span fg={t.textFaint}> {String(elapsed)}s</span> : null}
+          {effectiveDone ? null : (
+            <span fg={t.textMuted}>
+              {(DOTS_CYCLE[Math.floor(frame / 3) % DOTS_CYCLE.length] ?? ".").padEnd(3)}
+            </span>
+          )}
+          {!effectiveDone && elapsed > 0 ? <span fg={t.textFaint}>{String(elapsed)}s</span> : null}
         </text>
       </box>
 

@@ -203,7 +203,6 @@ interface StatusBarState {
   compactElapsed: number;
   compactionStrategy: CompactionStrategy;
   v2Slots: number;
-
   setTokenUsage: (usage: TokenUsage, modelId?: string) => void;
   resetTokenUsage: () => void;
   setContext: (contextTokens: number, chatChars: number) => void;
