@@ -243,6 +243,7 @@ export class TsMorphBackend implements IntelligenceBackend {
           file: resolve(file),
           line: imp.getStartLineNumber(),
           column: 1,
+          endLine: imp.getEndLineNumber(),
         },
       };
     });
@@ -273,6 +274,7 @@ export class TsMorphBackend implements IntelligenceBackend {
             file: resolve(file),
             line: decl.getStartLineNumber(),
             column: 1,
+            endLine: decl.getEndLineNumber(),
           },
         });
       }

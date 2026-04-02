@@ -307,11 +307,11 @@ async function buildSymbolDetails(
         lines.push(`    ${sig?.signature ?? `${sym.kind} ${sym.name}`}`);
       }
       const allFileSymbols = await repoMap.getFileSymbols(r.relPath);
-      const extra = allFileSymbols
-        .filter((fs: { name: string }) => !matchedNames.has(fs.name))
-        .slice(0, 3);
+      const extra = allFileSymbols.filter((fs) => !matchedNames.has(fs.name)).slice(0, 3);
       if (extra.length > 0) {
-        lines.push(`    also: ${extra.map((s: { name: string }) => s.name).join(", ")}`);
+        lines.push(
+          `    also: ${extra.map((s) => `${s.name} :${String(s.line)}-${String(s.endLine)}`).join(", ")}`,
+        );
       }
     } else {
       for (const sym of r.symbols.slice(0, 4)) {
@@ -320,7 +320,7 @@ async function buildSymbolDetails(
     }
   }
 
-  lines.push("\nUse read_file(path, target, name) for precise symbol reading.");
+  lines.push("\nUse read(files=[{path, target, name}]) for precise symbol extraction.");
   return lines.join("\n");
 }
 

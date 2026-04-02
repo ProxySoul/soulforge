@@ -1327,6 +1327,8 @@ function flattenDocumentSymbols(raw: unknown[], file: string, query?: string): S
             file: uriToFilePath(si.location.uri),
             line: si.location.range.start.line + 1,
             column: si.location.range.start.character + 1,
+            endLine: si.location.range.end.line + 1,
+            endColumn: si.location.range.end.character + 1,
           },
           containerName: si.containerName,
         };

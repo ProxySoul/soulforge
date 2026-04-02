@@ -186,8 +186,8 @@ async function unusedExports(
 
   // Group by file
   interface FileEntry {
-    dead: Array<{ name: string; kind: string }>;
-    unnecessary: Array<{ name: string; kind: string }>;
+    dead: Sym[];
+    unnecessary: Sym[];
     lineCount: number;
   }
   const byFile = new Map<string, FileEntry>();
@@ -197,10 +197,11 @@ async function unusedExports(
     if (!byFile.has(rel)) byFile.set(rel, { dead: [], unnecessary: [], lineCount: u.lineCount });
     const entry = byFile.get(rel);
     if (!entry) continue;
+    const sym: Sym = { name: u.name, kind: u.kind, line: u.line, endLine: u.endLine };
     if (u.usedInternally) {
-      entry.unnecessary.push({ name: u.name, kind: u.kind });
+      entry.unnecessary.push(sym);
     } else {
-      entry.dead.push({ name: u.name, kind: u.kind });
+      entry.dead.push(sym);
     }
   }
 
@@ -212,22 +213,20 @@ async function unusedExports(
   };
 
   // Classify files: dead file = ALL exports are dead (none alive)
+  type Sym = { name: string; kind: string; line: number; endLine: number };
   const deadFiles: Array<{
     file: string;
-    symbols: Array<{ name: string; kind: string }>;
+    symbols: Sym[];
     lineCount: number;
   }> = [];
   const exportGroups: Array<{
     file: string;
-    dead: Array<{ name: string; kind: string }>;
-    unnecessary: Array<{ name: string; kind: string }>;
+    dead: Sym[];
+    unnecessary: Sym[];
     lineCount: number;
   }> = [];
-  const scatteredDead: Array<{ file: string; symbols: Array<{ name: string; kind: string }> }> = [];
-  const scatteredUnnecessary: Array<{
-    file: string;
-    symbols: Array<{ name: string; kind: string }>;
-  }> = [];
+  const scatteredDead: Array<{ file: string; symbols: Sym[] }> = [];
+  const scatteredUnnecessary: Array<{ file: string; symbols: Sym[] }> = [];
 
   for (const [file, entry] of byFile) {
     const totalExported = await repoMap.getFileExportCount(file);
@@ -262,12 +261,12 @@ async function unusedExports(
   );
 
   // Test-only exports grouped by file
-  const testOnlyByFile = new Map<string, Array<{ name: string; kind: string }>>();
+  const testOnlyByFile = new Map<string, Sym[]>();
   for (const t of testOnly) {
     if (isForbidden(t.path) !== null) continue;
     const rel = relative(cwd, `${cwd}/${t.path}`);
     const arr = testOnlyByFile.get(rel) ?? [];
-    arr.push({ name: t.name, kind: t.kind });
+    arr.push({ name: t.name, kind: t.kind, line: t.line, endLine: t.endLine });
     testOnlyByFile.set(rel, arr);
   }
 
@@ -279,7 +278,8 @@ async function unusedExports(
     for (const f of deadFiles) {
       totalDeadLines += f.lineCount;
       lines.push(`  ${f.file}  (${String(f.lineCount)}L, ${String(f.symbols.length)} exports)`);
-      for (const s of f.symbols) lines.push(`    ${s.kind} ${s.name}`);
+      for (const s of f.symbols)
+        lines.push(`    ${s.kind} ${s.name} :${String(s.line)}-${String(s.endLine)}`);
     }
     lines.push("");
   }
@@ -306,8 +306,12 @@ async function unusedExports(
     for (const g of exportGroups) {
       const total = g.dead.length + g.unnecessary.length;
       lines.push(`  ${g.file}  (${String(total)} dead, ${String(g.lineCount)}L)`);
-      for (const s of g.dead) lines.push(`    ${s.kind} ${s.name}`);
-      for (const s of g.unnecessary) lines.push(`    ${s.kind} ${s.name}  (internal-only)`);
+      for (const s of g.dead)
+        lines.push(`    ${s.kind} ${s.name} :${String(s.line)}-${String(s.endLine)}`);
+      for (const s of g.unnecessary)
+        lines.push(
+          `    ${s.kind} ${s.name} :${String(s.line)}-${String(s.endLine)}  (internal-only)`,
+        );
     }
     lines.push("");
   }
@@ -317,7 +321,8 @@ async function unusedExports(
     lines.push(`Test-only exports (${String(testCount)} — only imported by test files):\n`);
     for (const [file, symbols] of testOnlyByFile) {
       lines.push(`  ${file}`);
-      for (const s of symbols) lines.push(`    ${s.kind} ${s.name}`);
+      for (const s of symbols)
+        lines.push(`    ${s.kind} ${s.name} :${String(s.line)}-${String(s.endLine)}`);
     }
     lines.push("");
   }
@@ -327,7 +332,8 @@ async function unusedExports(
     lines.push(`Scattered dead exports (${String(count)}):\n`);
     for (const s of scatteredDead) {
       lines.push(`  ${s.file}`);
-      for (const sym of s.symbols) lines.push(`    ${sym.kind} ${sym.name}`);
+      for (const sym of s.symbols)
+        lines.push(`    ${sym.kind} ${sym.name} :${String(sym.line)}-${String(sym.endLine)}`);
     }
     lines.push("");
   }
@@ -339,7 +345,8 @@ async function unusedExports(
     );
     for (const s of scatteredUnnecessary) {
       lines.push(`  ${s.file}`);
-      for (const sym of s.symbols) lines.push(`    ${sym.kind} ${sym.name}`);
+      for (const sym of s.symbols)
+        lines.push(`    ${sym.kind} ${sym.name} :${String(sym.line)}-${String(sym.endLine)}`);
     }
     lines.push("");
   }
@@ -563,7 +570,7 @@ async function duplication(
   }
 
   lines.push(
-    "Use read_file with target + name to inspect specific pairs and determine if they can be unified.",
+    "Use read with target + name to inspect specific pairs and determine if they can be unified.",
   );
   return { success: true, output: lines.join("\n") };
 }

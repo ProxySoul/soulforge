@@ -32,7 +32,8 @@ function formatLocation(loc: SourceLocation): string {
 }
 
 function formatSymbol(s: SymbolInfo): string {
-  const loc = `${s.location.file}:${String(s.location.line)}`;
+  const endStr = s.location.endLine ? `-${String(s.location.endLine)}` : "";
+  const loc = `${s.location.file}:${String(s.location.line)}${endStr}`;
   const container = s.containerName ? ` (in ${s.containerName})` : "";
   return `${s.kind} ${s.name}${container} — ${loc}`;
 }
@@ -209,8 +210,9 @@ export const navigateTool = {
   name: "navigate",
   description:
     "[TIER-1] LSP-powered symbol lookup. Auto-resolves file from symbol name — just pass the symbol. " +
-    "Returns file:line locations, caller/callee lists, type hierarchies. " +
-    "Works across project and dependency files (node_modules, .d.ts, vendor). " +
+    "Find where a function is called: references. Find what calls what: call_hierarchy. " +
+    "Get type info, props, inherited members from dependencies without reading node_modules. " +
+    "Works across project + dependency files (.d.ts, stubs, headers). " +
     "Actions: definition, references, symbols, imports, exports, call_hierarchy, implementation, type_hierarchy, workspace_symbols, search_symbols.",
   execute: async (args: NavigateArgs, repoMap?: RepoMapLike): Promise<ToolResult> => {
     try {
@@ -286,7 +288,7 @@ export const navigateTool = {
           if (!tracked) {
             return {
               success: false,
-              output: `No definition backend available for this file type. Try navigate(workspace_symbols) to locate the symbol, or read_file to inspect the source directly.`,
+              output: `No definition backend available for this file type. Try navigate(workspace_symbols) to locate the symbol, or read to inspect the source directly.`,
               error: "unsupported",
             };
           }

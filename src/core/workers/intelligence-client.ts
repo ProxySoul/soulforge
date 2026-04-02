@@ -58,7 +58,7 @@ export class IntelligenceClient extends WorkerClient {
   private _semanticMode: "off" | "ast" | "synthetic" | "llm" | "full" | "on" = "synthetic";
   private _symbolCache = new Map<
     string,
-    Array<{ name: string; kind: string; isExported: boolean }>
+    Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }>
   >();
 
   onProgress: ((indexed: number, total: number) => void) | null = null;
@@ -316,18 +316,19 @@ export class IntelligenceClient extends WorkerClient {
 
   async getFileSymbols(
     relPath: string,
-  ): Promise<Array<{ name: string; kind: string; isExported: boolean }>> {
-    const symbols = await this.call<Array<{ name: string; kind: string; isExported: boolean }>>(
-      "getFileSymbols",
-      relPath,
-    );
+  ): Promise<
+    Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }>
+  > {
+    const symbols = await this.call<
+      Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }>
+    >("getFileSymbols", relPath);
     this._symbolCache.set(relPath, symbols);
     return symbols;
   }
 
   getFileSymbolsCached(
     relPath: string,
-  ): Array<{ name: string; kind: string; isExported: boolean }> {
+  ): Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }> {
     return this._symbolCache.get(relPath) ?? [];
   }
 
@@ -420,6 +421,8 @@ export class IntelligenceClient extends WorkerClient {
       name: string;
       path: string;
       kind: string;
+      line: number;
+      endLine: number;
       lineCount: number;
       usedInternally: boolean;
     }>
@@ -427,7 +430,9 @@ export class IntelligenceClient extends WorkerClient {
     return this.call("getUnusedExports", limit);
   }
 
-  async getTestOnlyExports(): Promise<Array<{ name: string; path: string; kind: string }>> {
+  async getTestOnlyExports(): Promise<
+    Array<{ name: string; path: string; kind: string; line: number; endLine: number }>
+  > {
     return this.call("getTestOnlyExports");
   }
 

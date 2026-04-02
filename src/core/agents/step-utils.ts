@@ -53,7 +53,7 @@ const CONSECUTIVE_READ_LIMIT = 5;
 const REPEAT_CALL_THRESHOLD = 3;
 const REPEAT_CALL_WINDOW = 8;
 
-const READ_TOOL_NAMES = new Set(["read_file", "navigate", "soul_find", "list_dir"]);
+const READ_TOOL_NAMES = new Set(["read", "navigate", "soul_find", "list_dir"]);
 
 /**
  * Detect degenerate tool-call loops: same tool + same args repeated across recent steps.
@@ -94,7 +94,7 @@ export function detectRepeatedCalls(
 }
 
 const SUMMARIZABLE_TOOLS = new Set([
-  "read_file",
+  "read",
   "grep",
   "glob",
   "analyze",
@@ -141,7 +141,7 @@ function buildSummary(toolName: string, text: string, ctx?: SummaryContext): str
   const args = ctx?.args;
   const tag = "←";
 
-  if (toolName === "read_file") {
+  if (toolName === "read") {
     const parts = [`${tag} ${String(lineCount)} lines`];
     if (ctx?.symbolHint) parts.push(ctx.symbolHint);
     return parts.join(" — ");
@@ -238,7 +238,7 @@ function buildToolCallPathMap(messages: ModelMessage[]): Map<string, string> {
     if (!Array.isArray(msg.content)) continue;
     for (const part of msg.content) {
       if (part.type !== "tool-call") continue;
-      if (part.toolName !== "read_file") continue;
+      if (part.toolName !== "read") continue;
       const input = part.input as Record<string, unknown>;
       const path = input.path ?? input.file ?? input.filePath;
       if (typeof path === "string") {
@@ -249,10 +249,15 @@ function buildToolCallPathMap(messages: ModelMessage[]): Map<string, string> {
   return map;
 }
 
-function formatSymbolHint(symbols: Array<{ name: string; kind: string }>): string | undefined {
+function formatSymbolHint(
+  symbols: Array<{ name: string; kind: string; line?: number; endLine?: number }>,
+): string | undefined {
   if (symbols.length === 0) return undefined;
-  const names = symbols.map((s) => s.name);
-  const display = names.length > 8 ? [...names.slice(0, 8), `+${String(names.length - 8)}`] : names;
+  const display = symbols.slice(0, 8).map((s) => {
+    if (s.line && s.endLine) return `${s.name} :${String(s.line)}-${String(s.endLine)}`;
+    return s.name;
+  });
+  if (symbols.length > 8) display.push(`+${String(symbols.length - 8)}`);
   return `exports: ${display.join(", ")}`;
 }
 
@@ -317,7 +322,7 @@ function compactOldToolResults(
       const text = extractText(part.output);
 
       let symbolHint: string | undefined;
-      if (symbolLookup && resolvedPathMap && part.toolName === "read_file") {
+      if (symbolLookup && resolvedPathMap && part.toolName === "read") {
         const absPath = resolvedPathMap.get(part.toolCallId);
         if (absPath) {
           try {
@@ -671,7 +676,9 @@ export function buildPrepareStep({
 export function buildSymbolLookup(repoMap?: {
   isReady: boolean;
   getCwd(): string;
-  getFileSymbolsCached(relPath: string): Array<{ name: string; kind: string; isExported: boolean }>;
+  getFileSymbolsCached(
+    relPath: string,
+  ): Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }>;
 }): SymbolLookup | undefined {
   if (!repoMap) return undefined;
   return (absPath: string) => {

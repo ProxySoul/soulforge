@@ -656,6 +656,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
             file: resolve(file),
             line: node.startPosition.row + 1,
             column: node.startPosition.column + 1,
+            endLine: node.endPosition.row + 1,
           },
         });
       }
@@ -695,6 +696,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                 file: resolve(file),
                 line: node.startPosition.row + 1,
                 column: node.startPosition.column + 1,
+                endLine: node.endPosition.row + 1,
               },
             });
           }
@@ -771,6 +773,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                 file: resolve(file),
                 line: node.startPosition.row + 1,
                 column: node.startPosition.column + 1,
+                endLine: node.endPosition.row + 1,
               },
             });
           }
@@ -794,6 +797,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                       file: resolve(file),
                       line: node.startPosition.row + 1,
                       column: node.startPosition.column + 1,
+                      endLine: node.endPosition.row + 1,
                     },
                   });
                 }
@@ -860,6 +864,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                 file: absFile,
                 line: node.startPosition.row + 1,
                 column: node.startPosition.column + 1,
+                endLine: node.endPosition.row + 1,
               },
             });
             continue;
@@ -898,6 +903,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                     file: absFile,
                     line: node.startPosition.row + 1,
                     column: node.startPosition.column + 1,
+                    endLine: node.endPosition.row + 1,
                   },
                 });
               }
@@ -930,6 +936,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                           file: absFile,
                           line: node.startPosition.row + 1,
                           column: node.startPosition.column + 1,
+                          endLine: node.endPosition.row + 1,
                         },
                       });
                     }
@@ -949,6 +956,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                       file: absFile,
                       line: node.startPosition.row + 1,
                       column: node.startPosition.column + 1,
+                      endLine: node.endPosition.row + 1,
                     },
                   });
                 }
@@ -970,6 +978,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
                       file: absFile,
                       line: node.startPosition.row + 1,
                       column: node.startPosition.column + 1,
+                      endLine: node.endPosition.row + 1,
                     },
                   });
                 }
@@ -1060,6 +1069,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
               file: absFile,
               line: sourceCapture.node.startPosition.row + 1,
               column: sourceCapture.node.startPosition.column + 1,
+              endLine: sourceCapture.node.endPosition.row + 1,
             },
           });
         }

@@ -3211,10 +3211,15 @@ export class RepoMap {
     return results;
   }
 
-  getFileSymbols(relPath: string): Array<{ name: string; kind: string; isExported: boolean }> {
+  getFileSymbols(
+    relPath: string,
+  ): Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }> {
     return this.db
-      .query<{ name: string; kind: string; is_exported: number }, [string]>(
-        `SELECT s.name, s.kind, s.is_exported
+      .query<
+        { name: string; kind: string; is_exported: number; line: number; end_line: number },
+        [string]
+      >(
+        `SELECT s.name, s.kind, s.is_exported, s.line, s.end_line
          FROM symbols s JOIN files f ON f.id = s.file_id
          WHERE f.path = ?
            AND s.kind IN ('interface','type','class','function','enum','method','constant')
@@ -3223,7 +3228,13 @@ export class RepoMap {
          LIMIT 15`,
       )
       .all(relPath)
-      .map((r) => ({ name: r.name, kind: r.kind, isExported: r.is_exported === 1 }));
+      .map((r) => ({
+        name: r.name,
+        kind: r.kind,
+        isExported: r.is_exported === 1,
+        line: r.line,
+        endLine: r.end_line,
+      }));
   }
 
   getFileSymbolRanges(
@@ -3457,13 +3468,25 @@ export class RepoMap {
     name: string;
     path: string;
     kind: string;
+    line: number;
+    endLine: number;
     lineCount: number;
     usedInternally: boolean;
   }> {
     if (!this.ready) return [];
     const rows = this.db
-      .query<{ name: string; path: string; kind: string; line_count: number }, [number]>(
-        `SELECT s.name, f.path, s.kind, f.line_count FROM symbols s
+      .query<
+        {
+          name: string;
+          path: string;
+          kind: string;
+          line: number;
+          end_line: number;
+          line_count: number;
+        },
+        [number]
+      >(
+        `SELECT s.name, f.path, s.kind, s.line, s.end_line, f.line_count FROM symbols s
          JOIN files f ON f.id = s.file_id
          WHERE s.is_exported = 1
          AND NOT EXISTS (
@@ -3509,6 +3532,8 @@ export class RepoMap {
         name: row.name,
         path: row.path,
         kind: row.kind,
+        line: row.line,
+        endLine: row.end_line,
         lineCount: row.line_count,
         usedInternally,
       };
@@ -3519,11 +3544,13 @@ export class RepoMap {
     name: string;
     path: string;
     kind: string;
+    line: number;
+    endLine: number;
   }> {
     if (!this.ready) return [];
     return this.db
-      .query<{ name: string; path: string; kind: string }, []>(
-        `SELECT s.name, f.path, s.kind FROM symbols s
+      .query<{ name: string; path: string; kind: string; line: number; end_line: number }, []>(
+        `SELECT s.name, f.path, s.kind, s.line, s.end_line FROM symbols s
          JOIN files f ON f.id = s.file_id
          WHERE s.is_exported = 1
          AND EXISTS (
@@ -3554,7 +3581,14 @@ export class RepoMap {
          )
          ORDER BY f.path`,
       )
-      .all();
+      .all()
+      .map((r) => ({
+        name: r.name,
+        path: r.path,
+        kind: r.kind,
+        line: r.line,
+        endLine: r.end_line,
+      }));
   }
 
   getDeadBarrels(): Array<{ path: string; lineCount: number; language: string }> {

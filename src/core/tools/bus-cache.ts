@@ -27,13 +27,14 @@ export function wrapWithBusCache(
     const lineCount = text.split("\n").length;
     if (lineCount < CACHE_HIT_LINES_THRESHOLD) return result;
 
-    let symbols: Array<{ name: string; kind: string; line: number }> = [];
+    let symbols: Array<{ name: string; kind: string; line: number; endLine: number | null }> = [];
     if (repoMap) {
       try {
         symbols = (await repoMap.getFileSymbolRanges(path)).map((s) => ({
           name: s.name,
           kind: s.kind,
           line: s.line,
+          endLine: s.endLine,
         }));
       } catch {}
     }
@@ -48,12 +49,12 @@ export function wrapWithBusCache(
     }
 
     const top = symbols.slice(0, 12);
-    const symbolHint = `Exported symbols: ${top.map((s) => `${s.name} (${s.kind}, line ${String(s.line)})`).join(", ")}${symbols.length > 12 ? `, +${String(symbols.length - 12)} more` : ""}`;
+    const symbolHint = `Exported symbols: ${top.map((s) => `${s.name} (${s.kind} :${String(s.line)}-${String(s.endLine ?? s.line)})`).join(", ")}${symbols.length > 12 ? `, +${String(symbols.length - 12)} more` : ""}`;
 
     const stub = [
       `[Cached — ${String(lineCount)} lines, already read by another agent]`,
       symbolHint,
-      `Use read_file(target, name, "${path}") for specific symbols, or read_file with startLine/endLine for a range.`,
+      `Use read(files=[{path:"${path}", target, name}]) for symbols, or ranges:[{start:N, end:M}] for sections.`,
       `Use check_findings to see what peer agents found in this file.`,
     ].join("\n");
 
@@ -99,14 +100,14 @@ export function wrapWithBusCache(
     }) as WrappableTool["execute"];
   }
 
-  const readFile = tools.read_file;
+  const readFile = tools.read;
   if (readFile?.execute) {
     const origExecute = readFile.execute as (
       args: { path: string; startLine?: number; endLine?: number },
       opts?: unknown,
     ) => Promise<unknown>;
 
-    wrapped.read_file = {
+    wrapped.read = {
       ...readFile,
       execute: (async (
         args: { path: string; startLine?: number; endLine?: number },
@@ -117,7 +118,7 @@ export function wrapWithBusCache(
         if (args.startLine != null || args.endLine != null) {
           const result = await origExecute(args, opts);
           bus.recordFileRead(agentId, normalized, {
-            tool: "read_file",
+            tool: "read",
             startLine: args.startLine,
             endLine: args.endLine,
             cached: false,
@@ -129,19 +130,19 @@ export function wrapWithBusCache(
 
         if (acquired.cached === true) {
           const cached = acquired.content ?? (await origExecute(args, opts));
-          bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: true });
+          bus.recordFileRead(agentId, normalized, { tool: "read", cached: true });
           return tagCacheHit(cached, normalized);
         }
 
         if (acquired.cached === "waiting") {
           const content = await acquired.content;
           if (content != null) {
-            bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: true });
+            bus.recordFileRead(agentId, normalized, { tool: "read", cached: true });
             return tagCacheHit(content, normalized);
           }
           const reAcquired = bus.acquireFileRead(agentId, normalized);
           if (reAcquired.cached === true && reAcquired.content != null) {
-            bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: true });
+            bus.recordFileRead(agentId, normalized, { tool: "read", cached: true });
             return tagCacheHit(reAcquired.content, normalized);
           }
           const fallbackGen = reAcquired.cached === false ? reAcquired.gen : -1;
@@ -162,7 +163,7 @@ export function wrapWithBusCache(
             bus.failFileRead(normalized, fallbackGen);
           }
           if (!isOutline) {
-            bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: false });
+            bus.recordFileRead(agentId, normalized, { tool: "read", cached: false });
           }
           return result;
         }
@@ -185,7 +186,7 @@ export function wrapWithBusCache(
                 ? String((result as Record<string, unknown>).output)
                 : JSON.stringify(result);
           bus.releaseFileRead(normalized, rawText, gen);
-          bus.recordFileRead(agentId, normalized, { tool: "read_file", cached: false });
+          bus.recordFileRead(agentId, normalized, { tool: "read", cached: false });
           return result;
         } catch (error) {
           bus.failFileRead(normalized, gen);
@@ -228,7 +229,7 @@ export function wrapWithBusCache(
 
           if (owner && owner !== agentId && isOk) {
             const text = typeof result === "string" ? result : JSON.stringify(result);
-            return `⚠ Note: ${owner} also edited ${normalized}. Your edit succeeded (different region). Verify with read_file if needed.\n\n${text}`;
+            return `⚠ Note: ${owner} also edited ${normalized}. Your edit succeeded (different region). Verify with read if needed.\n\n${text}`;
           }
           if (owner && owner !== agentId && !isOk) {
             const text = typeof result === "string" ? result : JSON.stringify(result);
@@ -281,7 +282,7 @@ export function wrapWithBusCache(
 
           if (owner && owner !== agentId && isOk) {
             const text = typeof result === "string" ? result : JSON.stringify(result);
-            return `⚠ Note: ${owner} also edited ${normalized}. Your multi_edit succeeded (different region). Verify with read_file if needed.\n\n${text}`;
+            return `⚠ Note: ${owner} also edited ${normalized}. Your multi_edit succeeded (different region). Verify with read if needed.\n\n${text}`;
           }
           if (owner && owner !== agentId && !isOk) {
             const text = typeof result === "string" ? result : JSON.stringify(result);
