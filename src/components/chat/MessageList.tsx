@@ -710,13 +710,37 @@ function renderSegments(
       .filter(Boolean) as ToolCall[];
     if (allCalls.length === 0) return null;
 
+    // Separate code_execution children from top-level calls
+    const childMap = new Map<string, ToolCall[]>();
+    const topLevel: ToolCall[] = [];
+    for (const tc of allCalls) {
+      if (tc.parentId) {
+        const children = childMap.get(tc.parentId) ?? [];
+        children.push(tc);
+        childMap.set(tc.parentId, children);
+      } else {
+        topLevel.push(tc);
+      }
+    }
+    // Also collect children not in this segment (they may have been excluded from segments)
+    for (const [, tc] of toolCallMap) {
+      if (tc.parentId && !childMap.get(tc.parentId)?.includes(tc)) {
+        const parentInSegment = topLevel.some((t) => t.id === tc.parentId);
+        if (parentInSegment) {
+          const children = childMap.get(tc.parentId) ?? [];
+          children.push(tc);
+          childMap.set(tc.parentId, children);
+        }
+      }
+    }
+
     // Hide failed edits that were retried on the same file
-    const calls = allCalls.filter((tc, idx) => {
+    const calls = topLevel.filter((tc, idx) => {
       if (!isFailedEditCall(tc)) return true;
       const path = extractPathFromArgs(tc.args);
       if (!path) return true;
-      for (let j = idx + 1; j < allCalls.length; j++) {
-        const later = allCalls[j];
+      for (let j = idx + 1; j < topLevel.length; j++) {
+        const later = topLevel[j];
         if (later && EDIT_NAMES.has(later.name) && extractPathFromArgs(later.args) === path)
           return false;
       }
@@ -816,6 +840,7 @@ function renderSegments(
             );
           }
           if (g.type !== "normal") return null;
+          const children = childMap.get(g.tc.id);
           return (
             <box key={g.tc.id} flexDirection="column">
               {g.tc.name === "write_plan" || g.tc.name === "plan" ? (
@@ -829,6 +854,32 @@ function renderSegments(
                   treePosition={treePos}
                 />
               )}
+              {children && children.length > 0 ? (
+                <box
+                  border={["left"]}
+                  customBorderChars={treePos?.isLast ? TREE_SPACE : TREE_PIPE}
+                  borderColor={t.textFaint}
+                  paddingLeft={1}
+                  flexDirection="column"
+                >
+                  <box
+                    border={["left"]}
+                    customBorderChars={TREE_PIPE}
+                    borderColor={t.textFaint}
+                    paddingLeft={1}
+                    flexDirection="column"
+                  >
+                    {children.map((child) => (
+                      <ToolCallRow
+                        key={child.id}
+                        tc={child}
+                        diffStyle={diffStyle}
+                        autoCompactDiffs={autoCompactDiffs}
+                      />
+                    ))}
+                  </box>
+                </box>
+              ) : null}
             </box>
           );
         })}

@@ -32,6 +32,8 @@ export interface LiveToolCall {
   error?: string;
   /** Set at tool-call start when the backend is known upfront (e.g. routed web search agent). */
   backend?: string;
+  /** Parent code_execution tool call ID — set when called from code execution sandbox. */
+  parentId?: string;
   /** Half-block ANSI art lines for inline image display. */
   imageArt?: Array<{ name: string; lines: string[] }>;
 }
@@ -848,6 +850,8 @@ function extractPath(args?: string): string | null {
 
 interface Props {
   calls: LiveToolCall[];
+  /** Full tool call list for finding code_execution children (optional — defaults to calls). */
+  allCalls?: LiveToolCall[];
   verbose?: boolean;
   diffStyle?: "default" | "sidebyside" | "compact";
   /** Lock-in compact mode — limit child steps per agent to 1 */
@@ -924,25 +928,78 @@ function renderToolCall(
   return <ToolRow key={tc.id} tc={tc} seconds={seconds} diffStyle={diffStyle} compact={compact} />;
 }
 
+/** Render child tool calls nested under a code_execution parent with indented rail. */
+function renderCodeExecChildren(
+  children: LiveToolCall[] | undefined,
+  elapsed: Map<string, number>,
+  diffStyle: "default" | "sidebyside" | "compact",
+  t: { textMuted: string; amber: string; textFaint: string },
+  compact?: boolean,
+  isLastInTree?: boolean,
+) {
+  if (!children || children.length === 0) return null;
+  return (
+    <box
+      border={["left"]}
+      customBorderChars={isLastInTree ? TREE_SPACE : TREE_PIPE}
+      borderColor={t.textFaint}
+      paddingLeft={1}
+      flexDirection="column"
+    >
+      <box
+        border={["left"]}
+        customBorderChars={TREE_PIPE}
+        borderColor={t.textFaint}
+        paddingLeft={1}
+        flexDirection="column"
+      >
+        {children.map((tc) =>
+          renderToolCall(tc, elapsed.get(tc.id), diffStyle, t, undefined, compact),
+        )}
+      </box>
+    </box>
+  );
+}
+
 export const ToolCallDisplay = memo(function ToolCallDisplay({
   calls,
+  allCalls,
   verbose = false,
   diffStyle = "default",
   compact = false,
 }: Props) {
   const t = useTheme();
-  const elapsed = useElapsedTimers(calls);
+  const source = allCalls ?? calls;
+  const elapsed = useElapsedTimers(source);
 
   if (calls.length === 0) return null;
 
-  const visible = calls.filter((tc, idx) => {
+  // Separate child calls (from code_execution) from top-level calls
+  // Use allCalls (full list) to find children that aren't in the segment-filtered calls
+  const childMap = new Map<string, LiveToolCall[]>();
+  const topLevel: LiveToolCall[] = [];
+  // Build child map from the full list (source) so children excluded from segments are found
+  for (const tc of source) {
+    if (tc.parentId) {
+      const children = childMap.get(tc.parentId) ?? [];
+      children.push(tc);
+      childMap.set(tc.parentId, children);
+    }
+  }
+  // Top-level comes from the segment-filtered calls only
+  for (const tc of calls) {
+    if (!tc.parentId) {
+      topLevel.push(tc);
+    }
+  }
+
+  const visible = topLevel.filter((tc, idx) => {
     if (QUIET_TOOLS.has(tc.toolName) && !(verbose && tc.toolName === "ask_user")) return false;
-    // Hide failed edits that were retried successfully on the same file
     if (isFailedEdit(tc)) {
       const path = extractPath(tc.args);
       if (path) {
-        for (let j = idx + 1; j < calls.length; j++) {
-          const later = calls[j];
+        for (let j = idx + 1; j < topLevel.length; j++) {
+          const later = topLevel[j];
           if (later && isEditTool(later.toolName) && extractPath(later.args) === path) return false;
         }
       }
@@ -954,9 +1011,12 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
   if (visible.length <= 1) {
     return (
       <box flexDirection="column">
-        {visible.map((tc) =>
-          renderToolCall(tc, elapsed.get(tc.id), diffStyle, t, undefined, compact),
-        )}
+        {visible.map((tc) => (
+          <box key={tc.id} flexDirection="column">
+            {renderToolCall(tc, elapsed.get(tc.id), diffStyle, t, undefined, compact)}
+            {renderCodeExecChildren(childMap.get(tc.id), elapsed, diffStyle, t, compact, true)}
+          </box>
+        ))}
       </box>
     );
   }
@@ -964,16 +1024,22 @@ export const ToolCallDisplay = memo(function ToolCallDisplay({
   // Multiple parallel calls — render with tree grouping
   return (
     <box flexDirection="column">
-      {visible.map((tc, i) =>
-        renderToolCall(
-          tc,
-          elapsed.get(tc.id),
-          diffStyle,
-          t,
-          { isFirst: i === 0, isLast: i === visible.length - 1 },
-          compact,
-        ),
-      )}
+      {visible.map((tc, i) => {
+        const isLast = i === visible.length - 1;
+        return (
+          <box key={tc.id} flexDirection="column">
+            {renderToolCall(
+              tc,
+              elapsed.get(tc.id),
+              diffStyle,
+              t,
+              { isFirst: i === 0, isLast },
+              compact,
+            )}
+            {renderCodeExecChildren(childMap.get(tc.id), elapsed, diffStyle, t, compact, isLast)}
+          </box>
+        );
+      })}
     </box>
   );
 });

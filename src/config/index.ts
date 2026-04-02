@@ -44,7 +44,7 @@ const DEFAULT_CONFIG: AppConfig = {
     format: true,
     syncEditorOnEdit: false,
   },
-  codeExecution: false,
+  codeExecution: true,
   webSearch: true,
   compaction: {
     strategy: "v2",

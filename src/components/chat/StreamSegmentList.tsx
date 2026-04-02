@@ -125,7 +125,12 @@ export const StreamSegmentList = memo(function StreamSegmentList({
         lastVisibleType = seg.type;
         return (
           <box key={seg.callIds[0]} marginTop={needsGap}>
-            <ToolCallDisplay calls={calls} verbose={verbose} diffStyle={diffStyle} />
+            <ToolCallDisplay
+              calls={calls}
+              allCalls={toolCalls}
+              verbose={verbose}
+              diffStyle={diffStyle}
+            />
           </box>
         );
       })}

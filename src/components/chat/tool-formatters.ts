@@ -170,11 +170,13 @@ export function formatArgs(toolName: string, args?: string): string {
     if (toolName === "code_execution") {
       if (parsed.code) {
         const code = String(parsed.code);
-        return code.length > 60 ? `${code.slice(0, 57)}...` : code;
+        const awaitCount = (code.match(/\bawait\s+/g) ?? []).length;
+        if (awaitCount > 0) return `${String(awaitCount)} tools in the furnace`;
+        return code.length > 50 ? `${code.slice(0, 47)}...` : code;
       }
       if (parsed.command) {
         const cmd = String(parsed.command);
-        return cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
+        return cmd.length > 50 ? `${cmd.slice(0, 47)}...` : cmd;
       }
     }
   } catch {
@@ -318,8 +320,23 @@ export function formatResult(toolName: string, result?: string): string {
     return "";
   }
   if (toolName === "code_execution") {
+    try {
+      let obj = JSON.parse(result);
+      // Unwrap {success, output} wrapper from TEXT_OUTPUT
+      if (obj.output && typeof obj.output === "string") {
+        try {
+          obj = JSON.parse(obj.output);
+        } catch {}
+      }
+      if (obj.type === "code_execution_result" || obj.type === "bash_code_execution_result") {
+        if (obj.return_code !== 0) return "the metal cracked";
+        const out = String(obj.stdout ?? "");
+        const lines = out.split("\n").filter(Boolean).length;
+        return lines > 0 ? `${String(lines)} lines forged` : "cooled";
+      }
+    } catch {}
     const lines = result.split("\n").length;
-    if (lines > 1) return `${String(lines)} lines output`;
+    if (lines > 1) return `${String(lines)} lines forged`;
     return result.length > 40 ? `${result.slice(0, 37)}...` : result;
   }
   try {

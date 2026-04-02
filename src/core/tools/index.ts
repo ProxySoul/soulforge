@@ -99,6 +99,10 @@ const TEXT_OUTPUT = {
     return { type: "text" as const, value: text };
   },
 };
+
+export const PROGRAMMATIC_PROVIDER_OPTS: import("@ai-sdk/provider-utils").ProviderOptions = {
+  anthropic: { allowedCallers: ["direct", "code_execution_20260120"] },
+};
 const forceField = () =>
   optBool().describe(
     "Skip soul map fast-path. Only use after confirming the soul map result was incomplete or stale.",
@@ -295,6 +299,11 @@ export function buildTools(
       ? createSkillsTool(opts.contextManager, opts?.onApproveDestructive)
       : null;
 
+  // Programmatic tool calling: when code execution is enabled, read/search tools
+  // get allowedCallers so Claude can batch them in Python code. Tool results from
+  // programmatic calls don't count as input/output tokens — only stdout does.
+  const progProviderOpts = opts?.codeExecution ? PROGRAMMATIC_PROVIDER_OPTS : undefined;
+
   // Read nudges disabled — tool-result injection causes conversational responses
   // ("You're right, let me stop reading") and interrupts legitimate investigation.
   // Steering handled by system prompt ("max 3 exploration rounds") + step-utils.
@@ -343,6 +352,7 @@ export function buildTools(
   return {
     read_file: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: readFileTool.description,
       inputSchema: SCHEMAS.readFile.extend({ fresh: freshField() }),
       execute: deferExecute(async (args) => {
@@ -573,6 +583,7 @@ export function buildTools(
 
     list_dir: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: listDirTool.description,
       inputSchema: z.object({
         path: z
@@ -595,6 +606,7 @@ export function buildTools(
 
     soul_grep: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description:
         soulGrepTool.description +
         " Use dep to search inside dependency/vendor directories (bypasses .gitignore).",
@@ -607,6 +619,7 @@ export function buildTools(
 
     soul_find: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: soulFindTool.description,
       inputSchema: z.object({
         query: z
@@ -635,6 +648,7 @@ export function buildTools(
 
     soul_analyze: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: soulAnalyzeTool.description,
       inputSchema: z.object({
         action: z
@@ -690,6 +704,7 @@ export function buildTools(
 
     soul_impact: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: soulImpactTool.description,
       inputSchema: z.object({
         action: z
@@ -708,6 +723,7 @@ export function buildTools(
 
     shell: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: shellTool.description,
       inputSchema: z.object({
         command: z.string().describe("Shell command to execute"),
@@ -764,6 +780,7 @@ export function buildTools(
 
     grep: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: grepTool.description,
       inputSchema: SCHEMAS.grep.extend({ fresh: freshField() }),
       execute: deferExecute(async (args) => {
@@ -778,6 +795,7 @@ export function buildTools(
 
     glob: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: globTool.description,
       inputSchema: SCHEMAS.glob.extend({ fresh: freshField() }),
       execute: deferExecute(async (args) => {
@@ -954,6 +972,7 @@ export function buildTools(
 
     navigate: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: navigateTool.description,
       inputSchema: z.object({
         action: z
@@ -1157,6 +1176,7 @@ export function buildTools(
 
     analyze: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: analyzeTool.description,
       inputSchema: z.object({
         action: z
@@ -1213,6 +1233,7 @@ export function buildTools(
 
     discover_pattern: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: discoverPatternTool.description,
       inputSchema: z.object({
         query: z.string().describe("Concept to discover (e.g. 'provider', 'router', 'auth')"),
@@ -1269,6 +1290,7 @@ export function buildTools(
 
     project: tool({
       ...TEXT_OUTPUT,
+      providerOptions: progProviderOpts,
       description: projectTool.description,
       inputSchema: z.object({
         action: z
@@ -1534,7 +1556,11 @@ export function buildTools(
     }),
 
     ...(opts?.codeExecution
-      ? { code_execution: createAnthropic().tools.codeExecution_20260120() }
+      ? {
+          code_execution: createAnthropic().tools.codeExecution_20260120(),
+          // Including web_fetch makes code execution compute free (no per-hour charge)
+          web_fetch: createAnthropic().tools.webFetch_20260209(),
+        }
       : {}),
 
     ...(opts?.computerUse

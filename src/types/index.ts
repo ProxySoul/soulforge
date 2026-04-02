@@ -144,6 +144,8 @@ export interface ToolCall {
   result?: ToolResult;
   /** Half-block ANSI art for inline image display (shell tool with outputImages). */
   imageArt?: Array<{ name: string; lines: string[] }>;
+  /** Parent code_execution tool call ID — set when this tool was called from code execution. */
+  parentId?: string;
 }
 
 export type NvimConfigMode = "default" | "user" | "none";

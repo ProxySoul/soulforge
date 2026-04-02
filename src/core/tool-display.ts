@@ -14,7 +14,7 @@ export type ToolCategory =
   | "agent"
   | "ui"
   | "editor"
-  | "execution"
+  | "smithy"
   | "soul-map";
 
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
@@ -67,8 +67,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   ask_user: "ui",
   task_list: "ui",
 
-  // Code execution (sandboxed)
-  code_execution: "execution",
+  // Code execution (sandboxed smithy)
+  code_execution: "smithy",
 
   // Repo map powered
   soul_grep: "soul-map",
@@ -93,7 +93,7 @@ function getCategoryColors(): Record<string, string> {
     agent: t.brand,
     ui: t.info,
     editor: t.info,
-    execution: t.info,
+    smithy: t.amber,
     "soul-map": t.success,
     brave: t.brandSecondary,
     ddg: t.brandSecondary,
@@ -154,7 +154,7 @@ const TOOL_ICON_MAP: Record<string, string> = {
   update_plan_step: "check",
   ask_user: "question",
   task_list: "plan",
-  code_execution: "code",
+  code_execution: "smithy",
   _repomap: "repomap",
   soul_grep: "search",
   soul_find: "search",
@@ -205,7 +205,7 @@ export const TOOL_LABELS: Record<string, string> = {
   update_plan_step: "Updating plan",
   ask_user: "Asking",
   task_list: "Tasks",
-  code_execution: "Executing",
+  code_execution: "Forging",
   soul_grep: "Searching",
   soul_find: "Finding",
   soul_analyze: "Analyzing",
@@ -244,7 +244,7 @@ export const TOOL_LABELS_DONE: Record<string, string> = {
   update_plan_step: "Updated plan",
   ask_user: "Asked",
   task_list: "Tasks",
-  code_execution: "Executed",
+  code_execution: "Forged",
   soul_grep: "Searched",
   soul_find: "Found",
   soul_analyze: "Analyzed",
@@ -295,7 +295,7 @@ function getToolIconColors(): Record<string, string> {
     task_list: t.info,
     editor_panel: t.info,
     skills: t.brand,
-    code_execution: t.info,
+    code_execution: t.amber,
     soul_grep: t.success,
     soul_find: t.success,
     soul_analyze: t.success,

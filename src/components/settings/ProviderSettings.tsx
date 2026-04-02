@@ -72,7 +72,7 @@ const CLAUDE_ITEMS: SettingItem[] = [
   {
     key: "codeExecution",
     label: "Code Execution",
-    desc: "Sandboxed code evaluation (Python/Bash)",
+    desc: "Programmatic tool calling — batches reads in Python, saves tokens",
     type: "toggle",
   },
   {
@@ -194,7 +194,7 @@ const DEFAULTS: CurrentValues = {
   disableParallelToolUse: false,
   openaiReasoningEffort: "off",
   serviceTier: "off",
-  codeExecution: false,
+  codeExecution: true,
   computerUse: false,
   anthropicTextEditor: false,
   webSearch: true,

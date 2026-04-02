@@ -1,3 +1,4 @@
+import { forwardAnthropicContainerIdFromLastStep } from "@ai-sdk/anthropic";
 import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
 import { ToolLoopAgent, tool } from "ai";
@@ -15,6 +16,7 @@ import {
   buildTools,
   CORE_TOOL_NAMES,
   PLAN_EXECUTION_TOOL_NAMES,
+  PROGRAMMATIC_PROVIDER_OPTS,
   RESTRICTED_TOOL_NAMES,
   SCHEMAS,
 } from "../tools/index.js";
@@ -64,6 +66,7 @@ function buildForgePrepareStep(
     buildSkillsBlock(): string | null;
   },
   tabId?: string,
+  codeExecution?: boolean,
 ) {
   // Cache-stable inject tracking: the ToolLoopAgent discards prepareStep message
   // modifications after each step (it rebuilds from initialMessages + responseMessages).
@@ -71,8 +74,17 @@ function buildForgePrepareStep(
   // injects at their original positions so the API always sees an append-only history.
   const previousInjects: Array<{ cleanInsertAt: number; message: ModelMessage }> = [];
 
-  // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
-  return ({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }): any => {
+  type StepEntry = { providerMetadata?: Record<string, unknown> };
+  return ({
+    stepNumber,
+    messages,
+    steps,
+  }: {
+    stepNumber: number;
+    messages: ModelMessage[];
+    steps: StepEntry[];
+    // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
+  }): any => {
     const sanitized = sanitizeMessages(messages);
 
     const result: {
@@ -81,6 +93,16 @@ function buildForgePrepareStep(
       providerOptions?: ProviderOptions;
       toolChoice?: "required" | "auto" | "none";
     } = {};
+
+    // Forward code execution container ID between steps so the sandbox persists.
+    // This reuses the same container (filesystem, installed packages) across steps.
+    if (codeExecution && steps.length > 0) {
+      // biome-ignore lint/suspicious/noExplicitAny: step metadata types vary by provider
+      const forwarded = forwardAnthropicContainerIdFromLastStep({ steps: steps as any });
+      if (forwarded?.providerOptions) {
+        result.providerOptions = forwarded.providerOptions as ProviderOptions;
+      }
+    }
 
     // Plan gate: after a `plan` call, stop the tool loop (text-only).
     // Plans always require user approval — the agent must not auto-execute.
@@ -490,7 +512,12 @@ export function createForgeAgent({
 
   const cachedReadFile =
     sharedCacheRef && agentFeatures?.dispatchCache !== false
-      ? wrapReadFileWithDispatchCache(directTools.read_file, sharedCacheRef, cwd)
+      ? wrapReadFileWithDispatchCache(
+          directTools.read_file,
+          sharedCacheRef,
+          cwd,
+          canUseCodeExecution,
+        )
       : directTools.read_file;
 
   const allTools = {
@@ -559,7 +586,13 @@ export function createForgeAgent({
         ...(activeTools ? { activeTools } : {}),
       };
     },
-    prepareStep: buildForgePrepareStep(forgeMode === "plan", drainSteering, contextManager, tabId),
+    prepareStep: buildForgePrepareStep(
+      forgeMode === "plan",
+      drainSteering,
+      contextManager,
+      tabId,
+      canUseCodeExecution,
+    ),
     experimental_repairToolCall: repairToolCall,
     providerOptions: wrappedProviderOptions,
     ...(subagentHeaders ? { headers: subagentHeaders } : {}),
@@ -570,12 +603,14 @@ function wrapReadFileWithDispatchCache(
   _original: ReturnType<typeof buildTools>["read_file"],
   cacheRef: SharedCacheRef,
   projectCwd?: string,
+  codeExecution?: boolean,
 ) {
   const cwdPrefix = projectCwd ? (projectCwd.endsWith("/") ? projectCwd : `${projectCwd}/`) : null;
 
   return tool({
     description: readFileTool.description,
     inputSchema: SCHEMAS.readFile.pick({ path: true, startLine: true, endLine: true }),
+    providerOptions: codeExecution ? PROGRAMMATIC_PROVIDER_OPTS : undefined,
     execute: async (args) => {
       const cache = cacheRef.current;
       if (cache) {

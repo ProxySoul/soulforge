@@ -2062,26 +2062,39 @@ export function useChat({
               markToolStart();
               segmentsDirty.current = true;
               toolCallsDirty.current = true;
-              const lastToolSeg = finalSegments[finalSegments.length - 1];
-              if (lastToolSeg?.type === "tools") {
-                lastToolSeg.toolCallIds.push(part.id);
-              } else {
-                finalSegments.push({ type: "tools", toolCallIds: [part.id] });
+
+              // Detect code_execution child calls: if a code_execution call is currently
+              // running (state !== "done"/"error"), any new tool call is a child spawned from it.
+              const activeCodeExec = tcBuf.find(
+                (c) => c.toolName === "code_execution" && c.state === "running",
+              );
+              const isChildCall = activeCodeExec && part.toolName !== "code_execution";
+
+              // Child calls don't get their own segment — they're nested under the parent
+              if (!isChildCall) {
+                const lastToolSeg = finalSegments[finalSegments.length - 1];
+                if (lastToolSeg?.type === "tools") {
+                  lastToolSeg.toolCallIds.push(part.id);
+                } else {
+                  finalSegments.push({ type: "tools", toolCallIds: [part.id] });
+                }
+                const lastBufSeg = buf[buf.length - 1];
+                if (lastBufSeg?.type === "tools") {
+                  lastBufSeg.callIds.push(part.id);
+                } else {
+                  buf.push({ type: "tools" as const, callIds: [part.id] });
+                }
               }
+
               tcBuf.push({
                 id: part.id,
                 toolName: part.toolName,
                 state: "running",
+                ...(isChildCall ? { parentId: activeCodeExec.id } : {}),
                 ...(part.toolName === "web_search" && webSearchModelLabelRef.current
                   ? { backend: webSearchModelLabelRef.current }
                   : {}),
               });
-              const lastBufSeg = buf[buf.length - 1];
-              if (lastBufSeg?.type === "tools") {
-                lastBufSeg.callIds.push(part.id);
-              } else {
-                buf.push({ type: "tools" as const, callIds: [part.id] });
-              }
               toolCallArgs.set(part.id, "");
               queueMicrotaskFlush();
               break;
@@ -2173,6 +2186,9 @@ export function useChat({
                 args: parsedArgs,
                 result: toolResult,
               };
+              if (streamingTc?.parentId) {
+                completedCall.parentId = streamingTc.parentId;
+              }
               if (streamingTc?.imageArt) {
                 completedCall.imageArt = streamingTc.imageArt;
               }

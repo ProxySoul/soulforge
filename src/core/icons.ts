@@ -97,6 +97,7 @@ const NERD: Record<string, string> = {
   worker_crash: "󰅙",
   worker_restart: "󰑓",
   image: "󰋩",
+  smithy: "󰈸",
 };
 
 const ASCII: Record<string, string> = {
@@ -196,6 +197,7 @@ const ASCII: Record<string, string> = {
   worker_crash: "⚡✗",
   worker_restart: "⚡↻",
   image: "🖼",
+  smithy: "⚒",
 };
 
 let _nerdFont: boolean | null = null;
