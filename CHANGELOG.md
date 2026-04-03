@@ -2,6 +2,16 @@
 
 All notable changes to SoulForge are documented here.
 
+## [1.9.0] — 2026-04-03
+
+### Bug Fixes
+
+- detect brew install method for homebrew-wrapped binary
+### Features
+
+- prompt engineering overhaul + soul_grep dep fix + soul_find ranking
+- programmatic tool calling (smithy) + code execution UI nesting
+- token-efficient prompt + tab layout fix + disable unused tools
 ## [1.8.3] — 2026-04-02
 
 ### Bug Fixes
