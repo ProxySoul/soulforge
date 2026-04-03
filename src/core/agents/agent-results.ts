@@ -23,6 +23,7 @@ type AgentResult = {
   text: string;
   output?: unknown;
   steps: Array<{
+    text?: string;
     toolCalls?: Array<{ toolName: string; args?: Record<string, unknown> }>;
     toolResults?: Array<{
       toolName: string;
@@ -71,13 +72,12 @@ function isStub(text: string): boolean {
   return STUB_PATTERNS.some((p) => text.startsWith(p) || text.includes(p));
 }
 
-export function extractDoneResult(result: AgentResult): DoneToolResult | null {
-  for (let i = result.steps.length - 1; i >= 0; i--) {
-    const step = result.steps[i];
-    const doneCall = step?.toolCalls?.find((tc) => tc.toolName === "done");
-    if (doneCall?.args) return doneCall.args as unknown as DoneToolResult;
-  }
-  return null;
+/** Extract the agent's final text from the last step. Falls back to full result.text. */
+export function extractFinalText(result: AgentResult): string {
+  const lastStep = result.steps[result.steps.length - 1];
+  const lastText = lastStep?.text?.trim();
+  if (lastText && lastText.length > 10) return lastText;
+  return typeof result.text === "string" ? result.text.trim() : "";
 }
 
 export function buildFallbackResult(

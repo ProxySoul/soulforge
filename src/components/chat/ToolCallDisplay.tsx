@@ -251,22 +251,18 @@ const MultiAgentChildRow = memo(
       ? icon("cleanup")
       : isVerifier
         ? icon("search")
-        : isSpark
-          ? icon("read_only")
-          : isEmber
-            ? icon("edit")
-            : "";
+        : info.role === "code"
+          ? icon("edit")
+          : icon("read_only");
     const tierName = isDesloppify
       ? "cleanup"
       : isVerifier
         ? "verify"
-        : isSpark
-          ? "explore"
-          : isEmber
-            ? "code"
-            : "";
+        : info.role === "code"
+          ? "code"
+          : "explore";
     const tierColor =
-      isDesloppify || isVerifier ? t.info : isSpark ? t.brand : isEmber ? t.amber : t.info;
+      isDesloppify || isVerifier ? t.info : info.role === "code" ? t.amber : t.brand;
     const showTierTag = hasTier || isDesloppify || isVerifier;
 
     return (
@@ -277,7 +273,7 @@ const MultiAgentChildRow = memo(
             {info.state === "running" ? (
               <Spinner color={roleColor} />
             ) : info.state === "done" ? (
-              info.calledDone ? (
+              info.succeeded ? (
                 <span fg={t.success}>✓</span>
               ) : (
                 <span fg={t.amber}>!</span>

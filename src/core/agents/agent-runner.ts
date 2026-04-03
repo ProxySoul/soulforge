@@ -13,7 +13,7 @@ import {
 } from "./agent-bus.js";
 import {
   type DoneToolResult,
-  extractDoneResult,
+  extractFinalText,
   formatDoneResult,
   synthesizeDoneFromResults,
   writeAgentContext,
@@ -402,23 +402,13 @@ export async function runAgentTask(
 
       const agentFindings = bus.getFindings().filter((f) => f.agentId === task.agentId);
       let doneResult: DoneToolResult | null = null;
-      let calledDone = false;
 
-      // Prefer the agent's own text output — like Claude Code, just use what the agent wrote.
-      const agentText = typeof result.text === "string" ? result.text.trim() : "";
-      if (agentText.length > 200) {
+      // Extract final text from the last step that has content.
+      // Fallback: synthesize from tool results if agent wrote nothing.
+      const agentText = extractFinalText(result);
+      if (agentText.length > 50) {
         doneResult = { summary: agentText };
-        calledDone = true;
-      }
-
-      // Fallback: check for explicit done tool call
-      if (!doneResult) {
-        doneResult = extractDoneResult(result);
-        if (doneResult) calledDone = true;
-      }
-
-      // Last resort: synthesize from tool results + bus findings (deterministic, zero LLM cost)
-      if (!doneResult) {
+      } else {
         doneResult = synthesizeDoneFromResults(result, agentFindings, task);
         if (result.steps.length === 0) {
           const busReads = bus.getFileReadRecords(task.agentId);
@@ -426,21 +416,20 @@ export async function runAgentTask(
             doneResult.filesExamined = busReads.map((r) => r.path);
           }
         }
-        if (agentFindings.length > 0 || result.steps.length > 0) {
-          calledDone = true;
-        }
       }
 
-      // Code agents that report done but edited nothing are false positives
-      if (calledDone && task.role === "code") {
-        const agentEdits = bus.getEditedFiles(task.agentId);
-        if (agentEdits.size === 0) {
-          calledDone = false;
-        }
-      }
+      // succeeded = agent produced a result.
+      // For code agents: must have actually edited files (read-only runs are failures).
+      // For desloppify: no-edit is valid (clean code needs no fixes).
+      const hasResult = !!doneResult && (doneResult.summary?.length ?? 0) > 10;
+      const codeEdited =
+        task.role !== "code" ||
+        task.agentId === "desloppify" ||
+        bus.getEditedFiles(task.agentId).size > 0;
+      let succeeded = hasResult && codeEdited;
 
       // Auto-retry: code agent read files but made zero edits → focused retry
-      if (!calledDone && task.role === "code" && attempt === 0) {
+      if (!succeeded && task.role === "code" && attempt === 0 && task.agentId !== "desloppify") {
         const agentEdits = bus.getEditedFiles(task.agentId);
         const agentReads = bus.getFileReadRecords(task.agentId);
         if (agentEdits.size === 0 && agentReads.length > 0 && !abortSignal?.aborted) {
@@ -511,15 +500,17 @@ export async function runAgentTask(
               const retryEdits = bus.getEditedFiles(task.agentId);
               if (retryEdits.size > 0) {
                 // Retry succeeded — rebuild result from retry
+                const retryText = extractFinalText(retryResult);
                 const retryDone =
-                  extractDoneResult(retryResult) ??
-                  synthesizeDoneFromResults(
-                    retryResult,
-                    bus.getFindings().filter((f) => f.agentId === task.agentId),
-                    task,
-                  );
+                  retryText.length > 50
+                    ? { summary: retryText }
+                    : synthesizeDoneFromResults(
+                        retryResult,
+                        bus.getFindings().filter((f) => f.agentId === task.agentId),
+                        task,
+                      );
                 doneResult = retryDone;
-                calledDone = true;
+                succeeded = true;
 
                 // Accumulate token usage from retry
                 input += retryCallbacks._acc.input || (retryResult.totalUsage?.inputTokens ?? 0);
@@ -547,7 +538,7 @@ export async function runAgentTask(
 
       // Post-edit diff verification: confirm code agent edits actually changed files
       let editVerificationWarning: string | undefined;
-      if (task.role === "code" && calledDone) {
+      if (task.role === "code" && succeeded) {
         const editedFiles = bus.getEditedFiles(task.agentId);
         if (editedFiles.size > 0) {
           const noopEdits: string[] = [];
@@ -578,7 +569,7 @@ export async function runAgentTask(
         agentId: task.agentId,
         role: task.role,
         task: task.task,
-        result: calledDone ? `[done] ${resultText}` : `[no-done] ${resultText}`,
+        result: succeeded ? `[done] ${resultText}` : `[no-done] ${resultText}`,
         success: true,
       };
       bus.setResult(agentResult);
@@ -600,7 +591,7 @@ export async function runAgentTask(
         resultChars: resultText.length,
         modelId: selectedModelId,
         tier: taskTier,
-        calledDone,
+        succeeded,
         warning: editVerificationWarning,
       });
       if (editVerificationWarning) {
@@ -622,7 +613,7 @@ export async function runAgentTask(
         });
       }
       try {
-        const agentText = typeof result.text === "string" ? result.text : "";
+        const agentText = extractFinalText(result);
         await writeAgentContext(
           parentToolCallId,
           task.agentId,

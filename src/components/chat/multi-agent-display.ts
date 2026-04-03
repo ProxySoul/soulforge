@@ -10,7 +10,7 @@ export interface AgentInfo {
   modelId?: string;
   tier?: string;
   dependsOn?: string[];
-  calledDone?: boolean;
+  succeeded?: boolean;
 }
 
 export interface MultiAgentState {
@@ -91,7 +91,7 @@ export function applyMultiAgentEvent(
       toolUses: event.toolUses,
       tokenUsage: event.tokenUsage,
       cacheHits: event.cacheHits,
-      calledDone: event.calledDone,
+      succeeded: event.succeeded,
     };
     if (existing) {
       s.agents.set(event.agentId, { ...existing, state: "done", ...stats });

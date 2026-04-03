@@ -37,14 +37,14 @@ const MAX_SUBAGENT_CONTEXT = 200_000;
 
 const KEEP_RECENT_MESSAGES = 4;
 
-// Step-count limits — hard caps to prevent runaway loops.
-// Explore agents should finish in 3-5 steps (search → read → report).
-// Code agents need more room for read → edit → verify cycles.
+// Step-count limits — tight caps that match the prompt discipline.
+// Explore: search → read → report (3-5 steps typical, 12 max).
+// Code: read → edit → verify (3-5 steps typical, 18 max).
 const EXPLORE_MAX_STEPS = 12;
 const CODE_MAX_STEPS = 18;
 // Step at which we inject a "wrap up" nudge (before hard stop)
 const STEP_NUDGE_EXPLORE = 8;
-const STEP_NUDGE_CODE = 10;
+const STEP_NUDGE_CODE = 12;
 // Consecutive read-only steps before hinting to act.
 // Set high enough that legitimate investigation (reading 4-5 files) doesn't trigger.
 const CONSECUTIVE_READ_LIMIT = 5;
@@ -590,25 +590,28 @@ export function buildPrepareStep({
     if (stepNumber >= stepNudgeAt) {
       const remaining = maxSteps - stepNumber;
       if (remaining <= 1) {
-        const hint = isExplore
-          ? "🛑 FINAL STEP. Write your final text summary NOW. Name files, line numbers, exact values found."
-          : "🛑 FINAL STEP. Apply edits with multi_edit NOW, then summarize what you changed.";
-        hints.push(hint);
+        hints.push(
+          isExplore
+            ? "🛑 FINAL STEP. Stop all tool calls. Write your report NOW."
+            : "🛑 FINAL STEP. Apply remaining edits NOW, then report what changed.",
+        );
         result.toolChoice = "none";
         result.activeTools = [];
       } else if (remaining <= 2) {
-        const hint = isExplore
-          ? `🛑 ${String(remaining)} steps left. Write your text summary NOW. Name files, line numbers, exact values.`
-          : `🛑 ${String(remaining)} steps left. Apply edits with multi_edit NOW, then summarize what you changed.`;
-        hints.push(hint);
+        hints.push(
+          isExplore
+            ? "🛑 Stop searching. Write your report NOW."
+            : "🛑 Apply your remaining edits NOW with multi_edit.",
+        );
         if (!isExplore) {
-          result.activeTools = ["edit_file", "multi_edit", "done", "report_finding"];
+          result.activeTools = ["edit_file", "multi_edit", "report_finding"];
         }
       } else {
-        const hint = isExplore
-          ? `⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. Write your text summary soon. Name files, line numbers, exact values found.`
-          : `⚠ Step ${String(stepNumber)}/${String(maxSteps)} — ${String(remaining)} steps left. Apply your edits NOW with multi_edit.`;
-        hints.push(hint);
+        hints.push(
+          isExplore
+            ? "⚠ You have enough information. Wrap up and write your report."
+            : "⚠ Finish your edits soon.",
+        );
       }
     }
 

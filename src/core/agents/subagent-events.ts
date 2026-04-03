@@ -46,7 +46,7 @@ export interface MultiAgentEvent {
   /** Actual chars in the agent's result text (emitted on agent-done) */
   resultChars?: number;
   /** Whether the agent called the done tool (vs hitting step/token limit) */
-  calledDone?: boolean;
+  succeeded?: boolean;
   /** Warning message for complexity or verification issues */
   warning?: string;
   /** Whether this agent was auto-retried */

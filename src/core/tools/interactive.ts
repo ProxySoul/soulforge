@@ -15,6 +15,7 @@ const coerceJsonArray = (v: unknown) => {
   }
   return v;
 };
+
 import type { InteractiveCallbacks, Plan, PlanDepth, PlanStepStatus } from "../../types/index.js";
 
 function planFileName(sessionId?: string): string {

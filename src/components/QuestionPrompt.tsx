@@ -139,9 +139,7 @@ export function QuestionPrompt({ question, isActive, onAnswer }: Props) {
           {question.options.map((opt, i) => (
             <OptionRow key={opt.value} label={opt.label} isSelected={i === selectedIdx} t={t} />
           ))}
-          {showOther && (
-            <OptionRow label="Other" isSelected={selectedIdx === OTHER_IDX} t={t} />
-          )}
+          {showOther && <OptionRow label="Other" isSelected={selectedIdx === OTHER_IDX} t={t} />}
           <text fg={t.textDim}>
             {"  "}↑↓ select · ⏎ confirm
             {question.allowSkip ? " · esc skip" : ""}
