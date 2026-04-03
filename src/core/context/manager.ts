@@ -32,6 +32,7 @@ export interface SharedContextResources {
   repoMap: IntelligenceClient;
   memoryManager: MemoryManager;
   workspaceCoordinator?: import("../coordination/WorkspaceCoordinator.js").WorkspaceCoordinator;
+  parent?: ContextManager;
 }
 
 /**
@@ -141,6 +142,7 @@ export class ContextManager {
       repoMap: this.repoMap,
       memoryManager: this.memoryManager,
       workspaceCoordinator: this.shared?.workspaceCoordinator,
+      parent: this,
     };
   }
 
@@ -412,7 +414,7 @@ export class ContextManager {
 
   isRepoMapReady(): boolean {
     if (!this.repoMapEnabled) return false;
-    if (this.isChild) return this.repoMap.getStatsCached().files > 0;
+    if (this.isChild) return this.shared?.parent?.isRepoMapReady() ?? false;
     return this.repoMapReady;
   }
 
