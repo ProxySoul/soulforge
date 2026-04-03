@@ -215,6 +215,8 @@ export interface ChatInstance {
   setCoAuthorCommits: React.Dispatch<React.SetStateAction<boolean>>;
   tokenUsage: TokenUsage;
   setTokenUsage: React.Dispatch<React.SetStateAction<TokenUsage>>;
+  /** Timestamp when actual generation started (after Soul Map wait). */
+  loadingStartedAt: number;
   contextTokens: number;
   lastStepOutput: number;
   chatChars: number;
@@ -257,6 +259,7 @@ export function useChat({
     initialState?.coreMessages ?? [],
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStartedAt, setLoadingStartedAt] = useState(0);
   const [streamSegments, setStreamSegments] = useState<StreamSegment[]>([]);
   const [liveToolCalls, setLiveToolCalls] = useState<LiveToolCall[]>([]);
 
@@ -1749,6 +1752,8 @@ export function useChat({
           }
         }
 
+        setLoadingStartedAt(Date.now());
+
         const agent = createForgeAgent({
           model,
           contextManager,
@@ -3063,6 +3068,7 @@ export function useChat({
     coreMessages,
     setCoreMessages,
     isLoading,
+    loadingStartedAt,
     isCompacting,
     streamSegments,
     liveToolCalls,

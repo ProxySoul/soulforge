@@ -238,14 +238,12 @@ export const TabInstance = memo(function TabInstance({
     }
   }, [visible, chat.tokenUsage, chat.activeModel]);
 
-  // Per-tab loading start timestamp — shared between LockInWrapper and LoadingStatus
+  // Per-tab loading start timestamp — driven by useChat (set after Soul Map wait)
   const loadingStartedAtRef = useRef(0);
+  if (chat.loadingStartedAt > 0) loadingStartedAtRef.current = chat.loadingStartedAt;
 
   // Report loading state to tab manager, sync coordinator idle/active, update claim count
   const prevLoading = useRef(chat.isLoading);
-
-  // Capture start time on loading transition (before prevLoading is updated in the effect)
-  if (chat.isLoading && !prevLoading.current) loadingStartedAtRef.current = Date.now();
   useEffect(() => {
     const coordinator = getWorkspaceCoordinator();
     setTabActivity(tabId, { isLoading: chat.isLoading, isCompacting: chat.isCompacting });

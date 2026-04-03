@@ -317,12 +317,12 @@ async function saveSession(
 }
 
 export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Promise<void> {
-  const startTime = Date.now();
   const isQuiet = opts.quiet === true;
   const isEvents = opts.events === true;
   const showProgress = !opts.json && !isEvents && !isQuiet;
 
   const env = await setupAgent(opts, merged);
+  const startTime = Date.now();
 
   // Session resume
   let priorMessages: ModelMessage[] = [];
