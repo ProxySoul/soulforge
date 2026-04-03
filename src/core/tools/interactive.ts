@@ -2,6 +2,19 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+
+const coerceJsonArray = (v: unknown) => {
+  if (typeof v !== "string") return v;
+  const trimmed = v.trim();
+  if (trimmed[0] === "[" || trimmed[0] === "{") {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return v;
+    }
+  }
+  return v;
+};
 import type { InteractiveCallbacks, Plan, PlanDepth, PlanStepStatus } from "../../types/index.js";
 
 function planFileName(sessionId?: string): string {
@@ -30,98 +43,110 @@ export function buildInteractiveTools(
         title: z.string().describe("Short plan title (2-6 words)"),
         context: z.string().describe("What problem this solves and why these changes are needed"),
         files: z
-          .array(
-            z.object({
-              path: z.string().describe("Exact file path from Soul Map or research — never guess"),
-              action: z.enum(["create", "modify", "delete"]).describe("Type of change"),
-              description: z.string().describe("What changes to make in this file"),
-              symbols: z
-                .array(
-                  z.object({
-                    name: z.string().describe("Symbol name (function, class, type, variable)"),
-                    kind: z
-                      .string()
-                      .describe("Symbol kind: function, class, interface, type, method, variable"),
-                    action: z
-                      .enum(["add", "modify", "remove", "rename"])
-                      .describe("What to do with this symbol"),
-                    details: z
-                      .string()
-                      .describe(
-                        "Exact change: new signature, parameter changes, logic to add/remove. " +
-                          "Include current signature for modifications.",
-                      ),
-                    line: z
-                      .number()
-                      .nullable()
-                      .optional()
-                      .describe("Current line number if modifying/removing"),
-                  }),
-                )
-                .nullable()
-                .optional()
-                .catch(null)
-                .describe("Symbols to change in this file — include for all modify/delete actions"),
-              code_snippets: z
-                .array(
-                  z.object({
-                    lines: z.string().describe("Line range, e.g. '10-45' or 'full'"),
-                    code: z.string().describe("Exact current code copied from read output"),
-                  }),
-                )
-                .nullable()
-                .optional()
-                .catch(null)
-                .describe(
-                  "Current code from this file that the executor needs to see. " +
-                    'Required for depth "full" on modify files. ' +
-                    'Not needed for depth "light" — executor reads files on the fly.',
-                ),
-            }),
+          .preprocess(
+            coerceJsonArray,
+            z.array(
+              z.object({
+                path: z
+                  .string()
+                  .describe("Exact file path from Soul Map or research — never guess"),
+                action: z.enum(["create", "modify", "delete"]).describe("Type of change"),
+                description: z.string().describe("What changes to make in this file"),
+                symbols: z
+                  .array(
+                    z.object({
+                      name: z.string().describe("Symbol name (function, class, type, variable)"),
+                      kind: z
+                        .string()
+                        .describe(
+                          "Symbol kind: function, class, interface, type, method, variable",
+                        ),
+                      action: z
+                        .enum(["add", "modify", "remove", "rename"])
+                        .describe("What to do with this symbol"),
+                      details: z
+                        .string()
+                        .describe(
+                          "Exact change: new signature, parameter changes, logic to add/remove. " +
+                            "Include current signature for modifications.",
+                        ),
+                      line: z
+                        .number()
+                        .nullable()
+                        .optional()
+                        .describe("Current line number if modifying/removing"),
+                    }),
+                  )
+                  .nullable()
+                  .optional()
+                  .catch(null)
+                  .describe(
+                    "Symbols to change in this file — include for all modify/delete actions",
+                  ),
+                code_snippets: z
+                  .array(
+                    z.object({
+                      lines: z.string().describe("Line range, e.g. '10-45' or 'full'"),
+                      code: z.string().describe("Exact current code copied from read output"),
+                    }),
+                  )
+                  .nullable()
+                  .optional()
+                  .catch(null)
+                  .describe(
+                    "Current code from this file that the executor needs to see. " +
+                      'Required for depth "full" on modify files. ' +
+                      'Not needed for depth "light" — executor reads files on the fly.',
+                  ),
+              }),
+            ),
           )
           .describe("All files to change — REQUIRED"),
         steps: z
-          .array(
-            z.object({
-              id: z.string().describe("Step ID (step-1, step-2, etc.)"),
-              label: z.string().describe("Short step label for the checklist"),
-              targetFiles: z
-                .array(z.string())
-                .nullable()
-                .optional()
-                .catch(null)
-                .describe("File paths this step touches — executor opens only these"),
-              edits: z
-                .array(
-                  z.object({
-                    file: z.string().describe("File path to edit"),
-                    old: z.string().describe("Exact text to find (copy from code_snippets)"),
-                    new: z.string().describe("Replacement text"),
-                  }),
-                )
-                .nullable()
-                .optional()
-                .catch(null)
-                .describe(
-                  "Concrete edit_file operations for this step. " +
-                    'Required for depth "full" on modify steps. ' +
-                    'Not needed for depth "light".',
-                ),
-              shell: z
-                .string()
-                .nullable()
-                .optional()
-                .describe("Shell command to run in this step (e.g. install deps, run tests)"),
-              details: z
-                .string()
-                .nullable()
-                .optional()
-                .describe("Additional context / guidance for the executor"),
-            }),
+          .preprocess(
+            coerceJsonArray,
+            z.array(
+              z.object({
+                id: z.string().describe("Step ID (step-1, step-2, etc.)"),
+                label: z.string().describe("Short step label for the checklist"),
+                targetFiles: z
+                  .array(z.string())
+                  .nullable()
+                  .optional()
+                  .catch(null)
+                  .describe("File paths this step touches — executor opens only these"),
+                edits: z
+                  .array(
+                    z.object({
+                      file: z.string().describe("File path to edit"),
+                      old: z.string().describe("Exact text to find (copy from code_snippets)"),
+                      new: z.string().describe("Replacement text"),
+                    }),
+                  )
+                  .nullable()
+                  .optional()
+                  .catch(null)
+                  .describe(
+                    "Concrete edit_file operations for this step. " +
+                      'Required for depth "full" on modify steps. ' +
+                      'Not needed for depth "light".',
+                  ),
+                shell: z
+                  .string()
+                  .nullable()
+                  .optional()
+                  .describe("Shell command to run in this step (e.g. install deps, run tests)"),
+                details: z
+                  .string()
+                  .nullable()
+                  .optional()
+                  .describe("Additional context / guidance for the executor"),
+              }),
+            ),
           )
           .describe("Ordered implementation steps with full details"),
         verification: z
-          .array(z.string())
+          .preprocess(coerceJsonArray, z.array(z.string()))
           .nullable()
           .optional()
           .catch(null)
@@ -304,12 +329,15 @@ export function buildInteractiveTools(
       inputSchema: z.object({
         question: z.string().describe("The question to ask"),
         options: z
-          .array(
-            z.object({
-              label: z.string().describe("Display label"),
-              value: z.string().describe("Value returned when selected"),
-              description: z.string().nullable().optional().describe("Optional description"),
-            }),
+          .preprocess(
+            coerceJsonArray,
+            z.array(
+              z.object({
+                label: z.string().describe("Display label"),
+                value: z.string().describe("Value returned when selected"),
+                description: z.string().nullable().optional().describe("Optional description"),
+              }),
+            ),
           )
           .describe("Selectable options"),
         allowSkip: z.boolean().nullable().optional().describe("Whether the user can skip (Esc)"),
