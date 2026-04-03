@@ -2,7 +2,7 @@ import { TextAttributes } from "@opentui/core";
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
-import { resolveToolDisplay } from "../../core/tool-display.js";
+import { resolveToolDisplay, TOOL_LABELS_DONE } from "../../core/tool-display.js";
 import { garble } from "../../core/utils/splash.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
 import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
@@ -221,7 +221,9 @@ export const LockInWrapper = memo(function LockInWrapper({
             </box>
           ) : null}
           {visible.map((tc, i) => {
-            const { icon: toolIcon, iconColor } = resolveToolDisplay(tc.name, t.textMuted);
+            const { icon: toolIcon, iconColor, label } = resolveToolDisplay(tc.name, t.textMuted);
+            const doneLabel = TOOL_LABELS_DONE[tc.name] ?? label;
+            const displayLabel = tc.done ? doneLabel : label;
             const isLast = i === visible.length - 1 && !children;
             const connector =
               visible.length < 2 && !children
@@ -244,7 +246,10 @@ export const LockInWrapper = memo(function LockInWrapper({
                   <span fg={t.textFaint}>{connector}</span>
                   <span fg={statusClr}>{statusChar}</span>
                   <span fg={tc.done ? t.textDim : iconColor}> {toolIcon} </span>
-                  <span fg={tc.done ? t.textDim : t.textSecondary}>{tc.argStr || tc.name}</span>
+                  <span fg={tc.done ? t.textDim : t.brand}>{displayLabel}</span>
+                  {tc.argStr ? (
+                    <span fg={tc.done ? t.textDim : t.textSecondary}> {tc.argStr}</span>
+                  ) : null}
                 </text>
               </box>
             );
