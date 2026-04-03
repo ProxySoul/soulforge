@@ -2,6 +2,154 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.0.0] — 2026-04-03
+
+### Bug Fixes
+
+- resolve all lint errors and warnings across 7 files
+- show proper labels in lock-in tool rail instead of raw tool names
+- child context managers now defer to parent for repo map readiness
+### Documentation
+
+- refresh for spark/ember architecture + screenshot update
+### Miscellaneous
+
+- fix changelog generation — include non-conventional commits
+### Other
+
+- skip bus coordination tools for desloppify/verifier
+
+Solo post-processing agents dont need report_finding,
+check_findings, or check_edit_conflicts — no peers to
+coordinate with. skipBusTools flag on agent creators,
+set automatically for desloppify/verifier agentIds.
+Bus cache (wrapWithBusCache) still active for file reads.
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- hide task text for desloppify/verifier in dispatch display
+
+The agentId + tier label (cleanup/verify) already identifies them.
+No need to show the raw prompt text which starts with RULES block.
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- drop hallucinated files, coerce weak model read args
+- agent lifecycle: unified result handling, display fixes, soul map UX
+
+Result handling:
+- extractFinalText: last step text, not concatenated result.text
+- calledDone → succeeded: derived from agent text + edits, not ghost done tool
+- removed extractDoneResult (done tool never existed)
+- desloppify/verifier routed through runAgentTask (no duplicate code)
+
+Display:
+- agent role label from info.role not tier (explore ember no longer shows [code])
+- succeeded drives checkmark (✓) vs warning (!)
+- hideOther prop on PendingQuestion for single-option prompts
+
+Soul Map wait UX:
+- interactive prompt with live progress (files, symbols, phase)
+- "Proceed without Soul Map" button, auto-dismiss on ready
+- scan errors shown in prompt text
+- child contexts defer to parent isRepoMapReady (was files>0 bug)
+- Ctrl+X aborts cleanly via AbortSignal
+
+Timer:
+- loadingStartedAt set after Soul Map wait, not on submit
+- headless startTime after setupAgent
+
+Step limits: 12 explore / 18 code, nudge at 8/12
+Nudges: action-oriented ("stop and report") not budget-aware ("step 8/12")
+
+Headless: waitForRepoMap with 30s timeout and progress message
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- start counting after Soul Map wait, not on submit
+- use waitForRepoMap with 30s timeout and progress
+- soul map wait: show scan errors in prompt, cleaner progress
+
+- scan failure shown in question text (user decides to proceed)
+- removed stall auto-skip (user should decide, not timeout)
+- progress shows file/symbol counts from repo map store
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- hide "Other" option via explicit hideOther prop on PendingQuestion
+
+Added hideOther?: boolean to PendingQuestion interface.
+QuestionPrompt checks it to show/hide the free-text option.
+Soul Map wait prompt sets hideOther: true.
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- soul map wait: interactive prompt with live progress
+
+When Soul Map is not ready on message submit:
+- shows a PendingQuestion with live progress (files, symbols, phase)
+- progress updates every 500ms from the repo map store
+- user can click "Proceed without Soul Map" to skip (with warning)
+- auto-dismisses when Soul Map finishes (200ms poll)
+- respects Ctrl+X abort
+- warns about reduced capabilities if proceeding without
+
+waitForRepoMap: accepts AbortSignal for clean cancellation
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- soul map wait: abort-aware, clearer messaging
+
+- waitForRepoMap accepts AbortSignal — Ctrl+X during indexing cancels
+  the wait cleanly instead of hanging until timeout
+- wait message simplified: "Soul Map indexing… will proceed when ready."
+- timeout warning is now a system message with reduced-capabilities note
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- add dispatch testing notes
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- app layout fixes, icons, skills lockfile update
+- plan tool: JSON array coercion + schema refinements
+
+- coerceJsonArray preprocessor for array fields (handles stringified JSON)
+- refined plan file/step schemas for clarity
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- router settings: spark/ember labels + proxy perf defaults
+
+RouterSettings: renamed slots to match spark/ember terminology
+- "Code Agent" → "Explore", "Exploration" → "Code"
+- added icons to slot labels
+- simplified section subtitles
+
+Proxy lifecycle: auto-inject performance defaults into proxy config
+- retry, keepalive, streaming settings for reliability
+- versioned marker block (replaced on version bump)
+- skips injection if user already has conflicting keys
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- /context panel: scope-aware tabs, token fixes, display cleanup
+
+StatusDashboard redesign:
+- scope selector (←→ arrows) to view per-tab or aggregate token usage
+- single tab: no scope selector, identical to before
+- multi-tab: Tab 1 / Tab 2 / All — each shows full breakdown
+- "All" scope: aggregated tokens + per-tab summary table
+  (Input / Output / Cache% / Cost columns)
+- context window/compaction/system prompt shown for all tab scopes
+  (hidden only in "All" aggregate view)
+
+Token reporting fixes:
+- compaction preserves cacheRead/cacheWrite/subagentInput/subagentOutput
+  (was zeroed by ...ZERO_USAGE spread)
+- BarRow/EntryRow right padding (values no longer touch border)
+- BarRow descW param for aligned bars across rows
+
+ToolCallDisplay cleanup:
+- removed compact prop (always show last running step only)
+- fresh agent shows thinking spinner (removed doneCount>0 gate)
+- removed dead `true` in memo comparator
+
+Co-Authored-By: SoulForge <soulforge@proxysoul.com>
+- spark/ember architecture with clean classification and lean prompts
+### Testing
+
+- update agent-results budget cap expectations
 ## [1.9.0] — 2026-04-03
 
 ### Bug Fixes
