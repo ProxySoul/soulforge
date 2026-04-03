@@ -33,61 +33,14 @@ SoulForge doesn't work that way. On startup, it builds a **live dependency graph
 
 | | |
 |---|---|
-| **Live Soul Map** | The agent already knows where every symbol lives, what imports what, and which files are most important. No wasted tokens reading files just to orient itself. |
-| **Surgical reads** | Instead of reading entire files, the agent pulls exactly the function or class it needs by name. A 500-line file becomes a 20-line symbol extraction. The Soul Map provides line numbers and signatures, so the agent always knows precisely what to ask for. |
-| **Zero-cost compaction** | When conversations get long, SoulForge compacts context by replaying structured state it already tracked (files touched, decisions made, errors hit) without making an LLM call. Other tools spend thousands of tokens summarizing. SoulForge does it for free. |
-| **Shared agent cache** | When multiple agents work in parallel, the first one to read a large file caches it. Others get a compact stub with symbol names and line ranges instead of the full content. Hundreds of lines become four. |
+| **[Live Soul Map](docs/repo-map.md)** | A SQLite-backed graph of every file, symbol, import, and export — ranked by PageRank, enriched with git co-change history, updated in real-time. The agent already knows where everything lives and how far an edit will ripple. No wasted tokens orienting itself. |
+| **[Surgical reads](docs/architecture.md)** | Instead of reading entire files, the agent extracts exactly the function or class it needs by name via a 4-tier intelligence chain (LSP → ts-morph → tree-sitter → regex) across 30 languages. A 500-line file becomes a 20-line symbol extraction. |
+| **[Zero-cost compaction](docs/compaction.md)** | State extraction runs as the conversation happens: files touched, decisions made, errors hit. When context gets long, it compacts instantly from this pre-built state. No LLM call, no latency, no cost. |
+| **[Multi-agent dispatch](docs/agent-bus.md)** | Parallelize work across explore, code, and web search agents. The first agent to read a large file caches it — others get a compact stub with symbol names and line ranges. Edit coordination prevents conflicts. |
+| **[Multi-tab coordination](docs/cross-tab-coordination.md)** | Run concurrent sessions with different models and modes per tab. Agents see what other tabs are editing, get warnings on contested files, and git operations coordinate automatically. |
+| **[Compound tools](docs/compound-tools.md)** | `read` batches files in parallel with surgical extraction. `multi_edit` applies changes atomically. `rename_symbol`, `move_symbol`, `rename_file` are compiler-guaranteed and cross-file. `project` auto-detects lint/test/build across 23 ecosystems. |
 | **Mix-and-match models** | You choose which model handles which job. Put Opus on planning, Sonnet on coding, Haiku on search and cleanup. Or use one model for everything. The task router gives you full control. |
 | **Prompt caching** | The Soul Map is stable across turns, so it stays cached. On Anthropic, that means the bulk of the system prompt costs a fraction of what it would otherwise. |
-
----
-
-## What makes SoulForge different
-
-<table>
-<tr>
-<td width="50%">
-
-### Live Soul Map
-A SQLite-backed graph of your entire codebase: files, symbols, imports, exports. Ranked by PageRank, enriched with git co-change history, updated in real-time as you edit. The agent knows what's in your project, what depends on what, and where everything lives. Not a static snapshot. It evolves with your code. [Deep dive →](docs/repo-map.md)
-
-</td>
-<td width="50%">
-
-### Surgical Reads
-The agent doesn't read whole files. It extracts exactly the function, class, or type it needs by name, powered by the Soul Map's symbol index and a 4-tier intelligence chain (LSP → ts-morph → tree-sitter → regex). A 500-line file becomes a 20-line read. Across 30 languages. [Deep dive →](docs/architecture.md)
-
-</td>
-</tr>
-<tr>
-<td>
-
-### Multi-Agent Dispatch
-Parallelize work across explore, code, and web search agents. When one agent reads a large file, others get a compact stub with symbol names and line ranges instead of re-reading the full content. Edit coordination prevents conflicts. [Deep dive →](docs/agent-bus.md)
-
-</td>
-<td>
-
-### Zero-Cost Compaction
-State extraction runs as the conversation happens: files touched, decisions made, errors hit. All tracked deterministically. When context gets long, it compacts instantly from this pre-built state. No LLM call, no latency, no cost. [Deep dive →](docs/compaction.md)
-
-</td>
-</tr>
-<tr>
-<td>
-
-### Multi-Tab Coordination
-Run multiple sessions side by side with different models and modes per tab. Agents see what other tabs are editing, get warnings on contested files, and git operations coordinate across tabs automatically. [Deep dive →](docs/cross-tab-coordination.md)
-
-</td>
-<td>
-
-### Compound Tools
-`read` batches multiple files in parallel with surgical symbol extraction. `multi_edit` applies multiple edits to a file atomically (all-or-nothing). `rename_symbol`, `move_symbol`, `rename_file`, `refactor` are compiler-guaranteed and cross-file. `project` auto-detects lint/test/build across 23 ecosystems. [Deep dive →](docs/compound-tools.md)
-
-</td>
-</tr>
-</table>
 
 ### And also
 
