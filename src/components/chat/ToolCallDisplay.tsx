@@ -232,7 +232,12 @@ const MultiAgentChildRow = memo(
       info.role === "investigate" ? t.info : info.role === "code" ? t.warning : t.brand;
     const isDone = info.state === "done" || info.state === "error";
     const isPending = info.state === "pending";
-    const taskStr = info.task.length > 40 ? `${info.task.slice(0, 37)}...` : info.task;
+    const isPostProcess = agentId === "desloppify" || agentId === "verifier";
+    const taskStr = isPostProcess
+      ? ""
+      : info.task.length > 40
+        ? `${info.task.slice(0, 37)}...`
+        : info.task;
     const connector = isLast ? "└ " : isFirst ? "┌ " : "├ ";
     const continuation = isLast ? "  " : "│ ";
 
