@@ -602,8 +602,23 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
         </text>
         <text fg={t.textDim}> · {time}</text>
         {msg.isSteering && <text fg={t.warning}> · steering</text>}
+        {msg.images && msg.images.length > 0 && (
+          <text fg={t.info}>
+            {" "}
+            · 📷 {String(msg.images.length)} image{msg.images.length > 1 ? "s" : ""}
+          </text>
+        )}
       </box>
       {truncateUserContent(msg.content, expanded, t)}
+      {msg.images && msg.images.length > 0 && (
+        <box flexDirection="row" gap={1}>
+          {msg.images.map((img) => (
+            <text key={img.label} fg={t.brandSecondary}>
+              [{img.label}]
+            </text>
+          ))}
+        </box>
+      )}
     </box>
   );
 });
@@ -624,6 +639,15 @@ const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMe
         backgroundColor={t.bgUser}
       >
         {truncateUserContent(msg.content, expanded, t)}
+        {msg.images && msg.images.length > 0 && (
+          <box flexDirection="row" gap={1}>
+            {msg.images.map((img) => (
+              <text key={img.label} fg={t.brandSecondary}>
+                [{img.label}]
+              </text>
+            ))}
+          </box>
+        )}
       </box>
       <text fg={t.textMuted}> You · {time}</text>
     </box>

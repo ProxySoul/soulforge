@@ -10,9 +10,11 @@ import { type FuzzyMatch, fuzzyFilter, fuzzyMatch } from "../../core/history/fuz
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { useUIStore } from "../../stores/ui.js";
+import type { ImageAttachment } from "../../types/index.js";
+import { readClipboardImage } from "../../utils/clipboard.js";
 
 interface Props {
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string, images?: ImageAttachment[]) => void;
   isLoading: boolean;
   isCompacting?: boolean;
   isFocused?: boolean;
@@ -111,6 +113,9 @@ export const InputBox = memo(function InputBox({
     Array<{ id: number; text: string; collapsed: boolean; placeholder: string }>
   >([]);
   const pasteIdCounter = useRef(0);
+  // Image attachments from clipboard paste
+  const pendingImages = useRef<ImageAttachment[]>([]);
+  const imageCounter = useRef(0);
 
   const showBusy = isLoading || isCompacting;
 
@@ -277,6 +282,7 @@ export const InputBox = memo(function InputBox({
     lineCountRef.current = 1;
     historyIdx.current = -1;
     pasteBlocks.current = [];
+    pendingImages.current = [];
     setVisualLines(1);
   }, []);
 
@@ -321,7 +327,8 @@ export const InputBox = memo(function InputBox({
       }
 
       pushHistory(finalInput.trim());
-      onSubmit(finalInput.trim());
+      const images = pendingImages.current.length > 0 ? [...pendingImages.current] : undefined;
+      onSubmit(finalInput.trim(), images);
       resetInput();
     },
     [
@@ -374,11 +381,29 @@ export const InputBox = memo(function InputBox({
     setVisualLines(calcVisualLines(valueRef.current));
   }, [calcVisualLines]);
 
-  // Intercept paste — 4+ lines get collapsed inline
+  // Intercept paste — detect images from clipboard, collapse 4+ line text
   useEffect(() => {
     const handler = (event: PasteEvent) => {
       if (!isFocused) return;
       const text = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+      // If pasted text is empty or very short, check clipboard for image data
+      if (text.trim().length === 0 || (text.trim().length <= 2 && /^\s*$/.test(text))) {
+        const clipImg = readClipboardImage();
+        if (clipImg) {
+          event.preventDefault();
+          const idx = ++imageCounter.current;
+          const label = `image-${String(idx)}`;
+          pendingImages.current.push({
+            label,
+            base64: clipImg.data.toString("base64"),
+            mediaType: clipImg.mediaType,
+          });
+          textareaRef.current?.insertText(`[${label}]`);
+          return;
+        }
+      }
+
       const pastedLines = text.split("\n");
 
       // 1-3 lines: let textarea handle normally

@@ -23,7 +23,12 @@ import {
 import type { TabActivity } from "../../hooks/useTabs.js";
 import { useStatusBarStore } from "../../stores/statusbar.js";
 import { useUIStore } from "../../stores/ui.js";
-import type { AppConfig, ChatMessage, EditorIntegration } from "../../types/index.js";
+import type {
+  AppConfig,
+  ChatMessage,
+  EditorIntegration,
+  ImageAttachment,
+} from "../../types/index.js";
 import { InputBox } from "../chat/InputBox.js";
 import { filterQuietTools, LOCKIN_EDIT_TOOLS, LockInWrapper } from "../chat/LockInStreamView.js";
 import { CodeExpandedProvider } from "../chat/Markdown.js";
@@ -427,12 +432,12 @@ export const TabInstance = memo(function TabInstance({
   }, [chat.pendingPlanReview, cleanupPlanFile]);
 
   const handleInputSubmit = useCallback(
-    async (input: string) => {
+    async (input: string, images?: ImageAttachment[]) => {
       if (input.startsWith("/")) {
         onCommand(input, chat);
         return;
       }
-      chat.handleSubmit(input);
+      chat.handleSubmit(input, images);
       clearEditorSelection();
       // Re-engage sticky scroll so new messages are visible
       const sb = scrollRef.current;
