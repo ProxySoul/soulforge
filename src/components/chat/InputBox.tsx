@@ -424,6 +424,28 @@ export const InputBox = memo(function InputBox({
     };
   }, [isFocused, renderer]);
 
+  // Ctrl+V with image-only clipboard: terminal won't fire a paste event
+  // because there's no text to paste. We catch Ctrl+V in the keyboard
+  // handler and probe the system clipboard for image data.
+  useKeyboard((evt) => {
+    if (!isFocused) return;
+    if (evt.ctrl && evt.name === "v") {
+      const clipImg = readClipboardImage();
+      if (clipImg) {
+        evt.preventDefault();
+        const idx = ++imageCounter.current;
+        const label = `image-${String(idx)}`;
+        pendingImages.current.push({
+          label,
+          base64: clipImg.data.toString("base64"),
+          mediaType: clipImg.mediaType,
+        });
+        textareaRef.current?.insertText(`[${label}]`);
+      }
+      // If no image, let the default Ctrl+V (text paste) proceed
+    }
+  });
+
   useKeyboard((evt) => {
     if (hasMatchesForNav) {
       if (evt.name === "down") {
