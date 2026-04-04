@@ -82,7 +82,7 @@ describe("tool guidance content", () => {
   });
 
   test("keeps shell guidance", () => {
-    expect(TOOL_GUIDANCE_WITH_MAP).toContain("Shell is for git");
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("Shell is for installs and system commands only");
   });
 });
 
