@@ -377,7 +377,18 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   }, [displayEntries, query, ensureVisible]);
 
   const toggleCollapse = (providerId: string) => {
-    setCollapsed((prev) => ({ ...prev, [providerId]: !prev[providerId] }));
+    setCollapsed((prev) => {
+      const wasCollapsed = prev[providerId] ?? false;
+      if (wasCollapsed) {
+        // Expanding: collapse all others (accordion)
+        const next: Record<string, boolean> = {};
+        for (const cfg of PROVIDER_CONFIGS) {
+          next[cfg.id] = cfg.id !== providerId;
+        }
+        return next;
+      }
+      return { ...prev, [providerId]: true };
+    });
   };
 
   const handleKeyboard = (evt: { name?: string; ctrl?: boolean; meta?: boolean }) => {
