@@ -1,0 +1,108 @@
+name: Headless Forge
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Prompt to send to SoulForge"
+        required: false
+        default: "Say hello and tell me what repo you're looking at"
+      model:
+        description: "Model to use (provider/model)"
+        required: false
+        default: "openrouter/qwen/qwen3-235b-a22b:free"
+      mode:
+        description: "Agent mode"
+        required: false
+        default: "architect"
+        type: choice
+        options:
+          - default
+          - architect
+          - auto
+          - plan
+      max-steps:
+        description: "Max agent steps"
+        required: false
+        default: "10"
+
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.10"
+
+      - name: Install SoulForge
+        run: bun install -g @proxysoul/soulforge
+
+      - name: Set API key
+        run: soulforge --set-key openrouter "${{ secrets.OPENROUTER_KEY }}"
+
+      - name: Restore repo map cache
+        uses: actions/cache@v4
+        with:
+          path: .soulforge/
+          key: soulforge-repomap-${{ hashFiles('src/**/*.ts', 'src/**/*.tsx') }}
+          restore-keys: soulforge-repomap-
+
+      - name: Run SoulForge
+        run: |
+          PROMPT="${{ inputs.prompt || 'Say hello and tell me what repo you are looking at' }}"
+          MODEL="${{ inputs.model || 'openrouter/qwen/qwen3-235b-a22b:free' }}"
+          MODE="${{ inputs.mode || 'architect' }}"
+          STEPS="${{ inputs.max-steps || '10' }}"
+
+          soulforge --headless \
+            --model "$MODEL" \
+            --mode "$MODE" \
+            --max-steps "$STEPS" \
+            --timeout 120000 \
+            --quiet \
+            "$PROMPT" \
+            2>stderr.log | tee output.txt
+          EXIT_CODE=$?
+
+          echo "## Headless Forge" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Model** | \`$MODEL\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Mode** | \`$MODE\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Max steps** | $STEPS |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Exit code** | $EXIT_CODE |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Prompt" >> $GITHUB_STEP_SUMMARY
+          echo "> $PROMPT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Response" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          head -200 output.txt >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -s stderr.log ]; then
+            echo "<details><summary>Agent Log</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -50 stderr.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          exit $EXIT_CODE
+
+      - name: Upload output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulforge-output
+          path: |
+            output.txt
+            stderr.log
+          retention-days: 7
