@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -30,11 +30,12 @@ export function detectInstallMethod(): InstallMethod {
     const execPath = process.argv[0] ?? "";
     const moduleUrl = import.meta.url;
 
-    // Homebrew — brew wraps the binary via ~/.soulforge/bin/soulforge so
-    // argv[0] and import.meta.url are unreliable. Use multiple signals:
-    //   1. `which soulforge` resolves to the brew symlink (all versions)
+    // Homebrew — the brew formula installs a compiled binary to Cellar with
+    // a symlink at $HOMEBREW_PREFIX/bin/soulforge. But ~/.soulforge/bin/ may
+    // shadow it in PATH, so `which` and argv[0] are unreliable. Check:
+    //   1. `which soulforge` contains homebrew/Cellar (works when not shadowed)
     //   2. argv[0]/execPath directly contains a Cellar/homebrew path
-    //   3. HOMEBREW_PREFIX is set AND binary lives in ~/.soulforge/bin (brew-specific install dir)
+    //   3. $HOMEBREW_PREFIX/bin/soulforge exists as a symlink (bypasses PATH)
     try {
       const which = execFileSync("which", ["soulforge"], { encoding: "utf8" }).trim();
       if (which.includes("homebrew") || which.includes("Cellar")) return "brew";
@@ -42,10 +43,15 @@ export function detectInstallMethod(): InstallMethod {
 
     if (execPath.includes("/Cellar/") || execPath.includes("/homebrew/")) return "brew";
 
-    // HOMEBREW_PREFIX is always set for brew users; combined with the binary
-    // living under ~/.soulforge/bin/ it uniquely identifies a brew install.
-    const homebrewPrefix = process.env.HOMEBREW_PREFIX ?? process.env.HOMEBREW_CELLAR ?? "";
-    if (homebrewPrefix && moduleUrl.includes("/.soulforge/bin/")) return "brew";
+    // ~/.soulforge/bin/ can shadow the brew symlink in PATH. Check directly
+    // whether brew owns a `soulforge` symlink — this works regardless of PATH.
+    const homebrewPrefix = process.env.HOMEBREW_PREFIX ?? "";
+    if (homebrewPrefix) {
+      try {
+        const brewBin = `${homebrewPrefix}/bin/soulforge`;
+        if (existsSync(brewBin) && lstatSync(brewBin).isSymbolicLink()) return "brew";
+      } catch {}
+    }
 
     // Compiled binary (bun --compile)
     if (moduleUrl.includes("$bunfs")) return "binary";
