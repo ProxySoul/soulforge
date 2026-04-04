@@ -448,11 +448,11 @@ export const InputBox = memo(function InputBox({
           });
           if (tagIdx !== -1) {
             const newText =
-              text.slice(0, tagIdx) + `[${label}]` + text.slice(tagIdx + loadingTag.length);
+              text.slice(0, tagIdx) + `[${label}] ` + text.slice(tagIdx + loadingTag.length);
             ta.setText(newText);
-            ta.cursorOffset = tagIdx + label.length + 2;
+            ta.cursorOffset = tagIdx + label.length + 3;
           } else {
-            ta.insertText(`[${label}]`);
+            ta.insertText(`[${label}] `);
           }
         } else {
           // No image in clipboard — remove the loading placeholder
