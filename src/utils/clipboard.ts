@@ -1,4 +1,5 @@
 import { execSync, spawn } from "node:child_process";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 
 export function copyToClipboard(text: string): void {
   const isDarwin = process.platform === "darwin";
@@ -37,7 +38,7 @@ export function readClipboardImage(): ClipboardImage | null {
 function readClipboardImageDarwin(): ClipboardImage | null {
   // Check if clipboard contains image data via AppleScript
   try {
-    const info = execSync("osascript -e 'the clipboard info' 2>/dev/null", {
+    const info = execSync("osascript -e 'clipboard info' 2>/dev/null", {
       encoding: "utf-8",
       timeout: 3000,
     });
@@ -48,17 +49,33 @@ function readClipboardImageDarwin(): ClipboardImage | null {
     return null;
   }
 
-  // Extract PNG data using osascript
+  // Extract PNG data via osascript writing to a temp file
+  // (osascript cannot reliably pipe binary data to stdout)
+  const tmpFile = `/tmp/soulforge-clipboard-${Date.now()}.png`;
   try {
-    const data = execSync(
-      "osascript -e 'set pngData to the clipboard as «class PNGf»' -e 'return pngData' 2>/dev/null",
-      { timeout: 5000, maxBuffer: 20 * 1024 * 1024 },
+    execSync(
+      `osascript -e '
+set pngData to the clipboard as «class PNGf»
+set filePath to POSIX file "${tmpFile}"
+set fileRef to open for access filePath with write permission
+set eof fileRef to 0
+write pngData to fileRef
+close access fileRef
+' 2>/dev/null`,
+      { timeout: 5000 },
     );
-    if (data.length > 0) {
-      return { data: Buffer.from(data), mediaType: "image/png" };
+    if (existsSync(tmpFile)) {
+      const data = readFileSync(tmpFile);
+      unlinkSync(tmpFile);
+      if (data.length > 0) {
+        return { data, mediaType: "image/png" };
+      }
     }
   } catch {
-    // osascript raw binary extraction can be unreliable
+    // Clean up temp file on failure
+    try {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    } catch {}
   }
 
   return null;
