@@ -12,7 +12,7 @@ on:
       model:
         description: "Model to use (provider/model)"
         required: false
-        default: "openrouter/qwen/qwen3-235b-a22b:free"
+        default: "openrouter/qwen/qwen3.6-plus:free"
       mode:
         description: "Agent mode"
         required: false
@@ -55,7 +55,7 @@ jobs:
       - name: Run SoulForge
         run: |
           PROMPT="${{ inputs.prompt || 'Say hello and tell me what repo you are looking at' }}"
-          MODEL="${{ inputs.model || 'openrouter/qwen/qwen3-235b-a22b:free' }}"
+          MODEL="${{ inputs.model || 'openrouter/qwen/qwen3.6-plus:free' }}"
           MODE="${{ inputs.mode || 'architect' }}"
           STEPS="${{ inputs.max-steps || '10' }}"
 
