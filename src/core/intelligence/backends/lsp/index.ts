@@ -3,7 +3,7 @@
 // - When Neovim is running → bridges to Neovim's LSP (nvim-bridge)
 // - When Neovim is NOT running → spawns servers directly (standalone-client)
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -72,6 +72,14 @@ const SUPPORTED_LANGUAGES: Set<Language> = new Set([
   "python",
   "go",
   "rust",
+  "java",
+  "kotlin",
+  "scala",
+  "csharp",
+  "swift",
+  "dart",
+  "elixir",
+  "ocaml",
   "lua",
   "c",
   "cpp",
@@ -82,8 +90,10 @@ const SUPPORTED_LANGUAGES: Set<Language> = new Set([
   "css",
   "html",
   "json",
+  "toml",
   "yaml",
   "dockerfile",
+  "vue",
 ]);
 
 export class LspBackend implements IntelligenceBackend {
@@ -1516,6 +1526,15 @@ const PROJECT_FILES: Partial<Record<Language, string[]>> = {
   python: ["pyproject.toml", "setup.py"],
   go: ["go.mod"],
   rust: ["Cargo.toml"],
+  java: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+  kotlin: ["build.gradle.kts", "build.gradle", "settings.gradle.kts", "settings.gradle"],
+  scala: ["build.sbt"],
+  csharp: [".csproj", ".sln"],
+  dart: ["pubspec.yaml"],
+  elixir: ["mix.exs"],
+  ruby: ["Gemfile"],
+  php: ["composer.json"],
+  swift: ["Package.swift"],
 };
 
 function findProjectRootForLanguage(file: string, language: Language): string | null {
@@ -1526,7 +1545,15 @@ function findProjectRootForLanguage(file: string, language: Language): string | 
   const root = resolve("/");
   while (dir !== root) {
     for (const marker of markers) {
-      if (existsSync(join(dir, marker))) return dir;
+      // Extension-only markers (e.g. ".csproj", ".sln") — scan dir entries
+      if (marker.startsWith(".") && !marker.includes("/")) {
+        try {
+          const entries = readdirSync(dir);
+          if (entries.some((e) => e.endsWith(marker))) return dir;
+        } catch {}
+      } else if (existsSync(join(dir, marker))) {
+        return dir;
+      }
     }
     dir = dirname(dir);
   }
@@ -1538,7 +1565,7 @@ function escapeRegex(str: string): string {
 }
 
 const DEFINITION_KEYWORDS =
-  /\b(function|class|const|let|var|type|interface|enum|struct|trait|fn|def|func|impl|mod|pub)\b/;
+  /\b(function|class|const|let|var|type|interface|enum|struct|trait|fn|def|func|impl|mod|pub|public|private|protected|static|void|abstract|override|sealed|record|annotation|object|fun|suspend|data|inline|operator|infix|external|companion|lateinit|val|var)\b/;
 
 function isDefinitionLine(line: string): boolean {
   // Skip comments

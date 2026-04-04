@@ -350,8 +350,10 @@ export class CodeIntelligenceRouter {
       ".turbo",
       ".cache",
     ]);
-    const MAX_DEPTH = 3;
-    const MAX_DIRS = 100;
+    // Use deeper scan if a JVM language was already detected via config files
+    const hasJvm = found.some((l) => l === "java" || l === "kotlin" || l === "scala");
+    const MAX_DEPTH = hasJvm ? 8 : 3;
+    const MAX_DIRS = hasJvm ? 500 : 100;
     const queue: Array<{ dir: string; depth: number }> = [{ dir: this.cwd, depth: 0 }];
     let visited = 0;
 
@@ -417,8 +419,11 @@ export class CodeIntelligenceRouter {
       ".turbo",
       ".cache",
     ]);
-    const MAX_DEPTH = 4;
-    const MAX_DIRS = 200;
+    // JVM projects (Java/Kotlin/Scala) have deep source trees:
+    // module/src/main/java/com/example/pkg/Foo.java = depth 6+
+    const isJvmLanguage = language === "java" || language === "kotlin" || language === "scala";
+    const MAX_DEPTH = isJvmLanguage ? 10 : 4;
+    const MAX_DIRS = isJvmLanguage ? 1000 : 200;
 
     const queue: Array<{ dir: string; depth: number }> = [{ dir: this.cwd, depth: 0 }];
     let visited = 0;
@@ -556,16 +561,17 @@ export class CodeIntelligenceRouter {
       fn: () => Promise<unknown>,
       label: string,
       probes: ProbeResult[],
+      timeout = OP_TIMEOUT,
     ): Promise<void> => {
       const start = performance.now();
       try {
         const result = await Promise.race([
           fn(),
-          new Promise<"timeout">((r) => setTimeout(() => r("timeout"), OP_TIMEOUT)),
+          new Promise<"timeout">((r) => setTimeout(() => r("timeout"), timeout)),
         ]);
         const ms = Math.round(performance.now() - start);
         if (result === "timeout") {
-          probes.push({ operation: label, status: "timeout", ms: OP_TIMEOUT });
+          probes.push({ operation: label, status: "timeout", ms: timeout });
         } else if (result === null || result === undefined) {
           probes.push({ operation: label, status: "empty", ms });
         } else {
@@ -659,32 +665,63 @@ export class CodeIntelligenceRouter {
         "probeStandalone" in backend &&
         typeof (backend as { probeStandalone: unknown }).probeStandalone === "function";
 
-      if (hasStandaloneProbe && probeFile && !initError) {
+      if (hasStandaloneProbe && !initError) {
         const lsp = backend as {
           probeStandalone: (f: string, op: string) => Promise<unknown>;
           warmupNvim?: (f: string) => Promise<boolean>;
+          isNvimAvailable?: () => boolean;
         };
 
-        // Warm up nvim LSP — loads probe file in hidden buffer, waits for LSP attach
+        // No probe file — LSP server can still start but we can't run file ops.
+        // Mark both paths as initialized with empty probes so UI doesn't hang.
+        if (!probeFile) {
+          updateBackend("lsp:nvim", {
+            initialized: this.initialized.has(backend.name),
+            initMs,
+            probes: fileOps.map(({ label }) => ({
+              operation: label,
+              status: "empty" as const,
+              error: "no source file found in project",
+            })),
+          });
+          updateBackend("lsp:standalone", {
+            initialized: false,
+            probes: fileOps.map(({ label }) => ({
+              operation: label,
+              status: "empty" as const,
+              error: "no source file found in project",
+            })),
+          });
+          continue;
+        }
+
+        // Warm up nvim LSP — loads probe file in hidden buffer, waits for LSP attach.
+        // Skip entirely if nvim is not running to avoid a 25s stall.
         if (lsp.warmupNvim) {
-          try {
-            await Promise.race([
-              lsp.warmupNvim(probeFile),
-              new Promise<false>((r) => setTimeout(() => r(false), 25_000)),
-            ]);
-          } catch {
-            // Non-fatal
+          const nvimAvailable = lsp.isNvimAvailable?.() ?? false;
+          if (nvimAvailable) {
+            try {
+              await Promise.race([
+                lsp.warmupNvim(probeFile),
+                new Promise<false>((r) => setTimeout(() => r(false), 25_000)),
+              ]);
+            } catch {
+              // Non-fatal
+            }
           }
         }
 
-        // Probe nvim bridge path (what normal usage hits)
+        // Probe nvim bridge path (what normal usage hits).
+        // findImplementation gets extra time — LSP servers (esp. jdtls) scan the whole project.
+        const IMPL_TIMEOUT = 20_000;
         const nvimProbes: ProbeResult[] = [];
         for (const { op, label, fn } of fileOps) {
           if (typeof backend[op] !== "function") {
             nvimProbes.push({ operation: label, status: "unsupported" });
             continue;
           }
-          await probeOp(() => fn(backend, probeFile), label, nvimProbes);
+          const t = op === "findImplementation" ? IMPL_TIMEOUT : OP_TIMEOUT;
+          await probeOp(() => fn(backend, probeFile), label, nvimProbes, t);
         }
         updateBackend("lsp:nvim", {
           initialized: this.initialized.has(backend.name),
@@ -710,7 +747,8 @@ export class CodeIntelligenceRouter {
             standaloneProbes.push({ operation: label, status: "unsupported" });
             continue;
           }
-          await probeOp(() => lsp.probeStandalone(probeFile, op), label, standaloneProbes);
+          const t = op === "findImplementation" ? IMPL_TIMEOUT : OP_TIMEOUT;
+          await probeOp(() => lsp.probeStandalone(probeFile, op), label, standaloneProbes, t);
         }
         updateBackend("lsp:standalone", {
           initialized: true,

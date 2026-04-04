@@ -204,18 +204,36 @@ export class StandaloneLspClient {
       return;
     }
 
-    const languageId =
-      this.config.language === "typescript"
-        ? "typescript"
-        : this.config.language === "javascript"
-          ? "javascript"
-          : this.config.language === "python"
-            ? "python"
-            : this.config.language === "go"
-              ? "go"
-              : this.config.language === "rust"
-                ? "rust"
-                : "plaintext";
+    const LANGUAGE_ID_MAP: Partial<Record<string, string>> = {
+      typescript: "typescript",
+      javascript: "javascript",
+      python: "python",
+      go: "go",
+      rust: "rust",
+      java: "java",
+      kotlin: "kotlin",
+      scala: "scala",
+      csharp: "csharp",
+      swift: "swift",
+      dart: "dart",
+      elixir: "elixir",
+      ocaml: "ocaml",
+      lua: "lua",
+      c: "c",
+      cpp: "cpp",
+      ruby: "ruby",
+      php: "php",
+      zig: "zig",
+      bash: "shellscript",
+      css: "css",
+      html: "html",
+      json: "json",
+      toml: "toml",
+      yaml: "yaml",
+      dockerfile: "dockerfile",
+      vue: "vue",
+    };
+    const languageId = LANGUAGE_ID_MAP[this.config.language] ?? this.config.language;
 
     this.notify("textDocument/didOpen", {
       textDocument: { uri, languageId, version: 1, text },

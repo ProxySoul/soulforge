@@ -504,7 +504,7 @@ export async function findImplementation(
       textDocument = { uri = vim.uri_from_fname(filepath) },
       position = { line = ${String(line)}, character = ${String(col)} },
     }
-    local results = vim.lsp.buf_request_sync(bufnr, 'textDocument/implementation', params, 5000)
+    local results = vim.lsp.buf_request_sync(bufnr, 'textDocument/implementation', params, 15000)
     if not results then return '[]' end
     local impls = {}
     for _, res in pairs(results) do
