@@ -1014,6 +1014,11 @@ export class LspBackend implements IntelligenceBackend {
     }
   }
 
+  /** Whether nvim is currently running and available for LSP. */
+  isNvimAvailable(): boolean {
+    return nvimBridge.isNvimAvailable();
+  }
+
   /** Warm up nvim LSP by opening a file and waiting for diagnostics. */
   async warmupNvim(file: string): Promise<boolean> {
     if (!nvimBridge.isNvimAvailable()) return false;
@@ -1543,18 +1548,28 @@ function findProjectRootForLanguage(file: string, language: Language): string | 
 
   let dir = dirname(resolve(file));
   const root = resolve("/");
-  while (dir !== root) {
-    for (const marker of markers) {
-      // Extension-only markers (e.g. ".csproj", ".sln") — scan dir entries
-      if (marker.startsWith(".") && !marker.includes("/")) {
-        try {
-          const entries = readdirSync(dir);
+  const MAX_DIRS = 100;
+  let dirCount = 0;
+  while (dir !== root && dirCount < MAX_DIRS) {
+    dirCount++;
+    // Check if any markers are extension-only (e.g. ".csproj", ".sln")
+    const extMarkers = markers.filter((m) => m.startsWith(".") && !m.includes("/"));
+    const nameMarkers = markers.filter((m) => !m.startsWith(".") || m.includes("/"));
+
+    // Read directory once for all extension markers
+    if (extMarkers.length > 0) {
+      try {
+        const entries = readdirSync(dir);
+        for (const marker of extMarkers) {
           if (entries.some((e) => e.endsWith(marker))) return dir;
-        } catch {}
-      } else if (existsSync(join(dir, marker))) {
-        return dir;
-      }
+        }
+      } catch {}
     }
+
+    for (const marker of nameMarkers) {
+      if (existsSync(join(dir, marker))) return dir;
+    }
+
     dir = dirname(dir);
   }
   return null;
@@ -1565,7 +1580,7 @@ function escapeRegex(str: string): string {
 }
 
 const DEFINITION_KEYWORDS =
-  /\b(function|class|const|let|var|type|interface|enum|struct|trait|fn|def|func|impl|mod|pub|public|private|protected|static|void|abstract|override|sealed|record|annotation|object|fun|suspend|data|inline|operator|infix|external|companion|lateinit|val|var)\b/;
+  /\b(function|class|const|let|var|type|interface|enum|struct|trait|fn|def|func|impl|mod|pub|public|private|protected|static|void|abstract|override|sealed|record|annotation|object|fun|suspend|data|inline|operator|infix|external|companion|lateinit|val)\b/;
 
 function isDefinitionLine(line: string): boolean {
   // Skip comments

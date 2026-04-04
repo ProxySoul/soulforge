@@ -678,6 +678,7 @@ export class CodeIntelligenceRouter {
           updateBackend("lsp:nvim", {
             initialized: this.initialized.has(backend.name),
             initMs,
+            initError,
             probes: fileOps.map(({ label }) => ({
               operation: label,
               status: "empty" as const,
@@ -686,6 +687,7 @@ export class CodeIntelligenceRouter {
           });
           updateBackend("lsp:standalone", {
             initialized: false,
+            initError,
             probes: fileOps.map(({ label }) => ({
               operation: label,
               status: "empty" as const,
