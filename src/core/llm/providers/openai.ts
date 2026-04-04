@@ -14,6 +14,9 @@ export const openai: ProviderDefinition = {
   name: "OpenAI",
   envVar: "OPENAI_API_KEY",
   icon: "󰧑", // nf-md-head_snowflake U+F09D1
+  secretKey: "openai-api-key",
+  keyUrl: "platform.openai.com",
+  asciiIcon: "O",
 
   createModel(modelId: string) {
     const apiKey = getProviderApiKey("OPENAI_API_KEY");

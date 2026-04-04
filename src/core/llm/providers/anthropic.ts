@@ -14,6 +14,9 @@ export const anthropic: ProviderDefinition = {
   name: "Claude",
   envVar: "ANTHROPIC_API_KEY",
   icon: "󱜙", // nf-md-* U+F1719
+  secretKey: "anthropic-api-key",
+  keyUrl: "console.anthropic.com",
+  asciiIcon: "A",
 
   createModel(modelId: string) {
     const apiKey = getProviderApiKey("ANTHROPIC_API_KEY");

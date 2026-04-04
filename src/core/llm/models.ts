@@ -422,14 +422,34 @@ export async function fetchGroupedModels(providerId: string): Promise<GroupedMod
   if (providerId === "proxy") return fetchProxyGrouped();
   if (providerId === "openrouter") return fetchOpenRouterGrouped();
 
-  return {
-    subProviders: [],
-    modelsByProvider: {},
-    error: `Unknown grouped provider: ${providerId}`,
-  };
+  // Generic fallback: use fetchModels/fallbackModels and group by model prefix
+  return fetchGenericGrouped(providerId);
 }
 
 // Backward-compat wrapper
+async function fetchGenericGrouped(providerId: string): Promise<GroupedModelsResult> {
+  const { models, error } = await fetchProviderModels(providerId);
+  if (error || models.length === 0) {
+    return { subProviders: [], modelsByProvider: {}, error };
+  }
+
+  const grouped: Record<string, ProviderModelInfo[]> = {};
+  for (const m of models) {
+    const group = inferModelGroup(m.id);
+    if (!grouped[group]) grouped[group] = [];
+    grouped[group].push(m);
+  }
+
+  const subProviders = Object.keys(grouped).map((g) => ({
+    id: g,
+    name: GROUP_DISPLAY_NAMES[g] ?? g,
+  }));
+
+  const result: GroupedModelsResult = { subProviders, modelsByProvider: grouped };
+  groupedCache.set(providerId, { result, ts: Date.now() });
+  return result;
+}
+
 export async function fetchVercelGatewayModels(): Promise<GroupedModelsResult> {
   return fetchGroupedModels("vercel_gateway");
 }

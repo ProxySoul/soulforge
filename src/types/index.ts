@@ -320,6 +320,8 @@ export interface AppConfig {
   instructionFiles?: string[];
   /** API key resolution priority: "env" = env vars first (default), "app" = keychain/file first. */
   keyPriority?: "env" | "app";
+  /** Allow Copilot provider to auto-detect token from gh CLI and env vars. Default: false (manual /keys only). */
+  copilotAutoDetect?: boolean;
   /** Whether the first-run onboarding wizard has been completed. */
   onboardingComplete?: boolean;
 }

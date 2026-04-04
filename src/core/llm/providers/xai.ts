@@ -12,6 +12,9 @@ export const xai: ProviderDefinition = {
   name: "Grok",
   envVar: "XAI_API_KEY",
   icon: "\uF0E7", // nf-fa-bolt U+F0E7
+  secretKey: "xai-api-key",
+  keyUrl: "console.x.ai",
+  asciiIcon: "X",
 
   createModel(modelId: string) {
     const apiKey = getProviderApiKey("XAI_API_KEY");

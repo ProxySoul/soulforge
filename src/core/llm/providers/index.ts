@@ -1,5 +1,7 @@
 export { anthropic } from "./anthropic.js";
+export { copilot } from "./copilot.js";
 export { buildCustomProvider } from "./custom.js";
+export { githubModels } from "./github-models.js";
 export { google } from "./google.js";
 export { llmgateway } from "./llmgateway.js";
 export { ollama } from "./ollama.js";
@@ -11,7 +13,9 @@ export { vercelGatewayProvider } from "./vercel-gateway.js";
 export { xai } from "./xai.js";
 
 import { anthropic } from "./anthropic.js";
+import { copilot } from "./copilot.js";
 import { buildCustomProvider } from "./custom.js";
+import { githubModels } from "./github-models.js";
 import { google } from "./google.js";
 import { llmgateway } from "./llmgateway.js";
 import { ollama } from "./ollama.js";
@@ -30,6 +34,8 @@ const BUILTIN_PROVIDERS: ProviderDefinition[] = [
   openai,
   xai,
   google,
+  copilot,
+  githubModels,
   openrouter,
   ollama,
 ];
@@ -66,4 +72,25 @@ export function getProvider(id: string): ProviderDefinition | undefined {
 
 export function getAllProviders(): ProviderDefinition[] {
   return allProviders;
+}
+
+export interface ProviderSecretEntry {
+  secretKey: string;
+  envVar: string;
+  providerId: string;
+  label: string;
+  keyUrl?: string;
+}
+
+/** Derive secret key entries from all registered providers (single source of truth). */
+export function getProviderSecretEntries(): ProviderSecretEntry[] {
+  return allProviders
+    .filter((p): p is typeof p & { secretKey: string } => !!(p.envVar && p.secretKey))
+    .map((p) => ({
+      secretKey: p.secretKey,
+      envVar: p.envVar,
+      providerId: p.id,
+      label: p.name,
+      keyUrl: p.keyUrl,
+    }));
 }

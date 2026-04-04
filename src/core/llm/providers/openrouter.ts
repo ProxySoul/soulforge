@@ -8,6 +8,9 @@ export const openrouter: ProviderDefinition = {
   name: "OpenRouter",
   envVar: "OPENROUTER_API_KEY",
   icon: "\uF0AC", // nf-fa-globe U+F0AC
+  secretKey: "openrouter-api-key",
+  keyUrl: "openrouter.ai",
+  asciiIcon: "⊕",
   grouped: true,
 
   createModel(modelId: string) {

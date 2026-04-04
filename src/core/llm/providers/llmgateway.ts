@@ -8,6 +8,9 @@ export const llmgateway: ProviderDefinition = {
   name: "LLM Gateway",
   envVar: "LLM_GATEWAY_API_KEY",
   icon: "󰒍", // nf-md-cloud_sync U+F048D
+  secretKey: "llmgateway-api-key",
+  keyUrl: "llmgateway.io/dashboard",
+  asciiIcon: "☁",
   grouped: true,
 
   createModel(modelId) {

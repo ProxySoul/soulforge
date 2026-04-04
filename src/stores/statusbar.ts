@@ -95,8 +95,84 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
 
 const DEFAULT_PRICING: ModelPricing = { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 };
 
+// ── GitHub Copilot (premium request model) ─────────────────────
+// Copilot bills per "premium request" ($0.04 × multiplier per API call).
+// Per-token costs are estimated from multiplier / typical request size.
+// Models with multiplier 0 (GPT-4o, GPT-4.1) are free on paid plans.
+// Source: https://docs.github.com/en/copilot/managing-copilot/monitoring-usage-and-entitlements/about-premium-requests
+// Premium request multiplier → per-1M-token cost estimate.
+// Formula: multiplier × $0.04 per request, ~5k tokens/request avg → $/1M = multiplier × $8
+// input:output ratio ~4:1 in typical coding, so input = mult×$2, output = mult×$10
+const FREE: ModelPricing = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+const M025: ModelPricing = { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 2.5 };
+const M033: ModelPricing = { input: 0.66, cacheWrite: 0.66, cacheRead: 0.07, output: 3.3 };
+const M1: ModelPricing = { input: 2, cacheWrite: 2, cacheRead: 0.2, output: 10 };
+const M3: ModelPricing = { input: 6, cacheWrite: 6, cacheRead: 0.6, output: 30 };
+const M30: ModelPricing = { input: 60, cacheWrite: 60, cacheRead: 6, output: 300 };
+
+const COPILOT_PRICING: Record<string, ModelPricing> = {
+  // multiplier 0 (free on paid plans)
+  "gpt-4o": FREE,
+  "gpt-4o-mini": FREE,
+  "gpt-4.1": FREE,
+  "gpt-5-mini": FREE,
+  "raptor-mini": FREE,
+  // multiplier 0.25
+  "grok-code-fast": M025,
+  grok: M025,
+  // multiplier 0.33
+  "claude-haiku-4.5": M033,
+  "gpt-5.4-mini": M033,
+  "gpt-5.1-codex-mini": M033,
+  "gemini-3-flash": M033,
+  // multiplier 1
+  "claude-sonnet-4.6": M1,
+  "claude-sonnet-4.5": M1,
+  "claude-sonnet-4": M1,
+  "claude-3.7-sonnet": M1,
+  "claude-3.5-sonnet": M1,
+  "gemini-2.5-pro": M1,
+  "gemini-3.1-pro": M1,
+  "gemini-3-pro": M1,
+  "gpt-5.1": M1,
+  "gpt-5.2": M1,
+  "gpt-5.3": M1,
+  "gpt-5.4": M1,
+  "o3-mini": M1,
+  "o4-mini": M1,
+  // multiplier 3
+  "claude-opus-4.5": M3,
+  "claude-opus-4.6": M3,
+  // multiplier 30
+  "claude-opus-4.6-fast": M30,
+};
+
+function matchCopilotPricing(model: string): ModelPricing | undefined {
+  const entries = Object.entries(COPILOT_PRICING).sort((a, b) => b[0].length - a[0].length);
+  for (const [key, pricing] of entries) {
+    if (model.includes(key)) return pricing;
+  }
+  return undefined;
+}
+
 function matchPricing(modelId: string): ModelPricing {
   const id = modelId.toLowerCase();
+  // GitHub Copilot: premium request-based pricing
+  if (id.startsWith("copilot/")) {
+    const model = id.slice("copilot/".length);
+    return matchCopilotPricing(model) ?? M1;
+  }
+  // GitHub Models: per-token pricing via multipliers ($0.00001/unit)
+  // The catalog provides real per-model pricing; fall through to standard matching
+  // since github-models model IDs include provider prefix (openai/gpt-4o etc)
+  if (id.startsWith("github-models/")) {
+    const model = id.slice("github-models/".length);
+    const entries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);
+    for (const [key, pricing] of entries) {
+      if (model.includes(key)) return pricing;
+    }
+    return DEFAULT_PRICING;
+  }
   // Sort by key length descending so "claude-opus-4-6" matches before "claude-opus-4"
   const entries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);
   for (const [key, pricing] of entries) {

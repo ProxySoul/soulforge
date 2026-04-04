@@ -1,5 +1,6 @@
 import { loadConfig, loadProjectConfig, mergeConfigs } from "../config/index.js";
-import { registerCustomProviders } from "../core/llm/providers/index.js";
+import { getProviderSecretEntries, registerCustomProviders } from "../core/llm/providers/index.js";
+import { registerProviderSecrets } from "../core/secrets.js";
 import type { AppConfig } from "../types/index.js";
 import { VERSION } from "./constants.js";
 import { listModels, listProviders, setKey } from "./providers.js";
@@ -20,6 +21,7 @@ async function initConfig(cwd?: string): Promise<AppConfig> {
   if (merged.providers && merged.providers.length > 0) {
     registerCustomProviders(merged.providers);
   }
+  registerProviderSecrets(getProviderSecretEntries());
   return merged;
 }
 

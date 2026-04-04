@@ -7,6 +7,9 @@ export const vercelGatewayProvider: ProviderDefinition = {
   name: "Vercel AI Gateway",
   envVar: "AI_GATEWAY_API_KEY",
   icon: "󰒍", // nf-md-cloud_sync U+F048D
+  secretKey: "vercel-gateway-api-key",
+  keyUrl: "vercel.com/ai-gateway",
+  asciiIcon: "☁",
   grouped: true,
 
   createModel(modelId: string) {

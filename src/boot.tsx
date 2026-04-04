@@ -331,6 +331,10 @@ initNerdFont(config.nerdFont);
     const { registerCustomProviders } = await import("./core/llm/providers/index.js");
     registerCustomProviders([...map.values()]);
   }
+  // Sync provider secret keys into the secrets system (single source of truth)
+  const { getProviderSecretEntries } = await import("./core/llm/providers/index.js");
+  const { registerProviderSecrets } = await import("./core/secrets.js");
+  registerProviderSecrets(getProviderSecretEntries());
 }
 
 // Pre-init ContextManager async — yields between heavy sync steps so the spinner stays alive.

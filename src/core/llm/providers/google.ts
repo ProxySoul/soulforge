@@ -15,6 +15,9 @@ export const google: ProviderDefinition = {
   name: "Gemini",
   envVar: "GOOGLE_GENERATIVE_AI_API_KEY",
   icon: "󰊭", // nf-md-google U+F02AD
+  secretKey: "google-api-key",
+  keyUrl: "aistudio.google.com",
+  asciiIcon: "G",
 
   createModel(modelId: string) {
     const apiKey = getProviderApiKey("GOOGLE_GENERATIVE_AI_API_KEY");

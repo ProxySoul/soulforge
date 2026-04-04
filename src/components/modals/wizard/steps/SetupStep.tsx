@@ -25,6 +25,7 @@ interface ProviderEntry {
   url: string;
   desc: string;
   icon: string;
+  autoDetect?: boolean;
 }
 
 const GATEWAY_REF = "https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK";
@@ -76,6 +77,16 @@ const PROVIDERS: ProviderEntry[] = [
     icon: getProvider("xai")?.icon ?? "●",
   },
   {
+    id: "copilot-api-key",
+    providerId: "copilot",
+    label: "GitHub Copilot",
+    envVar: "COPILOT_API_KEY",
+    url: "https://github.com/features/copilot",
+    desc: "Free with Copilot sub",
+    icon: getProvider("copilot")?.icon ?? "CP",
+    autoDetect: true,
+  },
+  {
     id: "openrouter-api-key",
     providerId: "openrouter",
     label: "OpenRouter",
@@ -122,7 +133,17 @@ type Phase = "provider" | "key" | "fetching" | "models" | "error";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-function ProviderRow({ p, isSelected, iw }: { p: ProviderEntry; isSelected: boolean; iw: number }) {
+function ProviderRow({
+  p,
+  isSelected,
+  iw,
+  autoAvailable,
+}: {
+  p: ProviderEntry;
+  isSelected: boolean;
+  iw: number;
+  autoAvailable?: boolean;
+}) {
   const t = useTheme();
   const { bg: popupBg, hl: popupHl } = usePopupColors();
   const bg = isSelected ? popupHl : popupBg;
@@ -147,6 +168,11 @@ function ProviderRow({ p, isSelected, iw }: { p: ProviderEntry; isSelected: bool
         <text bg={bg} fg={t.success}>
           {"  ✓ "}
           {tag}
+        </text>
+      )}
+      {!configured && autoAvailable && (
+        <text bg={bg} fg={t.success}>
+          {"  ✓ auto"}
         </text>
       )}
     </PopupRow>
@@ -217,11 +243,25 @@ export function SetupStep({
   const [spinnerFrame, setSpinnerFrame] = useState(0);
 
   const [tick, setTick] = useState(0);
+  const [autoAvailMap, setAutoAvailMap] = useState<Record<string, boolean>>({});
   const spinnerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const inputWidth = Math.min(Math.floor(iw * 0.8), 60);
   const refresh = () => setTick((n) => n + 1);
   void tick; // dependency: refresh() increments tick after key save, recomputing anyKeySet
-  const anyKeySet = PROVIDERS.some((p) => hasKey(p.id));
+  const anyKeySet =
+    PROVIDERS.some((p) => hasKey(p.id)) || Object.values(autoAvailMap).some(Boolean);
+
+  useEffect(() => {
+    for (const p of PROVIDERS) {
+      if (!p.autoDetect) continue;
+      const prov = getProvider(p.providerId);
+      if (prov?.checkAvailability) {
+        prov.checkAvailability().then((ok) => {
+          setAutoAvailMap((m) => ({ ...m, [p.id]: ok }));
+        });
+      }
+    }
+  }, []);
 
   // Tell parent when we're handling input
   const isInputPhase = phase !== "provider";
@@ -421,7 +461,7 @@ export function SetupStep({
       const provider = PROVIDERS[cursor];
       if (!provider) return;
       setSelectedProvider(provider);
-      if (hasKey(provider.id)) {
+      if (hasKey(provider.id) || (provider.autoDetect && autoAvailMap[provider.id])) {
         fetchModels(provider);
       } else {
         setPhase("key");
@@ -620,8 +660,26 @@ export function SetupStep({
       <Gap iw={iw} />
 
       {PROVIDERS.map((p, i) => (
-        <ProviderRow key={p.id} p={p} isSelected={i === cursor} iw={iw} />
+        <ProviderRow
+          key={p.id}
+          p={p}
+          isSelected={i === cursor}
+          iw={iw}
+          autoAvailable={p.autoDetect ? autoAvailMap[p.id] : undefined}
+        />
       ))}
+
+      {/* Copilot disclaimer */}
+      {PROVIDERS[cursor]?.providerId === "copilot" && (
+        <>
+          <Gap iw={iw} />
+          <PopupRow w={iw}>
+            <text fg={t.textMuted} bg={popupBg}>
+              {"   Unofficial. Use gh auth token or GITHUB_TOKEN."}
+            </text>
+          </PopupRow>
+        </>
+      )}
 
       {/* Gateway link — contextual, only when gateway selected and no key */}
       {PROVIDERS[cursor]?.id === "llmgateway-api-key" && !hasKey("llmgateway-api-key") && (

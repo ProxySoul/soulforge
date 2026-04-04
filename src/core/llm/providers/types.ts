@@ -11,6 +11,12 @@ export interface ProviderDefinition {
   name: string;
   envVar: string;
   icon: string;
+  /** Kebab-case key for the secrets store (e.g. "anthropic-api-key"). Derived from envVar if omitted. */
+  secretKey?: string;
+  /** URL where users can create/manage their API key (shown in /keys UI). */
+  keyUrl?: string;
+  /** ASCII fallback icon for terminals without nerd fonts. */
+  asciiIcon?: string;
   createModel(modelId: string): LanguageModel;
   fetchModels(): Promise<ProviderModelInfo[] | null>;
   fallbackModels: ProviderModelInfo[];

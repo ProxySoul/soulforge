@@ -16,6 +16,7 @@ export const proxy: ProviderDefinition = {
   name: "Proxy",
   envVar: "",
   icon: "󰌆", // nf-md-shield_key U+F0306
+  asciiIcon: "⛨",
   grouped: true,
 
   createModel(modelId: string) {

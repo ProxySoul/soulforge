@@ -12,6 +12,7 @@ export const ollama: ProviderDefinition = {
   name: "Ollama",
   envVar: "",
   icon: "🦙",
+  asciiIcon: "🦙",
 
   createModel(modelId: string) {
     const client = createOpenAI({

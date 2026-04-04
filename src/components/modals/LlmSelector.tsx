@@ -95,6 +95,11 @@ function HeaderRow({
           {" · invalid key"}
         </text>
       )}
+      {entry.id === "copilot" && entry.avail && !entry.loading && (
+        <text fg={t.textFaint} bg={bg}>
+          {" · unofficial"}
+        </text>
+      )}
     </PopupRow>
   );
 }
