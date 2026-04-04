@@ -331,7 +331,7 @@ export class CodeIntelligenceRouter {
       if (existsSync(join(this.cwd, configFile))) add(lang);
     }
 
-    // 3. Scan source files (BFS, same skip/depth as findProbeFile)
+    // 3. Scan source files (BFS — shallower limits than findProbeFile; JVM gets deeper scan)
     const SKIP = new Set([
       "node_modules",
       ".git",
@@ -423,7 +423,7 @@ export class CodeIntelligenceRouter {
     // module/src/main/java/com/example/pkg/Foo.java = depth 6+
     const isJvmLanguage = language === "java" || language === "kotlin" || language === "scala";
     const MAX_DEPTH = isJvmLanguage ? 10 : 4;
-    const MAX_DIRS = isJvmLanguage ? 1000 : 200;
+    const MAX_DIRS = isJvmLanguage ? 500 : 200;
 
     const queue: Array<{ dir: string; depth: number }> = [{ dir: this.cwd, depth: 0 }];
     let visited = 0;
@@ -686,7 +686,7 @@ export class CodeIntelligenceRouter {
             })),
           });
           updateBackend("lsp:standalone", {
-            initialized: false,
+            initialized: this.initialized.has(backend.name),
             initError,
             probes: fileOps.map(({ label }) => ({
               operation: label,
