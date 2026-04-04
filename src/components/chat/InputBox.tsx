@@ -319,6 +319,13 @@ export const InputBox = memo(function InputBox({
         }
       }
 
+      // Sync pendingImages: only keep images whose [label] is still in the text
+      if (pendingImages.current.length > 0) {
+        pendingImages.current = pendingImages.current.filter((img) =>
+          finalInput.includes(`[${img.label}]`),
+        );
+      }
+
       // During loading or compacting: slash commands execute immediately, messages queue
       if ((isLoading || isCompacting) && !finalInput.trim().startsWith("/")) {
         onQueue?.(finalInput.trim());
@@ -447,6 +454,30 @@ export const InputBox = memo(function InputBox({
   });
 
   useKeyboard((evt) => {
+    // Backspace: delete entire [image-N] block atomically
+    if (isFocused && evt.name === "backspace" && !evt.ctrl && !evt.meta) {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const text = ta.plainText;
+      const offset = ta.cursorOffset;
+      // Check if cursor is right after an [image-N] token
+      const before = text.slice(0, offset);
+      const match = before.match(/\[image-\d+\]$/);
+      if (match) {
+        evt.preventDefault();
+        const token = match[0];
+        const tokenStart = offset - token.length;
+        // Remove the token from text
+        const newText = text.slice(0, tokenStart) + text.slice(offset);
+        ta.setText(newText);
+        ta.cursorOffset = tokenStart;
+        // Remove from pendingImages
+        const label = token.slice(1, -1); // strip [ and ]
+        pendingImages.current = pendingImages.current.filter((img) => img.label !== label);
+        return;
+      }
+    }
+
     if (hasMatchesForNav) {
       if (evt.name === "down") {
         setSelectedIdx((prev) => (prev + 1) % matches.length);
