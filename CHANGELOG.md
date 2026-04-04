@@ -2,6 +2,29 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.2.0] — 2026-04-04
+
+### Bug Fixes
+
+- resolve stream stall watchdog deadlock and surface retry messages
+- show FREE tag in model picker, drop sub-group rearrangement
+- accurate OpenRouter cost reporting and free model detection
+- improve Ctrl+L model selector performance and fix handleNewSession hoisting
+- track and kill all child processes on exit
+- handle SIGHUP to clean up child processes on terminal close
+- correct free Qwen model ID in Headless Forge workflow
+### Features
+
+- add /session new command to start fresh session
+- add Groq, DeepSeek, Mistral, Bedrock, and Fireworks providers
+### Miscellaneous
+
+- remove stale tea_test file
+- update gitignore
+- update README badges and rename workflow
+- bump all actions to latest (checkout v6, artifact v7, setup-node v6)
+- bump actions to v5 for Node.js 24 compatibility
+- add Headless Forge workflow for end-to-end testing
 ## [2.1.1] — 2026-04-04
 
 ### Bug Fixes
