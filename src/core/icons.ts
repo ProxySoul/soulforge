@@ -328,9 +328,16 @@ function inferProviderId(idOrModel: string): string {
   if (id.startsWith("gemini")) return "google";
   if (id.startsWith("grok")) return "xai";
   if (id.startsWith("llama") || id.startsWith("meta-")) return "ollama";
-  if (id.startsWith("mistral") || id.startsWith("codestral") || id.startsWith("pixtral"))
+  if (
+    id.startsWith("mistral") ||
+    id.startsWith("codestral") ||
+    id.startsWith("pixtral") ||
+    id.startsWith("magistral") ||
+    id.startsWith("ministral")
+  )
     return "mistral";
   if (id.startsWith("deepseek")) return "deepseek";
+  if (id.startsWith("accounts/fireworks")) return "fireworks";
   if (id.includes("/")) return "vercel_gateway";
   return idOrModel;
 }
@@ -338,6 +345,9 @@ function inferProviderId(idOrModel: string): string {
 const EXTRA_ASCII: Record<string, string> = {
   mistral: "M",
   deepseek: "D",
+  groq: "Q",
+  bedrock: "B",
+  fireworks: "F",
 };
 
 export function providerIcon(providerId: string): string {

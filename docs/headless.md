@@ -90,7 +90,7 @@ soulforge --help                             # Print usage
 | `--version` / `-v` | Print version. |
 | `--help` / `-h` | Print full usage. |
 
-`--set-key` works with all built-in providers (`anthropic`, `openai`, `google`, `xai`, `github-models`, `copilot`, `openrouter`, `llmgateway`, `vercel_gateway`) and any custom provider that has an `envVar` configured. GitHub Copilot (`copilot`) requires an OAuth token from your IDE config (`~/.config/github-copilot/apps.json`). Unofficial internal API; use at your own risk.
+`--set-key` works with all built-in providers (`anthropic`, `openai`, `google`, `xai`, `groq`, `deepseek`, `mistral`, `bedrock`, `fireworks`, `github-models`, `copilot`, `openrouter`, `llmgateway`, `vercel_gateway`) and any custom provider that has an `envVar` configured. GitHub Copilot (`copilot`) requires an OAuth token from your IDE config (`~/.config/github-copilot/apps.json`). Unofficial internal API; use at your own risk. Amazon Bedrock (`bedrock`) uses AWS IAM credentials — set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` environment variables instead.
 
 ## Output
 

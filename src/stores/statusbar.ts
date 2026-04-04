@@ -4,6 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 import type { CompactionStrategy } from "../core/compaction/types.js";
 import { getNvimPid } from "../core/editor/instance.js";
 import { getIntelligenceChildPids } from "../core/intelligence/index.js";
+import { getOpenRouterModelPricing } from "../core/llm/models.js";
 import { getProxyPid } from "../core/proxy/lifecycle.js";
 
 interface PerModelUsage {
@@ -87,12 +88,37 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   "gemini-3.1-flash-lite": { input: 0.25, cacheWrite: 0.25, cacheRead: 0.025, output: 1.5 },
 
   // ── DeepSeek ──────────────────────────────────────────────────────
+  // Source: https://api-docs.deepseek.com/quick_start/pricing (2026-07)
+  // Both deepseek-chat and deepseek-reasoner are DeepSeek-V3.2 with identical pricing.
+  // cacheRead = 10% of input ($0.028).
   "deepseek-chat": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
+  "deepseek-reasoner": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
   "deepseek-v3": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
-  "deepseek-reasoner": { input: 0.55, cacheWrite: 0.55, cacheRead: 0.055, output: 2.19 },
-  "deepseek-r1": { input: 0.55, cacheWrite: 0.55, cacheRead: 0.055, output: 2.19 },
+  "deepseek-r1": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
+
+  // ── Groq ───────────────────────────────────────────────────────────
+  // Source: https://groq.com/pricing/ (2026-07)
+  // cacheRead = 50% of input (Groq prompt caching discount)
+  "llama-3.3-70b": { input: 0.59, cacheWrite: 0.59, cacheRead: 0.295, output: 0.79 },
+  "llama-3.1-8b": { input: 0.05, cacheWrite: 0.05, cacheRead: 0.025, output: 0.08 },
+  "llama-4-scout": { input: 0.11, cacheWrite: 0.11, cacheRead: 0.055, output: 0.34 },
+  "qwen3-32b": { input: 0.29, cacheWrite: 0.29, cacheRead: 0.145, output: 0.59 },
+  "gpt-oss-20b": { input: 0.075, cacheWrite: 0.075, cacheRead: 0.0375, output: 0.3 },
+  "gpt-oss-120b": { input: 0.15, cacheWrite: 0.15, cacheRead: 0.075, output: 0.6 },
+
+  // ── Mistral ────────────────────────────────────────────────────────
+  // Source: https://docs.mistral.ai/getting-started/models/compare (2026-07)
+  "mistral-large": { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 1.5 },
+  "mistral-medium": { input: 0.4, cacheWrite: 0.4, cacheRead: 0.04, output: 2 },
+  "mistral-small": { input: 0.1, cacheWrite: 0.1, cacheRead: 0.01, output: 0.3 },
+  codestral: { input: 0.3, cacheWrite: 0.3, cacheRead: 0.03, output: 0.9 },
+  magistral: { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 1.5 },
+  ministral: { input: 0.1, cacheWrite: 0.1, cacheRead: 0.01, output: 0.1 },
+  pixtral: { input: 0.15, cacheWrite: 0.15, cacheRead: 0.015, output: 0.15 },
+  devstral: { input: 0.1, cacheWrite: 0.1, cacheRead: 0.01, output: 0.3 },
 };
 
+const FREE_PRICING: ModelPricing = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
 const DEFAULT_PRICING: ModelPricing = { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 };
 
 // ── GitHub Copilot (premium request model) ─────────────────────
@@ -155,8 +181,25 @@ function matchCopilotPricing(model: string): ModelPricing | undefined {
   return undefined;
 }
 
+/** Check if a model is free (`:free` / `-free` suffix, or zero pricing from OpenRouter). */
+export function isModelFree(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  if (id.endsWith(":free") || id.endsWith("-free")) return true;
+  // Check OpenRouter catalog for zero pricing
+  if (id.startsWith("openrouter/")) {
+    const orModel = id.slice("openrouter/".length);
+    const orPricing = getOpenRouterModelPricing(orModel);
+    if (orPricing && orPricing.input === 0 && orPricing.output === 0) return true;
+  }
+  return false;
+}
+
 function matchPricing(modelId: string): ModelPricing {
   const id = modelId.toLowerCase();
+
+  // Free models — zero cost
+  if (isModelFree(modelId)) return FREE_PRICING;
+
   // GitHub Copilot: premium request-based pricing
   if (id.startsWith("copilot/")) {
     const model = id.slice("copilot/".length);
@@ -172,6 +215,26 @@ function matchPricing(modelId: string): ModelPricing {
       if (model.includes(key)) return pricing;
     }
     return DEFAULT_PRICING;
+  }
+  // OpenRouter: use real pricing from the API catalog when available
+  if (id.startsWith("openrouter/")) {
+    const orModel = id.slice("openrouter/".length);
+    const orPricing = getOpenRouterModelPricing(orModel);
+    if (orPricing) return orPricing;
+  }
+  // Fireworks: tier-based pricing differs from direct provider pricing.
+  // Model IDs are fireworks/accounts/fireworks/models/<model-name>.
+  // Source: https://fireworks.ai/pricing (2026-07). cacheRead = 50% of input.
+  if (id.startsWith("fireworks/")) {
+    const model = id.slice("fireworks/".length);
+    if (model.includes("deepseek-v3") || model.includes("deepseek-r1"))
+      return { input: 0.56, cacheWrite: 0.56, cacheRead: 0.28, output: 1.68 };
+    if (model.includes("mixtral-8x22b"))
+      return { input: 1.2, cacheWrite: 1.2, cacheRead: 0.6, output: 1.2 };
+    if (model.includes("mixtral-8x7b"))
+      return { input: 0.5, cacheWrite: 0.5, cacheRead: 0.25, output: 0.5 };
+    // >16B params (llama 70B+, qwen 72B, etc): $0.90/M tokens
+    return { input: 0.9, cacheWrite: 0.9, cacheRead: 0.45, output: 0.9 };
   }
   // Sort by key length descending so "claude-opus-4-6" matches before "claude-opus-4"
   const entries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);

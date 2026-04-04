@@ -62,6 +62,7 @@ const PROVIDER_CONSTRAINTS: Record<string, ProviderConstraints> = {
   vercel_gateway: GATEWAY_FULL,
   llmgateway: GATEWAY_FULL,
   openrouter: GATEWAY_FULL,
+  bedrock: GATEWAY_FULL,
 };
 
 const NO_SUPPORT: ProviderConstraints = {

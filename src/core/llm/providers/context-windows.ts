@@ -46,15 +46,17 @@ export const SHARED_CONTEXT_WINDOWS: [pattern: string, tokens: number][] = [
   ["grok-3", 131_072],
   ["grok-2", 131_072],
 
-  // DeepSeek
-  ["deepseek-v3.2", 163_840],
+  // DeepSeek — Source: api-docs.deepseek.com/quick_start/pricing (2026-07)
+  // V3.2 (deepseek-chat & deepseek-reasoner) = 128K context
+  ["deepseek-v3.2", 131_072],
   ["deepseek-v3.1", 128_000],
-  ["deepseek-v3", 163_840],
+  ["deepseek-v3", 131_072],
   ["deepseek-r1-distill", 131_072],
-  ["deepseek-r1", 64_000],
-  ["deepseek-chat", 163_840],
+  ["deepseek-r1", 131_072],
+  ["deepseek-chat", 131_072],
+  ["deepseek-reasoner", 131_072],
   ["deepseek-coder", 128_000],
-  ["deepseek", 163_840],
+  ["deepseek", 131_072],
 
   // Llama — llama-3.x base (8k) vs instruct (128k) varies, provider catch-alls handle it
   ["llama-4-maverick", 1_048_576],
@@ -70,10 +72,19 @@ export const SHARED_CONTEXT_WINDOWS: [pattern: string, tokens: number][] = [
   ["qwen3-max", 262_144],
   ["qwen3-vl", 131_072],
 
-  // Mistral
+  // Mistral — Source: docs.mistral.ai/getting-started/models/compare (2026-07)
+  ["mistral-large", 256_000],
+  ["mistral-medium", 131_072],
+  ["mistral-small", 131_072],
+  ["mistral-nemo", 131_072],
+  ["magistral", 128_000],
+  ["pixtral", 128_000],
   ["codestral", 256_000],
   ["devstral", 262_144],
   ["ministral", 262_144],
+  ["open-mistral-7b", 32_000],
+  ["open-mixtral-8x7b", 32_000],
+  ["open-mixtral-8x22b", 65_536],
 
   // Amazon Nova
   ["nova-premier", 1_000_000],

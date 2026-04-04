@@ -61,8 +61,13 @@
     "typescript": "6.0.2"
   },
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.89",
     "@ai-sdk/anthropic": "3.0.66",
+    "@ai-sdk/deepseek": "^2.0.27",
+    "@ai-sdk/fireworks": "^2.0.43",
     "@ai-sdk/google": "3.0.58",
+    "@ai-sdk/groq": "^3.0.33",
+    "@ai-sdk/mistral": "^3.0.28",
     "@ai-sdk/openai": "3.0.50",
     "@ai-sdk/xai": "3.0.77",
     "@anthropic-ai/sdk": "0.82.0",
