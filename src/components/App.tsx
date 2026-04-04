@@ -19,7 +19,13 @@ import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinat
 import { setEditorRequestCallback } from "../core/editor/instance.js";
 import { icon, providerIcon, UI_ICONS } from "../core/icons.js";
 import { runIntelligenceHealthCheck } from "../core/intelligence/index.js";
-import { fetchOpenRouterMetadata, getShortModelLabel } from "../core/llm/models.js";
+import {
+  fetchGroupedModels,
+  fetchOpenRouterMetadata,
+  fetchProviderModels,
+  getShortModelLabel,
+  PROVIDER_CONFIGS,
+} from "../core/llm/models.js";
 import { notifyProviderSwitch } from "../core/llm/provider.js";
 import { initForbidden } from "../core/security/forbidden.js";
 import { SessionManager } from "../core/sessions/manager.js";
@@ -494,6 +500,10 @@ export function App({
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-time init
   useEffect(() => {
     initForbidden(cwd);
+    for (const cfg of PROVIDER_CONFIGS) {
+      if (cfg.grouped) fetchGroupedModels(cfg.id).catch(() => {});
+      else fetchProviderModels(cfg.id).catch(() => {});
+    }
   }, []);
 
   const contextManager = useMemo(
@@ -741,6 +751,36 @@ export function App({
     if (nvimError) addSystemMessage(`Neovim error: ${nvimError}`);
   }, [nvimError]);
 
+  const handleNewSession = useCallback(async () => {
+    const activeChat = tabMgrRef.current?.getActiveChat();
+    const hasContent = activeChat?.messages.some(
+      (m: ChatMessage) => m.role === "user" || m.role === "assistant",
+    );
+    if (hasContent && activeChat) {
+      const snapshot = workspaceSnapshotRef.current?.();
+      if (snapshot) {
+        try {
+          const { meta, tabMessages } = buildSessionMeta({
+            sessionId: activeChat.sessionId,
+            title: SessionManager.deriveTitle(activeChat.messages),
+            cwd,
+            snapshot,
+            currentTabMessages: activeChat.messages.filter(
+              (m: ChatMessage) => m.role !== "system" || m.showInChat,
+            ),
+          });
+          await sessionManager.saveSession(meta, tabMessages);
+        } catch (err) {
+          logBackgroundError(
+            "new-session",
+            `session save failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
+    restart();
+  }, [cwd, sessionManager]);
+
   const handleTabCommand = useCallback(
     (input: string, chat: ChatInstance) => {
       const cmd = input.trim().toLowerCase().split(/\s+/)[0] ?? "";
@@ -810,6 +850,7 @@ export function App({
         openLspInstall: () => uiState.openModal("lspInstall"),
         openGitCommit: () => uiState.openModal("gitCommit"),
         openSessions: () => uiState.openModal("sessionPicker"),
+        newSession: () => handleNewSession(),
         openHelp: () => uiState.openModal("helpPopup"),
         openErrorLog: () => uiState.openModal("errorLog"),
         cwd,
@@ -882,6 +923,7 @@ export function App({
       detectScope,
       effectiveConfig.agentFeatures,
       effectiveConfig.instructionFiles,
+      handleNewSession,
     ],
   );
 
@@ -908,36 +950,6 @@ export function App({
     useUIStore.getState().closeModal("gitMenu");
     useUIStore.getState().openModal("gitCommit");
   }, []);
-
-  const handleNewSession = useCallback(async () => {
-    const activeChat = tabMgrRef.current?.getActiveChat();
-    const hasContent = activeChat?.messages.some(
-      (m: ChatMessage) => m.role === "user" || m.role === "assistant",
-    );
-    if (hasContent && activeChat) {
-      const snapshot = workspaceSnapshotRef.current?.();
-      if (snapshot) {
-        try {
-          const { meta, tabMessages } = buildSessionMeta({
-            sessionId: activeChat.sessionId,
-            title: SessionManager.deriveTitle(activeChat.messages),
-            cwd,
-            snapshot,
-            currentTabMessages: activeChat.messages.filter(
-              (m: ChatMessage) => m.role !== "system" || m.showInChat,
-            ),
-          });
-          await sessionManager.saveSession(meta, tabMessages);
-        } catch (err) {
-          logBackgroundError(
-            "new-session",
-            `session save failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-    }
-    restart();
-  }, [cwd, sessionManager]);
 
   useGlobalKeyboard({
     shutdownPhase,
