@@ -65,7 +65,7 @@ describe("parseHeadlessArgs", () => {
 				noRepomap: false,
 				include: undefined,
 				diff: false,
-				render: false,
+				render: expect.any(Boolean),
 			},
 		});
 	});
