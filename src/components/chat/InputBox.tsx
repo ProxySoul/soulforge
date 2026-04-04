@@ -11,7 +11,7 @@ import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { useUIStore } from "../../stores/ui.js";
 import type { ImageAttachment } from "../../types/index.js";
-import { readClipboardImage } from "../../utils/clipboard.js";
+import { readClipboardImageAsync } from "../../utils/clipboard.js";
 
 interface Props {
   onSubmit: (value: string, images?: ImageAttachment[]) => void;
@@ -116,6 +116,7 @@ export const InputBox = memo(function InputBox({
   // Image attachments from clipboard paste
   const pendingImages = useRef<ImageAttachment[]>([]);
   const imageCounter = useRef(0);
+  const imageLoadingRef = useRef(false);
 
   const showBusy = isLoading || isCompacting;
 
@@ -388,28 +389,11 @@ export const InputBox = memo(function InputBox({
     setVisualLines(calcVisualLines(valueRef.current));
   }, [calcVisualLines]);
 
-  // Intercept paste — detect images from clipboard, collapse 4+ line text
+  // Intercept paste — collapse 4+ line text pastes
   useEffect(() => {
     const handler = (event: PasteEvent) => {
       if (!isFocused) return;
       const text = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-      // If pasted text is empty or very short, check clipboard for image data
-      if (text.trim().length === 0 || (text.trim().length <= 2 && /^\s*$/.test(text))) {
-        const clipImg = readClipboardImage();
-        if (clipImg) {
-          event.preventDefault();
-          const idx = ++imageCounter.current;
-          const label = `image-${String(idx)}`;
-          pendingImages.current.push({
-            label,
-            base64: clipImg.data.toString("base64"),
-            mediaType: clipImg.mediaType,
-          });
-          textareaRef.current?.insertText(`[${label}]`);
-          return;
-        }
-      }
 
       const pastedLines = text.split("\n");
 
@@ -431,25 +415,54 @@ export const InputBox = memo(function InputBox({
     };
   }, [isFocused, renderer]);
 
-  // Ctrl+V with image-only clipboard: terminal won't fire a paste event
-  // because there's no text to paste. We catch Ctrl+V in the keyboard
-  // handler and probe the system clipboard for image data.
+  // Ctrl+V: probe clipboard for image data asynchronously.
+  // Inserts a temporary [loading…] placeholder, then replaces it with [image-N]
+  // once the clipboard read completes. Non-blocking — UI stays responsive.
   useKeyboard((evt) => {
     if (!isFocused) return;
     if (evt.ctrl && evt.name === "v") {
-      const clipImg = readClipboardImage();
-      if (clipImg) {
+      // Prevent double-fire while an image read is in progress
+      if (imageLoadingRef.current) {
         evt.preventDefault();
-        const idx = ++imageCounter.current;
-        const label = `image-${String(idx)}`;
-        pendingImages.current.push({
-          label,
-          base64: clipImg.data.toString("base64"),
-          mediaType: clipImg.mediaType,
-        });
-        textareaRef.current?.insertText(`[${label}]`);
+        return;
       }
-      // If no image, let the default Ctrl+V (text paste) proceed
+      imageLoadingRef.current = true;
+      const loadingTag = "[loading…]";
+      textareaRef.current?.insertText(loadingTag);
+      evt.preventDefault();
+
+      readClipboardImageAsync().then((clipImg) => {
+        imageLoadingRef.current = false;
+        const ta = textareaRef.current;
+        if (!ta) return;
+        const text = ta.plainText;
+        const tagIdx = text.lastIndexOf(loadingTag);
+
+        if (clipImg) {
+          const idx = ++imageCounter.current;
+          const label = `image-${String(idx)}`;
+          pendingImages.current.push({
+            label,
+            base64: clipImg.data.toString("base64"),
+            mediaType: clipImg.mediaType,
+          });
+          if (tagIdx !== -1) {
+            const newText =
+              text.slice(0, tagIdx) + `[${label}]` + text.slice(tagIdx + loadingTag.length);
+            ta.setText(newText);
+            ta.cursorOffset = tagIdx + label.length + 2;
+          } else {
+            ta.insertText(`[${label}]`);
+          }
+        } else {
+          // No image in clipboard — remove the loading placeholder
+          if (tagIdx !== -1) {
+            const newText = text.slice(0, tagIdx) + text.slice(tagIdx + loadingTag.length);
+            ta.setText(newText);
+            ta.cursorOffset = tagIdx;
+          }
+        }
+      });
     }
   });
 

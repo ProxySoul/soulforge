@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 
 export function copyToClipboard(text: string): void {
@@ -18,95 +18,91 @@ export interface ClipboardImage {
 }
 
 /**
- * Read image data from the system clipboard.
+ * Read image data from the system clipboard (async).
  * Returns null if no image is present.
  *
- * macOS: uses osascript to check clipboard type, then pngpaste or screencapture fallback.
- * Linux: uses xclip to read image/png target.
+ * macOS: single osascript call that checks + extracts PNG to temp file.
+ * Linux: xclip or wl-paste to read image/png target.
  */
-export function readClipboardImage(): ClipboardImage | null {
-  try {
-    if (process.platform === "darwin") {
-      return readClipboardImageDarwin();
-    }
-    return readClipboardImageLinux();
-  } catch {
-    return null;
+export function readClipboardImageAsync(): Promise<ClipboardImage | null> {
+  if (process.platform === "darwin") {
+    return readClipboardImageDarwinAsync();
   }
+  return readClipboardImageLinuxAsync();
 }
 
-function readClipboardImageDarwin(): ClipboardImage | null {
-  // Check if clipboard contains image data via AppleScript
-  try {
-    const info = execSync("osascript -e 'clipboard info' 2>/dev/null", {
-      encoding: "utf-8",
-      timeout: 3000,
-    });
-    const hasImage =
-      /«class PNGf»|«class TIFF»|«class JPEG»|public\.png|public\.tiff|public\.jpeg/.test(info);
-    if (!hasImage) return null;
-  } catch {
-    return null;
-  }
-
-  // Extract PNG data via osascript writing to a temp file
-  // (osascript cannot reliably pipe binary data to stdout)
+function readClipboardImageDarwinAsync(): Promise<ClipboardImage | null> {
   const tmpFile = `/tmp/soulforge-clipboard-${Date.now()}.png`;
-  try {
-    execSync(
+  return new Promise((resolve) => {
+    // Single osascript call: try to extract PNG, fail gracefully if no image
+    exec(
       `osascript -e '
-set pngData to the clipboard as «class PNGf»
-set filePath to POSIX file "${tmpFile}"
-set fileRef to open for access filePath with write permission
-set eof fileRef to 0
-write pngData to fileRef
-close access fileRef
+try
+  set pngData to the clipboard as «class PNGf»
+  set filePath to POSIX file "${tmpFile}"
+  set fileRef to open for access filePath with write permission
+  set eof fileRef to 0
+  write pngData to fileRef
+  close access fileRef
+  return "ok"
+on error
+  return "no-image"
+end try
 ' 2>/dev/null`,
-      { timeout: 5000 },
+      { timeout: 8000 },
+      (err, stdout) => {
+        if (err || !stdout.toString().trim().startsWith("ok")) {
+          cleanup(tmpFile);
+          resolve(null);
+          return;
+        }
+        try {
+          if (existsSync(tmpFile)) {
+            const data = readFileSync(tmpFile);
+            unlinkSync(tmpFile);
+            if (data.length > 0) {
+              resolve({ data, mediaType: "image/png" });
+              return;
+            }
+          }
+        } catch {}
+        cleanup(tmpFile);
+        resolve(null);
+      },
     );
-    if (existsSync(tmpFile)) {
-      const data = readFileSync(tmpFile);
-      unlinkSync(tmpFile);
-      if (data.length > 0) {
-        return { data, mediaType: "image/png" };
-      }
-    }
-  } catch {
-    // Clean up temp file on failure
-    try {
-      if (existsSync(tmpFile)) unlinkSync(tmpFile);
-    } catch {}
-  }
-
-  return null;
+  });
 }
 
-function readClipboardImageLinux(): ClipboardImage | null {
-  // Try xclip first (most common)
-  try {
-    const data = execSync("xclip -selection clipboard -t image/png -o 2>/dev/null", {
-      timeout: 3000,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-    if (data.length > 0) {
-      return { data: Buffer.from(data), mediaType: "image/png" };
-    }
-  } catch {
-    // xclip not available or no image
-  }
+function readClipboardImageLinuxAsync(): Promise<ClipboardImage | null> {
+  return new Promise((resolve) => {
+    // Try xclip first
+    exec(
+      "xclip -selection clipboard -t image/png -o 2>/dev/null",
+      { timeout: 3000, maxBuffer: 20 * 1024 * 1024, encoding: "buffer" },
+      (err, stdout) => {
+        if (!err && stdout && stdout.length > 0) {
+          resolve({ data: Buffer.from(stdout), mediaType: "image/png" });
+          return;
+        }
+        // Fallback: wl-paste for Wayland
+        exec(
+          "wl-paste --type image/png 2>/dev/null",
+          { timeout: 3000, maxBuffer: 20 * 1024 * 1024, encoding: "buffer" },
+          (err2, stdout2) => {
+            if (!err2 && stdout2 && stdout2.length > 0) {
+              resolve({ data: Buffer.from(stdout2), mediaType: "image/png" });
+              return;
+            }
+            resolve(null);
+          },
+        );
+      },
+    );
+  });
+}
 
-  // Fallback: wl-paste for Wayland
+function cleanup(tmpFile: string): void {
   try {
-    const data = execSync("wl-paste --type image/png 2>/dev/null", {
-      timeout: 3000,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-    if (data.length > 0) {
-      return { data: Buffer.from(data), mediaType: "image/png" };
-    }
-  } catch {
-    // No image available
-  }
-
-  return null;
+    if (existsSync(tmpFile)) unlinkSync(tmpFile);
+  } catch {}
 }
