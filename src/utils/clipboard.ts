@@ -32,7 +32,7 @@ export function readClipboardImageAsync(): Promise<ClipboardImage | null> {
 }
 
 function readClipboardImageDarwinAsync(): Promise<ClipboardImage | null> {
-  const tmpFile = `/tmp/soulforge-clipboard-${Date.now()}.png`;
+  const tmpFile = `/tmp/soulforge-clipboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
   return new Promise((resolve) => {
     // Single osascript call: try to extract PNG, fail gracefully if no image
     exec(
