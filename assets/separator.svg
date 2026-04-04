@@ -1,0 +1,43 @@
+<svg width="800" height="8" viewBox="0 0 800 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <foreignObject width="100%" height="100%">
+    <div xmlns="http://www.w3.org/1999/xhtml">
+      <style>
+        @keyframes sweep {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        @media (prefers-reduced-motion) {
+          .bar { animation: none !important; }
+        }
+        .wrap {
+          width: 800px;
+          height: 8px;
+          position: relative;
+        }
+        .base {
+          position: absolute;
+          top: 3px;
+          left: 0;
+          right: 0;
+          height: 1px;
+          background: linear-gradient(90deg, transparent 0%, #7844f0 20%, #ff0059 50%, #9b6af5 80%, transparent 100%);
+          opacity: 0.5;
+        }
+        .bar {
+          position: absolute;
+          top: 3px;
+          left: 0;
+          right: 0;
+          height: 1px;
+          background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.5) 50%, transparent 70%);
+          background-size: 200% 100%;
+          animation: sweep 3s ease-in-out infinite;
+        }
+      </style>
+      <div class="wrap">
+        <div class="base"></div>
+        <div class="bar"></div>
+      </div>
+    </div>
+  </foreignObject>
+</svg>

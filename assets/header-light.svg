@@ -1,0 +1,150 @@
+<svg width="800" height="200" viewBox="0 0 800 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <foreignObject width="100%" height="100%">
+    <div xmlns="http://www.w3.org/1999/xhtml">
+      <style>
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.8; }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-4px); }
+        }
+        @media (prefers-reduced-motion) {
+          .shimmer, .pulse, .float { animation: none !important; }
+        }
+        .wrap {
+          width: 800px;
+          height: 200px;
+          background: #ffffff;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+          overflow: hidden;
+          font-family: 'SF Pro Display','Inter','Segoe UI',system-ui,sans-serif;
+        }
+        .glow {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 80px;
+          background: linear-gradient(90deg, transparent, rgba(120,68,240,0.04), rgba(255,0,89,0.03), rgba(155,106,245,0.04), transparent);
+        }
+        .line {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, transparent 0%, #7844f0 20%, #ff0059 50%, #9b6af5 80%, transparent 100%);
+          opacity: 0.5;
+        }
+        .shimmer {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(120,68,240,0.8), transparent);
+          background-size: 200% 100%;
+          animation: shimmer 3s ease-in-out infinite;
+        }
+        .orb {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(50px);
+        }
+        .orb1 {
+          width: 120px; height: 120px;
+          background: rgba(120,68,240,0.06);
+          top: 20px; left: 160px;
+          animation: pulse 4s ease-in-out infinite;
+        }
+        .orb2 {
+          width: 80px; height: 80px;
+          background: rgba(255,0,89,0.04);
+          top: 40px; right: 200px;
+          animation: pulse 4s ease-in-out infinite 1s;
+        }
+        .orb3 {
+          width: 60px; height: 60px;
+          background: rgba(155,106,245,0.05);
+          bottom: 40px; left: 340px;
+          animation: pulse 4s ease-in-out infinite 2s;
+        }
+        .title-row {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          position: relative;
+          z-index: 1;
+          animation: float 6s ease-in-out infinite;
+        }
+        .anvil {
+          width: 36px;
+          height: 36px;
+        }
+        .title {
+          font-size: 42px;
+          font-weight: 800;
+          letter-spacing: -1px;
+          background: linear-gradient(135deg, #1a1830 0%, #7844f0 50%, #ff0059 100%);
+          background-size: 200% 200%;
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          animation: shimmer 4s ease-in-out infinite;
+        }
+        .subtitle {
+          font-size: 13px;
+          color: #5c5a6e;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          margin-top: 10px;
+          position: relative;
+          z-index: 1;
+        }
+        .dot {
+          display: inline-block;
+          width: 3px;
+          height: 3px;
+          border-radius: 50%;
+          background: #ff0059;
+          margin: 0 10px;
+          vertical-align: middle;
+          animation: pulse 2s ease-in-out infinite;
+        }
+      </style>
+      <div class="wrap">
+        <div class="orb orb1"></div>
+        <div class="orb orb2"></div>
+        <div class="orb orb3"></div>
+        <div class="glow"></div>
+        <div class="title-row">
+          <svg class="anvil" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 8 L26 8 L29 14 L32 14 L32 20 L4 20 L4 14 L7 14 Z" fill="#7844f0"/>
+            <rect x="2" y="20" width="32" height="6" rx="2" fill="#ff0059"/>
+            <rect x="8" y="26" width="20" height="4" rx="2" fill="#8e8ca1"/>
+          </svg>
+          <span class="title">SoulForge</span>
+        </div>
+        <div class="subtitle">
+          Graph-powered intelligence
+          <span class="dot"></span>
+          Multi-agent dispatch
+          <span class="dot"></span>
+          Terminal-native
+        </div>
+        <div class="line"></div>
+        <div class="shimmer"></div>
+      </div>
+    </div>
+  </foreignObject>
+</svg>
