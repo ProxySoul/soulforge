@@ -79,24 +79,6 @@ const INPUT_KEY_BINDINGS = [
   { name: "linefeed", action: "newline" as const },
 ];
 
-/** Find the [image-N] token that contains or is adjacent to the given cursor offset. */
-function findImageTokenAt(
-  text: string,
-  offset: number,
-): { start: number; end: number; label: string } | null {
-  const re = /\[image-\d+\]/g;
-  let m = re.exec(text);
-  while (m !== null) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (offset > start && offset <= end) {
-      return { start, end, label: m[0].slice(1, -1) };
-    }
-    m = re.exec(text);
-  }
-  return null;
-}
-
 export const InputBox = memo(function InputBox({
   onSubmit,
   isLoading,
@@ -297,6 +279,7 @@ export const InputBox = memo(function InputBox({
     isNavigatingHistory.current = true;
     setValue("");
     textareaRef.current?.setText("");
+    textareaRef.current?.extmarks.clear();
     cursorLineRef.current = 0;
     lineCountRef.current = 1;
     historyIdx.current = -1;
@@ -378,8 +361,8 @@ export const InputBox = memo(function InputBox({
   );
 
   // Sync textarea content → React state.
-  // Safety net: if an [image-N] token was corrupted despite key-level guards
-  // (e.g. paste over selection, programmatic edit), remove it.
+  // Safety net: if an [image-N] token was removed (via extmark deletion),
+  // sync pendingImages to match.
   const handleContentChange = useCallback(() => {
     const ta = textareaRef.current;
     const text = ta?.plainText ?? "";
@@ -389,7 +372,7 @@ export const InputBox = memo(function InputBox({
       historyIdx.current = -1;
     }
 
-    // Check image token integrity
+    // Sync pendingImages with surviving tokens
     if (pendingImages.current.length > 0) {
       const surviving = pendingImages.current.filter((img) => text.includes(`[${img.label}]`));
       if (surviving.length < pendingImages.current.length) {
@@ -402,25 +385,9 @@ export const InputBox = memo(function InputBox({
     setVisualLines(calcVisualLines(text));
   }, [calcVisualLines]);
 
-  // Track cursor line for history gating.
-  // Also enforce that the cursor never lands inside an [image-N] token —
-  // snap to the nearest edge. This catches all cursor movement: arrow keys,
-  // mouse clicks, home/end, word-jump, etc.
+  // Track cursor line for history gating
   const handleCursorChange = useCallback((event: { line: number; visualColumn: number }) => {
     cursorLineRef.current = event.line;
-    if (pendingImages.current.length > 0) {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const text = ta.plainText;
-      const offset = ta.cursorOffset;
-      const tokenRange = findImageTokenAt(text, offset);
-      if (tokenRange) {
-        // Snap to whichever edge is closer
-        const distToStart = offset - tokenRange.start;
-        const distToEnd = tokenRange.end - offset;
-        ta.cursorOffset = distToStart <= distToEnd ? tokenRange.start : tokenRange.end;
-      }
-    }
   }, []);
 
   // After fuzzy history selection, the textarea remounts — move cursor to end
@@ -498,11 +465,29 @@ export const InputBox = memo(function InputBox({
               mediaType: clipImg.mediaType,
             });
             if (tagIdx !== -1) {
-              const newText = `${text.slice(0, tagIdx)}[${label}] ${text.slice(tagIdx + loadingTag.length)}`;
+              const tokenStart = tagIdx;
+              const tokenText = `[${label}]`;
+              const newText = `${text.slice(0, tagIdx)}${tokenText} ${text.slice(tagIdx + loadingTag.length)}`;
               ta.setText(newText);
-              ta.cursorOffset = tagIdx + label.length + 3;
+              // Create virtual extmark to make the token atomic
+              ta.extmarks.create({
+                start: tokenStart,
+                end: tokenStart + tokenText.length,
+                virtual: true,
+              });
+              ta.cursorOffset = tokenStart + tokenText.length + 1;
             } else {
               ta.insertText(`[${label}] `);
+              // Create virtual extmark for the just-inserted token
+              const insertedText = ta.plainText;
+              const insertedIdx = insertedText.lastIndexOf(`[${label}]`);
+              if (insertedIdx !== -1) {
+                ta.extmarks.create({
+                  start: insertedIdx,
+                  end: insertedIdx + label.length + 2,
+                  virtual: true,
+                });
+              }
             }
           } else {
             // No image in clipboard — remove the loading placeholder
@@ -526,53 +511,6 @@ export const InputBox = memo(function InputBox({
           }
         });
       return;
-    }
-
-    // ── Image token protection ──
-    // Block ANY key that would modify content while cursor is inside an [image-N] token.
-    // This prevents typing into, deleting from, or otherwise corrupting image tokens.
-    if (isFocused && pendingImages.current.length > 0) {
-      const ta = textareaRef.current;
-      if (ta) {
-        const text = ta.plainText;
-        const offset = ta.cursorOffset;
-        const tokenRange = findImageTokenAt(text, offset);
-
-        if (tokenRange) {
-          // Backspace/delete: remove the entire token
-          if (evt.name === "backspace" || evt.name === "delete") {
-            evt.preventDefault();
-            const newText = text.slice(0, tokenRange.start) + text.slice(tokenRange.end);
-            ta.setText(newText);
-            ta.cursorOffset = tokenRange.start;
-            pendingImages.current = pendingImages.current.filter(
-              (img) => img.label !== tokenRange.label,
-            );
-            return;
-          }
-
-          // Arrow keys: skip over the token
-          if (evt.name === "left" || evt.name === "right") {
-            evt.preventDefault();
-            ta.cursorOffset = evt.name === "left" ? tokenRange.start : tokenRange.end;
-            return;
-          }
-
-          // Any printable character or other editing key: block it
-          if (
-            !evt.ctrl &&
-            !evt.meta &&
-            evt.name !== "up" &&
-            evt.name !== "down" &&
-            evt.name !== "return" &&
-            evt.name !== "escape" &&
-            evt.name !== "tab"
-          ) {
-            evt.preventDefault();
-            return;
-          }
-        }
-      }
     }
 
     if (hasMatchesForNav) {
