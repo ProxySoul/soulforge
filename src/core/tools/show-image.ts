@@ -112,7 +112,7 @@ async function fetchImageUrl(
 /**
  * Ensure buffer is PNG — convert if needed.
  */
-function ensurePng(data: Buffer, name: string): Buffer | null {
+export function ensurePng(data: Buffer, name: string): Buffer | null {
   // Already PNG?
   if (data.length >= 4 && data.subarray(0, 4).equals(PNG_SIGNATURE)) {
     return data;
@@ -211,7 +211,7 @@ function extractGifFrames(data: Buffer): KittyAnimFrame[] | null {
  * GIF stores delays in Graphics Control Extension (GCE) blocks in centiseconds.
  * This avoids needing any external tool just to read delays.
  */
-function parseGifDelays(data: Buffer): number[] {
+export function parseGifDelays(data: Buffer): number[] {
   const delays: number[] = [];
   let i = 0;
 

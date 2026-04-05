@@ -86,13 +86,13 @@ function isRenderableImage(filePath: string): boolean {
 
 // ── PNG decoder (pure JS, no dependencies) ──
 
-interface PngData {
+export interface PngData {
   width: number;
   height: number;
   pixels: Buffer; // RGB, 3 bytes per pixel
 }
 
-function decodePng(data: Buffer): PngData | null {
+export function decodePng(data: Buffer): PngData | null {
   // Verify PNG signature
   if (data.length < 24) return null;
   if (data[0] !== 0x89 || data[1] !== 0x50 || data[2] !== 0x4e || data[3] !== 0x47) return null;
@@ -215,7 +215,7 @@ function getDefaultCols(): number {
  * Sample a rectangular region of the image using area averaging.
  * Returns [r, g, b] averaged over all pixels in the region.
  */
-function sampleArea(
+export function sampleArea(
   pixels: Buffer,
   width: number,
   height: number,
@@ -508,7 +508,9 @@ export function deleteKittyImage(imageId: number): void {
 /**
  * Get PNG dimensions from raw data without full decode.
  */
-function getPngDimensions(data: Buffer | Uint8Array): { width: number; height: number } | null {
+export function getPngDimensions(
+  data: Buffer | Uint8Array,
+): { width: number; height: number } | null {
   if (data.length < 24) return null;
   if (data[0] !== 0x89 || data[1] !== 0x50 || data[2] !== 0x4e || data[3] !== 0x47) return null;
 
