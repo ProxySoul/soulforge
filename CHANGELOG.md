@@ -2,6 +2,17 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.6.0] — 2026-04-05
+
+### Bug Fixes
+
+- use HTML formatting inside sub tag in README image table
+### Features
+
+- clipboard image paste support (#3)
+### Miscellaneous
+
+- update workflow
 ## [2.5.0] — 2026-04-05
 
 ### Bug Fixes
