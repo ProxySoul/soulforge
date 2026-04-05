@@ -2,15 +2,13 @@
 
 <a href="https://paypal.me/waeru"><img src="https://img.shields.io/badge/%E2%9A%94%EF%B8%8F_Fuel_the_Forge-PayPal-9B30FF.svg?style=for-the-badge&logo=paypal&logoColor=white" alt="Fuel the Forge" /></a>
 
-<br/><br/>
+<br/>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/header-dark.svg" />
   <source media="(prefers-color-scheme: light)" srcset="assets/header-light.svg" />
   <img alt="SoulForge" src="assets/header-dark.svg" width="800" />
 </picture>
-
-<br/>
 
 <a href="https://www.npmjs.com/package/@proxysoul/soulforge"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/npm/v/@proxysoul/soulforge?label=version&color=7844f0&style=flat-square&labelColor=0a0818" /><source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/npm/v/@proxysoul/soulforge?label=version&color=7844f0&style=flat-square" /><img alt="Version" src="https://img.shields.io/npm/v/@proxysoul/soulforge?label=version&color=7844f0&style=flat-square" /></picture></a>&nbsp;
 <a href="LICENSE"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/License-BSL%201.1-ff0059.svg?style=flat-square&labelColor=0a0818" /><source media="(prefers-color-scheme: light)" srcset="https://img.shields.io/badge/License-BSL%201.1-ff0059.svg?style=flat-square" /><img alt="License" src="https://img.shields.io/badge/License-BSL%201.1-ff0059.svg?style=flat-square" /></picture></a>&nbsp;

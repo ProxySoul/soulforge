@@ -1,57 +1,99 @@
-<svg width="800" height="100" viewBox="0 0 800 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="800" height="160" viewBox="0 0 800 160" fill="none" xmlns="http://www.w3.org/2000/svg">
   <foreignObject width="100%" height="100%">
     <div xmlns="http://www.w3.org/1999/xhtml">
       <style>
         @keyframes fadein {
-          0%, 10% { opacity: 0; transform: translateY(6px); }
-          20%, 100% { opacity: 1; transform: translateY(0); }
+          0%, 5% { opacity: 0; transform: translateY(5px); }
+          15%, 100% { opacity: 1; transform: translateY(0); }
         }
         @keyframes glow-pulse {
-          0%, 100% { box-shadow: 0 0 8px rgba(120,68,240,0.1); }
-          50% { box-shadow: 0 0 16px rgba(120,68,240,0.25); }
+          0%, 100% { box-shadow: 0 0 6px rgba(120,68,240,0.08); }
+          50% { box-shadow: 0 0 14px rgba(120,68,240,0.2); }
         }
         @media (prefers-reduced-motion) {
-          .pill { animation: none !important; opacity: 1 !important; }
+          .p { animation: none !important; opacity: 1 !important; }
         }
-        .wrap {
+        .w {
           width: 800px;
-          height: 100px;
+          height: 160px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          font-family: 'SF Pro Text','Inter','Segoe UI',system-ui,sans-serif;
+        }
+        .r {
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
-          font-family: 'SF Pro Text','Inter','Segoe UI',system-ui,sans-serif;
         }
-        .pill {
+        .p {
           display: flex;
           align-items: center;
-          gap: 5px;
-          padding: 6px 14px;
-          border-radius: 16px;
-          font-size: 11px;
+          gap: 4px;
+          padding: 5px 12px;
+          border-radius: 14px;
+          font-size: 10.5px;
           font-weight: 600;
-          letter-spacing: 0.3px;
-          border: 1px solid rgba(120,68,240,0.2);
-          background: rgba(120,68,240,0.06);
-          color: #9b6af5;
+          letter-spacing: 0.2px;
+          white-space: nowrap;
           opacity: 0;
         }
-        .pill:nth-child(1) { animation: fadein 2s ease-out 0s forwards, glow-pulse 4s ease-in-out 0s infinite; }
-        .pill:nth-child(2) { animation: fadein 2s ease-out 0.1s forwards, glow-pulse 4s ease-in-out 0.1s infinite; border-color: rgba(255,0,89,0.2); background: rgba(255,0,89,0.06); color: #ff0059; }
-        .pill:nth-child(3) { animation: fadein 2s ease-out 0.2s forwards, glow-pulse 4s ease-in-out 0.2s infinite; border-color: rgba(0,162,206,0.2); background: rgba(0,162,206,0.06); color: #00a2ce; }
-        .pill:nth-child(4) { animation: fadein 2s ease-out 0.3s forwards, glow-pulse 4s ease-in-out 0.3s infinite; border-color: rgba(11,139,0,0.2); background: rgba(11,139,0,0.06); color: #0b8b00; }
-        .pill:nth-child(5) { animation: fadein 2s ease-out 0.4s forwards, glow-pulse 4s ease-in-out 0.4s infinite; }
-        .pill:nth-child(6) { animation: fadein 2s ease-out 0.5s forwards, glow-pulse 4s ease-in-out 0.5s infinite; border-color: rgba(230,95,42,0.2); background: rgba(230,95,42,0.06); color: #e65f2a; }
-        .ico { font-size: 12px; }
+        /* purple */
+        .c1 { border: 1px solid rgba(120,68,240,0.2); background: rgba(120,68,240,0.06); color: #9b6af5; }
+        /* pink */
+        .c2 { border: 1px solid rgba(255,0,89,0.2); background: rgba(255,0,89,0.06); color: #ff0059; }
+        /* teal */
+        .c3 { border: 1px solid rgba(0,162,206,0.2); background: rgba(0,162,206,0.06); color: #00a2ce; }
+        /* green */
+        .c4 { border: 1px solid rgba(11,139,0,0.2); background: rgba(11,139,0,0.06); color: #0b8b00; }
+        /* amber */
+        .c5 { border: 1px solid rgba(230,95,42,0.2); background: rgba(230,95,42,0.06); color: #e65f2a; }
+
+        .p:nth-child(1)  { animation: fadein 1.5s ease-out 0s forwards, glow-pulse 4s ease-in-out 0s infinite; }
+        .p:nth-child(2)  { animation: fadein 1.5s ease-out .06s forwards, glow-pulse 4s ease-in-out .06s infinite; }
+        .p:nth-child(3)  { animation: fadein 1.5s ease-out .12s forwards, glow-pulse 4s ease-in-out .12s infinite; }
+        .p:nth-child(4)  { animation: fadein 1.5s ease-out .18s forwards, glow-pulse 4s ease-in-out .18s infinite; }
+        .p:nth-child(5)  { animation: fadein 1.5s ease-out .24s forwards, glow-pulse 4s ease-in-out .24s infinite; }
+        .p:nth-child(6)  { animation: fadein 1.5s ease-out .30s forwards, glow-pulse 4s ease-in-out .30s infinite; }
+        .p:nth-child(7)  { animation: fadein 1.5s ease-out .36s forwards, glow-pulse 4s ease-in-out .36s infinite; }
+        .p:nth-child(8)  { animation: fadein 1.5s ease-out .42s forwards, glow-pulse 4s ease-in-out .42s infinite; }
+        .p:nth-child(9)  { animation: fadein 1.5s ease-out .48s forwards, glow-pulse 4s ease-in-out .48s infinite; }
+        .p:nth-child(10) { animation: fadein 1.5s ease-out .54s forwards, glow-pulse 4s ease-in-out .54s infinite; }
+        .p:nth-child(11) { animation: fadein 1.5s ease-out .60s forwards, glow-pulse 4s ease-in-out .60s infinite; }
+        .p:nth-child(12) { animation: fadein 1.5s ease-out .66s forwards, glow-pulse 4s ease-in-out .66s infinite; }
+        .p:nth-child(13) { animation: fadein 1.5s ease-out .72s forwards, glow-pulse 4s ease-in-out .72s infinite; }
+        .p:nth-child(14) { animation: fadein 1.5s ease-out .78s forwards, glow-pulse 4s ease-in-out .78s infinite; }
+        .p:nth-child(15) { animation: fadein 1.5s ease-out .84s forwards, glow-pulse 4s ease-in-out .84s infinite; }
+        .p:nth-child(16) { animation: fadein 1.5s ease-out .90s forwards, glow-pulse 4s ease-in-out .90s infinite; }
+        .i { font-size: 11px; }
       </style>
-      <div class="wrap">
-        <div class="pill"><span class="ico">◆</span> Live Soul Map</div>
-        <div class="pill"><span class="ico">⫸</span> Multi-Agent Dispatch</div>
-        <div class="pill"><span class="ico">⬡</span> 4-Tier Code Intelligence</div>
-        <div class="pill"><span class="ico">↯</span> Instant Compaction</div>
-        <div class="pill"><span class="ico">⚒</span> 19 Providers</div>
-        <div class="pill"><span class="ico">◈</span> 33 Languages</div>
+      <div class="w">
+        <div class="r">
+          <span class="p c1"><span class="i">◆</span> Live Soul Map</span>
+          <span class="p c2"><span class="i">⫸</span> Multi-Agent Dispatch</span>
+          <span class="p c3"><span class="i">⬡</span> 4-Tier Code Intelligence</span>
+          <span class="p c4"><span class="i">↯</span> Instant Compaction</span>
+          <span class="p c1"><span class="i">◈</span> 33+ Languages</span>
+        </div>
+        <div class="r">
+          <span class="p c5"><span class="i">⚒</span> 19 Providers</span>
+          <span class="p c2"><span class="i">⊞</span> Multi-Tab Sessions</span>
+          <span class="p c3"><span class="i">⎔</span> Per-Task Model Routing</span>
+          <span class="p c4"><span class="i">⊕</span> Embedded Neovim</span>
+          <span class="p c1"><span class="i">◇</span> Full LSP Support</span>
+        </div>
+        <div class="r">
+          <span class="p c5"><span class="i">⊘</span> Installable Skills</span>
+          <span class="p c2"><span class="i">⊡</span> Sandboxed Code Execution</span>
+          <span class="p c3"><span class="i">⊙</span> 24 Themes</span>
+          <span class="p c4"><span class="i">⊗</span> Headless / CI Mode</span>
+          <span class="p c1"><span class="i">⊛</span> Cross-File Refactoring</span>
+          <span class="p c5"><span class="i">⊜</span> Prompt Caching</span>
+        </div>
       </div>
     </div>
   </foreignObject>
