@@ -284,6 +284,7 @@ export const InputBox = memo(function InputBox({
     historyIdx.current = -1;
     pasteBlocks.current = [];
     pendingImages.current = [];
+    imageCounter.current = 0;
     setVisualLines(1);
   }, []);
 
@@ -311,6 +312,10 @@ export const InputBox = memo(function InputBox({
       }
 
       if (input.trim() === "") return;
+
+      // Block submit while an async clipboard read is in progress —
+      // prevents sending literal "[loading…]" text to the model
+      if (imageLoadingRef.current) return;
 
       // Expand any collapsed paste blocks before submitting
       let finalInput = input;
@@ -415,12 +420,11 @@ export const InputBox = memo(function InputBox({
     };
   }, [isFocused, renderer]);
 
-  // Ctrl+V: probe clipboard for image data asynchronously.
-  // Inserts a temporary [loading…] placeholder, then replaces it with [image-N]
-  // once the clipboard read completes. Non-blocking — UI stays responsive.
   useKeyboard((evt) => {
-    if (!isFocused) return;
-    if (evt.ctrl && evt.name === "v") {
+    // Ctrl+V: probe clipboard for image data asynchronously.
+    // Inserts a temporary [loading…] placeholder, then replaces it with [image-N]
+    // once the clipboard read completes. Non-blocking — UI stays responsive.
+    if (isFocused && evt.ctrl && evt.name === "v") {
       // Prevent double-fire while an image read is in progress
       if (imageLoadingRef.current) {
         evt.preventDefault();
@@ -431,42 +435,53 @@ export const InputBox = memo(function InputBox({
       textareaRef.current?.insertText(loadingTag);
       evt.preventDefault();
 
-      readClipboardImageAsync().then((clipImg) => {
-        imageLoadingRef.current = false;
-        const ta = textareaRef.current;
-        if (!ta) return;
-        const text = ta.plainText;
-        const tagIdx = text.lastIndexOf(loadingTag);
+      readClipboardImageAsync()
+        .then((clipImg) => {
+          imageLoadingRef.current = false;
+          const ta = textareaRef.current;
+          if (!ta) return;
+          const text = ta.plainText;
+          const tagIdx = text.lastIndexOf(loadingTag);
 
-        if (clipImg) {
-          const idx = ++imageCounter.current;
-          const label = `image-${String(idx)}`;
-          pendingImages.current.push({
-            label,
-            base64: clipImg.data.toString("base64"),
-            mediaType: clipImg.mediaType,
-          });
-          if (tagIdx !== -1) {
-            const newText =
-              text.slice(0, tagIdx) + `[${label}] ` + text.slice(tagIdx + loadingTag.length);
-            ta.setText(newText);
-            ta.cursorOffset = tagIdx + label.length + 3;
+          if (clipImg) {
+            const idx = ++imageCounter.current;
+            const label = `image-${String(idx)}`;
+            pendingImages.current.push({
+              label,
+              base64: clipImg.data.toString("base64"),
+              mediaType: clipImg.mediaType,
+            });
+            if (tagIdx !== -1) {
+              const newText = `${text.slice(0, tagIdx)}[${label}] ${text.slice(tagIdx + loadingTag.length)}`;
+              ta.setText(newText);
+              ta.cursorOffset = tagIdx + label.length + 3;
+            } else {
+              ta.insertText(`[${label}] `);
+            }
           } else {
-            ta.insertText(`[${label}] `);
+            // No image in clipboard — remove the loading placeholder
+            if (tagIdx !== -1) {
+              const newText = text.slice(0, tagIdx) + text.slice(tagIdx + loadingTag.length);
+              ta.setText(newText);
+              ta.cursorOffset = tagIdx;
+            }
           }
-        } else {
-          // No image in clipboard — remove the loading placeholder
+        })
+        .catch(() => {
+          imageLoadingRef.current = false;
+          const ta = textareaRef.current;
+          if (!ta) return;
+          const text = ta.plainText;
+          const loadingTag = "[loading…]";
+          const tagIdx = text.lastIndexOf(loadingTag);
           if (tagIdx !== -1) {
-            const newText = text.slice(0, tagIdx) + text.slice(tagIdx + loadingTag.length);
-            ta.setText(newText);
+            ta.setText(text.slice(0, tagIdx) + text.slice(tagIdx + loadingTag.length));
             ta.cursorOffset = tagIdx;
           }
-        }
-      });
+        });
+      return;
     }
-  });
 
-  useKeyboard((evt) => {
     // Backspace: delete entire [image-N] block atomically
     if (isFocused && evt.name === "backspace" && !evt.ctrl && !evt.meta) {
       const ta = textareaRef.current;

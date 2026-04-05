@@ -47,6 +47,29 @@ onProvidersChanged(() => {
   PROVIDER_CONFIGS.splice(0, PROVIDER_CONFIGS.length, ...buildProviderConfigs());
 });
 
+// Vision-capable model patterns — first-pass allowlist.
+// Matches model IDs from Anthropic, OpenAI, Google, xAI, and common aliases.
+const VISION_PATTERNS = [
+  /claude-3/i,
+  /claude-4/i,
+  /gpt-4o/i,
+  /gpt-4-turbo/i,
+  /gpt-4\.1/i,
+  /gpt-4\.5/i,
+  /gpt-5/i,
+  /gemini/i,
+  /grok-2/i,
+  /grok-3/i,
+  /pixtral/i,
+  /llava/i,
+  /vision/i,
+];
+
+/** Check if a model ID likely supports vision/image input. */
+export function supportsVision(modelId: string): boolean {
+  return VISION_PATTERNS.some((p) => p.test(modelId));
+}
+
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 const METADATA_FETCH_TIMEOUT = 5_000;
 

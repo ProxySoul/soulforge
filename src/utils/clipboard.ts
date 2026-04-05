@@ -1,5 +1,5 @@
 import { exec, spawn } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 
 export function copyToClipboard(text: string): void {
   const isDarwin = process.platform === "darwin";
@@ -49,7 +49,7 @@ on error
   return "no-image"
 end try
 ' 2>/dev/null`,
-      { timeout: 8000 },
+      { timeout: 3000 },
       (err, stdout) => {
         if (err || !stdout.toString().trim().startsWith("ok")) {
           cleanup(tmpFile);
@@ -57,16 +57,16 @@ end try
           return;
         }
         try {
-          if (existsSync(tmpFile)) {
-            const data = readFileSync(tmpFile);
-            unlinkSync(tmpFile);
-            if (data.length > 0) {
-              resolve({ data, mediaType: "image/png" });
-              return;
-            }
+          const data = readFileSync(tmpFile);
+          unlinkSync(tmpFile);
+          if (data.length > 0) {
+            resolve({ data, mediaType: "image/png" });
+            return;
           }
-        } catch {}
-        cleanup(tmpFile);
+        } catch {
+        } finally {
+          cleanup(tmpFile);
+        }
         resolve(null);
       },
     );
@@ -81,7 +81,7 @@ function readClipboardImageLinuxAsync(): Promise<ClipboardImage | null> {
       { timeout: 3000, maxBuffer: 20 * 1024 * 1024, encoding: "buffer" },
       (err, stdout) => {
         if (!err && stdout && stdout.length > 0) {
-          resolve({ data: Buffer.from(stdout), mediaType: "image/png" });
+          resolve({ data: stdout, mediaType: "image/png" });
           return;
         }
         // Fallback: wl-paste for Wayland
@@ -90,7 +90,7 @@ function readClipboardImageLinuxAsync(): Promise<ClipboardImage | null> {
           { timeout: 3000, maxBuffer: 20 * 1024 * 1024, encoding: "buffer" },
           (err2, stdout2) => {
             if (!err2 && stdout2 && stdout2.length > 0) {
-              resolve({ data: Buffer.from(stdout2), mediaType: "image/png" });
+              resolve({ data: stdout2, mediaType: "image/png" });
               return;
             }
             resolve(null);
@@ -103,6 +103,6 @@ function readClipboardImageLinuxAsync(): Promise<ClipboardImage | null> {
 
 function cleanup(tmpFile: string): void {
   try {
-    if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    unlinkSync(tmpFile);
   } catch {}
 }

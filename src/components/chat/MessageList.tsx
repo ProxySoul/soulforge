@@ -605,7 +605,7 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
         {msg.images && msg.images.length > 0 && (
           <text fg={t.info}>
             {" "}
-            · 📷 {String(msg.images.length)} image{msg.images.length > 1 ? "s" : ""}
+            · {icon("image")} {String(msg.images.length)} image{msg.images.length > 1 ? "s" : ""}
           </text>
         )}
       </box>
@@ -631,7 +631,16 @@ const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMe
       >
         {truncateUserContent(msg.content, expanded, t)}
       </box>
-      <text fg={t.textMuted}> You · {time}</text>
+      <text fg={t.textMuted}>
+        {" "}
+        You · {time}
+        {msg.images && msg.images.length > 0 && (
+          <span fg={t.info}>
+            {" "}
+            · {icon("image")} {String(msg.images.length)} image{msg.images.length > 1 ? "s" : ""}
+          </span>
+        )}
+      </text>
     </box>
   );
 });
