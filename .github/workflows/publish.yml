@@ -292,5 +292,3 @@ jobs:
 
       - name: Publish to npm
         run: npm publish || echo "Version already published, skipping"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
