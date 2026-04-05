@@ -2,17 +2,6 @@
   <foreignObject width="100%" height="100%">
     <div xmlns="http://www.w3.org/1999/xhtml">
       <style>
-        @keyframes fadein {
-          0%, 5% { opacity: 0; transform: translateY(5px); }
-          15%, 100% { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes glow-pulse {
-          0%, 100% { box-shadow: 0 0 6px rgba(120,68,240,0.08); }
-          50% { box-shadow: 0 0 14px rgba(120,68,240,0.2); }
-        }
-        @media (prefers-reduced-motion) {
-          .p { animation: none !important; opacity: 1 !important; }
-        }
         .w {
           width: 800px;
           height: 140px;
@@ -21,9 +10,9 @@
           justify-content: center;
           gap: 8px;
           flex-wrap: wrap;
-          padding: 10px 40px;
+          padding: 10px 30px;
           box-sizing: border-box;
-          font-family: 'SF Pro Text','Inter','Segoe UI',system-ui,sans-serif;
+          font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
         }
         .p {
           display: inline-flex;
@@ -35,27 +24,12 @@
           font-weight: 600;
           letter-spacing: 0.2px;
           white-space: nowrap;
-          opacity: 0;
         }
-        .c1 { border: 1px solid rgba(120,68,240,0.2); background: rgba(120,68,240,0.06); color: #9b6af5; }
-        .c2 { border: 1px solid rgba(255,0,89,0.2); background: rgba(255,0,89,0.06); color: #ff0059; }
-        .c3 { border: 1px solid rgba(0,162,206,0.2); background: rgba(0,162,206,0.06); color: #00a2ce; }
-        .c4 { border: 1px solid rgba(11,139,0,0.2); background: rgba(11,139,0,0.06); color: #0b8b00; }
-        .c5 { border: 1px solid rgba(230,95,42,0.2); background: rgba(230,95,42,0.06); color: #e65f2a; }
-        .p:nth-child(1)  { animation: fadein 1.5s ease-out 0s    forwards, glow-pulse 4s ease-in-out 0s    infinite; }
-        .p:nth-child(2)  { animation: fadein 1.5s ease-out .06s  forwards, glow-pulse 4s ease-in-out .06s  infinite; }
-        .p:nth-child(3)  { animation: fadein 1.5s ease-out .12s  forwards, glow-pulse 4s ease-in-out .12s  infinite; }
-        .p:nth-child(4)  { animation: fadein 1.5s ease-out .18s  forwards, glow-pulse 4s ease-in-out .18s  infinite; }
-        .p:nth-child(5)  { animation: fadein 1.5s ease-out .24s  forwards, glow-pulse 4s ease-in-out .24s  infinite; }
-        .p:nth-child(6)  { animation: fadein 1.5s ease-out .30s  forwards, glow-pulse 4s ease-in-out .30s  infinite; }
-        .p:nth-child(7)  { animation: fadein 1.5s ease-out .36s  forwards, glow-pulse 4s ease-in-out .36s  infinite; }
-        .p:nth-child(8)  { animation: fadein 1.5s ease-out .42s  forwards, glow-pulse 4s ease-in-out .42s  infinite; }
-        .p:nth-child(9)  { animation: fadein 1.5s ease-out .48s  forwards, glow-pulse 4s ease-in-out .48s  infinite; }
-        .p:nth-child(10) { animation: fadein 1.5s ease-out .54s  forwards, glow-pulse 4s ease-in-out .54s  infinite; }
-        .p:nth-child(11) { animation: fadein 1.5s ease-out .60s  forwards, glow-pulse 4s ease-in-out .60s  infinite; }
-        .p:nth-child(12) { animation: fadein 1.5s ease-out .66s  forwards, glow-pulse 4s ease-in-out .66s  infinite; }
-        .p:nth-child(13) { animation: fadein 1.5s ease-out .72s  forwards, glow-pulse 4s ease-in-out .72s  infinite; }
-        .p:nth-child(14) { animation: fadein 1.5s ease-out .78s  forwards, glow-pulse 4s ease-in-out .78s  infinite; }
+        .c1 { border: 1px solid rgba(120,68,240,0.25); background: rgba(120,68,240,0.08); color: #9b6af5; }
+        .c2 { border: 1px solid rgba(255,0,89,0.25); background: rgba(255,0,89,0.08); color: #ff0059; }
+        .c3 { border: 1px solid rgba(0,162,206,0.25); background: rgba(0,162,206,0.08); color: #00a2ce; }
+        .c4 { border: 1px solid rgba(11,139,0,0.25); background: rgba(11,139,0,0.08); color: #0b8b00; }
+        .c5 { border: 1px solid rgba(230,95,42,0.25); background: rgba(230,95,42,0.08); color: #e65f2a; }
         .i { font-size: 11px; }
       </style>
       <div class="w">
