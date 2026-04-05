@@ -327,8 +327,8 @@ export const InputBox = memo(function InputBox({
 
       if (input.trim() === "") return;
 
-      // Block submit while an async clipboard read is in progress —
-      // prevents sending literal "[loading…]" text to the model
+      // Block submit while clipboard image probe is in-flight —
+      // ensures the image attachment lands before the message is sent
       if (imageLoadingRef.current) return;
 
       // Expand any collapsed paste blocks before submitting
@@ -448,79 +448,31 @@ export const InputBox = memo(function InputBox({
   }, [isFocused, renderer]);
 
   useKeyboard((evt) => {
-    // Ctrl+V: probe clipboard for image data asynchronously.
-    // Inserts a temporary [loading…] placeholder, then replaces it with [image-N]
-    // once the clipboard read completes. Non-blocking — UI stays responsive.
+    // Ctrl+V: probe clipboard for image data in the background.
+    // We do NOT preventDefault — the terminal's bracketed paste handles text normally.
+    // If an image is found, we append [image-N] after the text paste completes.
     if (isFocused && evt.ctrl && evt.name === "v") {
-      // Prevent double-fire while an image read is in progress
-      if (imageLoadingRef.current) {
-        evt.preventDefault();
-        return;
-      }
+      if (imageLoadingRef.current) return;
       imageLoadingRef.current = true;
-      const loadingTag = "[loading…]";
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.insertText(loadingTag);
-        // Protect the loading placeholder with a virtual extmark
-        const text = ta.plainText;
-        const loadingIdx = text.lastIndexOf(loadingTag);
-        if (loadingIdx !== -1) {
-          ta.extmarks.create({
-            start: loadingIdx,
-            end: loadingIdx + loadingTag.length,
-            virtual: true,
-          });
-        }
-      }
-      evt.preventDefault();
 
       readClipboardImageAsync()
         .then((clipImg) => {
           imageLoadingRef.current = false;
+          if (!clipImg) return;
           const ta = textareaRef.current;
           if (!ta) return;
-          const text = ta.plainText;
-          const tagIdx = text.lastIndexOf(loadingTag);
-
-          if (clipImg) {
-            const idx = ++imageCounter.current;
-            const label = `image-${String(idx)}`;
-            pendingImages.current.push({
-              label,
-              base64: clipImg.data.toString("base64"),
-              mediaType: clipImg.mediaType,
-            });
-            if (tagIdx !== -1) {
-              const tokenText = `[${label}]`;
-              const newText = `${text.slice(0, tagIdx)}${tokenText} ${text.slice(tagIdx + loadingTag.length)}`;
-              ta.setText(newText);
-              syncImageExtmarks(ta);
-              ta.cursorOffset = tagIdx + tokenText.length + 1;
-            } else {
-              ta.insertText(`[${label}] `);
-              syncImageExtmarks(ta);
-            }
-          } else {
-            // No image in clipboard — remove the loading placeholder
-            if (tagIdx !== -1) {
-              const newText = text.slice(0, tagIdx) + text.slice(tagIdx + loadingTag.length);
-              ta.setText(newText);
-              ta.cursorOffset = tagIdx;
-            }
-          }
+          const idx = ++imageCounter.current;
+          const label = `image-${String(idx)}`;
+          pendingImages.current.push({
+            label,
+            base64: clipImg.data.toString("base64"),
+            mediaType: clipImg.mediaType,
+          });
+          ta.insertText(`[${label}] `);
+          syncImageExtmarks(ta);
         })
         .catch(() => {
           imageLoadingRef.current = false;
-          const ta = textareaRef.current;
-          if (!ta) return;
-          const text = ta.plainText;
-          const loadingTag = "[loading…]";
-          const tagIdx = text.lastIndexOf(loadingTag);
-          if (tagIdx !== -1) {
-            ta.setText(text.slice(0, tagIdx) + text.slice(tagIdx + loadingTag.length));
-            ta.cursorOffset = tagIdx;
-          }
         });
       return;
     }
