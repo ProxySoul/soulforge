@@ -2,6 +2,7 @@
   <foreignObject width="100%" height="100%">
     <div xmlns="http://www.w3.org/1999/xhtml">
       <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@800&amp;display=swap');
         @keyframes shimmer {
           0% { background-position: -200% 0; }
           100% { background-position: 200% 0; }
@@ -27,7 +28,7 @@
           justify-content: center;
           position: relative;
           overflow: hidden;
-          font-family: 'SF Pro Display','Inter','Segoe UI',system-ui,sans-serif;
+          font-family: 'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace;
         }
         .glow {
           position: absolute;
@@ -46,7 +47,7 @@
           background: linear-gradient(90deg, transparent 0%, #7844f0 20%, #ff0059 50%, #9b6af5 80%, transparent 100%);
           opacity: 0.7;
         }
-        .shimmer {
+        .shimmer-line {
           position: absolute;
           bottom: 0;
           left: 0;
@@ -82,19 +83,19 @@
         .title-row {
           display: flex;
           align-items: center;
-          gap: 14px;
+          gap: 16px;
           position: relative;
           z-index: 1;
           animation: float 6s ease-in-out infinite;
         }
         .anvil {
-          width: 36px;
-          height: 36px;
+          width: 40px;
+          height: 40px;
         }
         .title {
-          font-size: 42px;
+          font-size: 48px;
           font-weight: 800;
-          letter-spacing: -1px;
+          letter-spacing: -2px;
           background: linear-gradient(135deg, #e7e7ee 0%, #9b6af5 50%, #ff0059 100%);
           background-size: 200% 200%;
           -webkit-background-clip: text;
@@ -103,11 +104,12 @@
           animation: shimmer 4s ease-in-out infinite;
         }
         .subtitle {
+          font-family: 'SF Pro Text','Inter','Segoe UI',system-ui,sans-serif;
           font-size: 13px;
           color: #8e8ca1;
-          letter-spacing: 2px;
+          letter-spacing: 3px;
           text-transform: uppercase;
-          margin-top: 10px;
+          margin-top: 12px;
           position: relative;
           z-index: 1;
         }
@@ -117,7 +119,7 @@
           height: 3px;
           border-radius: 50%;
           background: #ff0059;
-          margin: 0 10px;
+          margin: 0 12px;
           vertical-align: middle;
           animation: pulse 2s ease-in-out infinite;
         }
@@ -136,14 +138,10 @@
           <span class="title">SoulForge</span>
         </div>
         <div class="subtitle">
-          Graph-powered intelligence
-          <span class="dot"></span>
-          Multi-agent dispatch
-          <span class="dot"></span>
-          Terminal-native
+          The AI coding agent that already knows your codebase
         </div>
         <div class="line"></div>
-        <div class="shimmer"></div>
+        <div class="shimmer-line"></div>
       </div>
     </div>
   </foreignObject>

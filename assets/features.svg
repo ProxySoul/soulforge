@@ -1,4 +1,4 @@
-<svg width="800" height="120" viewBox="0 0 800 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="800" height="100" viewBox="0 0 800 100" fill="none" xmlns="http://www.w3.org/2000/svg">
   <foreignObject width="100%" height="100%">
     <div xmlns="http://www.w3.org/1999/xhtml">
       <style>
@@ -7,53 +7,51 @@
           20%, 100% { opacity: 1; transform: translateY(0); }
         }
         @keyframes glow-pulse {
-          0%, 100% { box-shadow: 0 0 12px rgba(120,68,240,0.15); }
-          50% { box-shadow: 0 0 20px rgba(120,68,240,0.3); }
+          0%, 100% { box-shadow: 0 0 8px rgba(120,68,240,0.1); }
+          50% { box-shadow: 0 0 16px rgba(120,68,240,0.25); }
         }
         @media (prefers-reduced-motion) {
-          .card, .pill { animation: none !important; opacity: 1 !important; }
+          .pill { animation: none !important; opacity: 1 !important; }
         }
         .wrap {
           width: 800px;
-          height: 120px;
+          height: 100px;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 12px;
+          gap: 10px;
+          flex-wrap: wrap;
           font-family: 'SF Pro Text','Inter','Segoe UI',system-ui,sans-serif;
         }
         .pill {
           display: flex;
           align-items: center;
-          gap: 6px;
-          padding: 8px 16px;
-          border-radius: 20px;
-          font-size: 12px;
+          gap: 5px;
+          padding: 6px 14px;
+          border-radius: 16px;
+          font-size: 11px;
           font-weight: 600;
           letter-spacing: 0.3px;
           border: 1px solid rgba(120,68,240,0.2);
           background: rgba(120,68,240,0.06);
           color: #9b6af5;
-          animation: fadein 2s ease-out forwards, glow-pulse 4s ease-in-out infinite;
           opacity: 0;
         }
-        .pill:nth-child(1) { animation-delay: 0s, 0s; }
-        .pill:nth-child(2) { animation-delay: 0.15s, 0.15s; border-color: rgba(255,0,89,0.2); background: rgba(255,0,89,0.06); color: #ff0059; }
-        .pill:nth-child(2) { animation: fadein 2s ease-out 0.15s forwards, glow-pulse 4s ease-in-out 0.15s infinite; opacity: 0; }
-        .pill:nth-child(3) { animation-delay: 0.3s, 0.3s; border-color: rgba(0,162,206,0.2); background: rgba(0,162,206,0.06); color: #00a2ce; }
-        .pill:nth-child(3) { animation: fadein 2s ease-out 0.3s forwards, glow-pulse 4s ease-in-out 0.3s infinite; opacity: 0; }
-        .pill:nth-child(4) { animation-delay: 0.45s, 0.45s; border-color: rgba(11,139,0,0.2); background: rgba(11,139,0,0.06); color: #0b8b00; }
-        .pill:nth-child(4) { animation: fadein 2s ease-out 0.45s forwards, glow-pulse 4s ease-in-out 0.45s infinite; opacity: 0; }
-        .pill:nth-child(5) { animation-delay: 0.6s, 0.6s; }
-        .pill:nth-child(5) { animation: fadein 2s ease-out 0.6s forwards, glow-pulse 4s ease-in-out 0.6s infinite; opacity: 0; }
-        .ico { font-size: 14px; }
+        .pill:nth-child(1) { animation: fadein 2s ease-out 0s forwards, glow-pulse 4s ease-in-out 0s infinite; }
+        .pill:nth-child(2) { animation: fadein 2s ease-out 0.1s forwards, glow-pulse 4s ease-in-out 0.1s infinite; border-color: rgba(255,0,89,0.2); background: rgba(255,0,89,0.06); color: #ff0059; }
+        .pill:nth-child(3) { animation: fadein 2s ease-out 0.2s forwards, glow-pulse 4s ease-in-out 0.2s infinite; border-color: rgba(0,162,206,0.2); background: rgba(0,162,206,0.06); color: #00a2ce; }
+        .pill:nth-child(4) { animation: fadein 2s ease-out 0.3s forwards, glow-pulse 4s ease-in-out 0.3s infinite; border-color: rgba(11,139,0,0.2); background: rgba(11,139,0,0.06); color: #0b8b00; }
+        .pill:nth-child(5) { animation: fadein 2s ease-out 0.4s forwards, glow-pulse 4s ease-in-out 0.4s infinite; }
+        .pill:nth-child(6) { animation: fadein 2s ease-out 0.5s forwards, glow-pulse 4s ease-in-out 0.5s infinite; border-color: rgba(230,95,42,0.2); background: rgba(230,95,42,0.06); color: #e65f2a; }
+        .ico { font-size: 12px; }
       </style>
       <div class="wrap">
-        <div class="pill"><span class="ico">◆</span> Soul Map</div>
-        <div class="pill"><span class="ico">⫸</span> Multi-Agent</div>
-        <div class="pill"><span class="ico">⬡</span> 30 Languages</div>
-        <div class="pill"><span class="ico">↯</span> Zero-Cost Compaction</div>
-        <div class="pill"><span class="ico">⚒</span> 18 Providers</div>
+        <div class="pill"><span class="ico">◆</span> Live Soul Map</div>
+        <div class="pill"><span class="ico">⫸</span> Multi-Agent Dispatch</div>
+        <div class="pill"><span class="ico">⬡</span> 4-Tier Code Intelligence</div>
+        <div class="pill"><span class="ico">↯</span> Instant Compaction</div>
+        <div class="pill"><span class="ico">⚒</span> 19 Providers</div>
+        <div class="pill"><span class="ico">◈</span> 33 Languages</div>
       </div>
     </div>
   </foreignObject>
