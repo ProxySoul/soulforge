@@ -7,6 +7,7 @@ import type {
   AgentFeatures,
   EditorIntegration,
   ForgeMode,
+  ImageAttachment,
   InteractiveCallbacks,
 } from "../../types/index.js";
 import type { ContextManager } from "../context/manager.js";
@@ -58,7 +59,7 @@ function lastStepHadPlanCall(messages: ModelMessage[]): boolean {
 
 function buildForgePrepareStep(
   isPlanMode: boolean,
-  drainSteering?: () => string | null,
+  drainSteering?: () => { text: string; images?: ImageAttachment[] } | null,
   contextManager?: {
     buildCrossTabSection(): string | null;
     buildSoulMapDiff(): string | null;
@@ -86,6 +87,7 @@ function buildForgePrepareStep(
     steps: StepEntry[];
     // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
   }): any => {
+    let steeringImages: ImageAttachment[] | undefined;
     // Doppelganger: snapshot the current conversation for spark mirror mode.
     // Sparks receive this prefix so the API sees an identical cache-hit prefix.
     if (parentMessagesRef) {
@@ -196,11 +198,15 @@ function buildForgePrepareStep(
       tailParts.push(...hints.map((h) => `<system-reminder>\n${h}\n</system-reminder>`));
     }
     if (stepNumber > 0 && drainSteering) {
-      const combined = drainSteering();
-      if (combined) {
+      const steering = drainSteering();
+      if (steering) {
         tailParts.push(
-          `<steering>\nThe user just sent a new message while you were working:\n\n${combined}\n\nFinish any in-progress tool call, then switch entirely to this message in your next response.\n</steering>`,
+          `<steering>\nThe user just sent a new message while you were working:\n\n${steering.text}\n\nFinish any in-progress tool call, then switch entirely to this message in your next response.\n</steering>`,
         );
+        // Thread steering images into the inject message
+        if (steering.images && steering.images.length > 0) {
+          steeringImages = steering.images;
+        }
       }
     }
 
@@ -231,9 +237,21 @@ function buildForgePrepareStep(
 
       // Append the new inject (if any content this step)
       if (tailParts.length > 0) {
+        const contentParts: Array<
+          { type: "text"; text: string } | { type: "image"; image: Buffer; mediaType?: string }
+        > = [{ type: "text" as const, text: tailParts.join("\n\n") }];
+        if (steeringImages) {
+          for (const img of steeringImages) {
+            contentParts.push({
+              type: "image" as const,
+              image: Buffer.from(img.base64, "base64"),
+              mediaType: img.mediaType,
+            });
+          }
+        }
         const injectMessage: ModelMessage = {
           role: "user" as const,
-          content: [{ type: "text" as const, text: tailParts.join("\n\n") }],
+          content: contentParts,
         };
         previousInjects.push({ cleanInsertAt: cleanMsgCount, message: injectMessage });
         msgs.push(injectMessage);
@@ -392,7 +410,7 @@ interface ForgeAgentOptions {
   sharedCacheRef?: SharedCacheRef;
   agentFeatures?: AgentFeatures;
   planExecution?: boolean;
-  drainSteering?: () => string | null;
+  drainSteering?: () => { text: string; images?: ImageAttachment[] } | null;
   disablePruning?: boolean;
   disabledTools?: Set<string>;
   tabId?: string;

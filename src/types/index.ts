@@ -117,6 +117,7 @@ export interface InteractiveCallbacks {
 export interface QueuedMessage {
   content: string;
   queuedAt: number;
+  images?: ImageAttachment[];
 }
 
 export type MessageSegment =

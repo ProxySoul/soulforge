@@ -684,9 +684,11 @@ export const TabInstance = memo(function TabInstance({
               isFocused={isFocused}
               cwd={cwd}
               onExit={onExit}
-              onQueue={(msg) =>
+              onQueue={(msg, images) =>
                 chat.setMessageQueue((prev) =>
-                  prev.length >= 5 ? prev : [...prev, { content: msg, queuedAt: Date.now() }],
+                  prev.length >= 5
+                    ? prev
+                    : [...prev, { content: msg, queuedAt: Date.now(), images }],
                 )
               }
               queueCount={chat.messageQueue.length}

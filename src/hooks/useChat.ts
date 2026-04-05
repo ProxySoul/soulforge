@@ -1680,13 +1680,14 @@ export function useChat({
           setLiveToolCalls([]);
         };
 
-        const drainSteering = (): string | null => {
+        const drainSteering = (): { text: string; images?: ImageAttachment[] } | null => {
           if (steeringAbortedRef.current) return null;
           const queue = messageQueueRef.current;
           if (queue.length === 0) return null;
           // Drain ALL queued steering messages at once
           const drained: ChatMessage[] = [];
           const texts: string[] = [];
+          const allImages: ImageAttachment[] = [];
           for (const item of queue) {
             const content = item?.content;
             if (content) {
@@ -1697,8 +1698,10 @@ export function useChat({
                 timestamp: Date.now(),
                 showInChat: true,
                 isSteering: true,
+                images: item.images && item.images.length > 0 ? item.images : undefined,
               });
               texts.push(content);
+              if (item.images) allImages.push(...item.images);
             }
           }
           messageQueueRef.current = [];
@@ -1709,7 +1712,11 @@ export function useChat({
             flushBeforeSteering(drained);
           }
 
-          return texts.length > 0 ? texts.join("\n\n") : null;
+          if (texts.length === 0) return null;
+          return {
+            text: texts.join("\n\n"),
+            images: allImages.length > 0 ? allImages : undefined,
+          };
         };
 
         if (!contextManager.isRepoMapReady()) {

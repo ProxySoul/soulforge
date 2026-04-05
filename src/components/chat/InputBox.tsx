@@ -18,7 +18,7 @@ interface Props {
   isLoading: boolean;
   isCompacting?: boolean;
   isFocused?: boolean;
-  onQueue?: (msg: string) => void;
+  onQueue?: (msg: string, images?: ImageAttachment[]) => void;
   onExit?: () => void;
   queueCount?: number;
   cwd?: string;
@@ -335,7 +335,8 @@ export const InputBox = memo(function InputBox({
 
       // During loading or compacting: slash commands execute immediately, messages queue
       if ((isLoading || isCompacting) && !finalInput.trim().startsWith("/")) {
-        onQueue?.(finalInput.trim());
+        const images = pendingImages.current.length > 0 ? [...pendingImages.current] : undefined;
+        onQueue?.(finalInput.trim(), images);
         resetInput();
         return;
       }
@@ -445,7 +446,20 @@ export const InputBox = memo(function InputBox({
       }
       imageLoadingRef.current = true;
       const loadingTag = "[loading…]";
-      textareaRef.current?.insertText(loadingTag);
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.insertText(loadingTag);
+        // Protect the loading placeholder with a virtual extmark
+        const text = ta.plainText;
+        const loadingIdx = text.lastIndexOf(loadingTag);
+        if (loadingIdx !== -1) {
+          ta.extmarks.create({
+            start: loadingIdx,
+            end: loadingIdx + loadingTag.length,
+            virtual: true,
+          });
+        }
+      }
       evt.preventDefault();
 
       readClipboardImageAsync()
