@@ -10,7 +10,7 @@ import {
   TOOL_ICONS,
   type ToolCategory,
 } from "../../core/tool-display.js";
-import type { PlanOutput } from "../../types/index.js";
+import { parsePlanOutput } from "../../types/plan-schema.js";
 import { SPINNER_FRAMES, useSpinnerFrame } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
 import { DiffView } from "./DiffView.js";
@@ -22,6 +22,10 @@ import {
   shortModelId,
 } from "./multi-agent-display.js";
 import { buildLiveToolRowProps, StaticToolRow } from "./StaticToolRow.js";
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === "object" && !Array.isArray(v);
+}
 
 export interface LiveToolCall {
   id: string;
@@ -521,23 +525,19 @@ const ToolRow = memo(
     const multiAgentInfo = useMemo(() => {
       if (tc.toolName !== "dispatch" || !tc.args) return null;
       try {
-        const parsed = JSON.parse(tc.args);
+        const parsed: Record<string, unknown> = JSON.parse(tc.args);
         if (Array.isArray(parsed.tasks) && parsed.tasks.length >= 1) {
-          const tasks = (
-            parsed.tasks as Array<{
-              id?: string;
-              agentId?: string;
-              role?: string;
-              task?: string;
-              dependsOn?: string[];
-            }>
-          ).map((entry, i) => ({
-            agentId: entry.id ?? entry.agentId ?? `agent-${String(i + 1)}`,
-            role: entry.role,
-            task: entry.task,
-            dependsOn: entry.dependsOn,
-          }));
-          return { totalAgents: parsed.tasks.length as number, tasks };
+          const rawTasks: unknown[] = parsed.tasks;
+          const tasks = rawTasks.map((entry, i) => {
+            const e = isObj(entry) ? entry : {};
+            return {
+              agentId: String(e.id ?? e.agentId ?? `agent-${String(i + 1)}`),
+              role: typeof e.role === "string" ? e.role : undefined,
+              task: typeof e.task === "string" ? e.task : undefined,
+              dependsOn: Array.isArray(e.dependsOn) ? e.dependsOn.map(String) : undefined,
+            };
+          });
+          return { totalAgents: rawTasks.length, tasks };
         }
       } catch {}
       return null;
@@ -850,8 +850,8 @@ function renderToolCall(
 ) {
   if ((tc.toolName === "write_plan" || tc.toolName === "plan") && tc.args) {
     try {
-      const plan = JSON.parse(tc.args) as PlanOutput;
-      if (plan.title && Array.isArray(plan.steps) && Array.isArray(plan.files)) {
+      const plan = parsePlanOutput(JSON.parse(tc.args));
+      if (plan) {
         const planContent = (
           <>
             <StructuredPlanView plan={plan} result={tc.result} />

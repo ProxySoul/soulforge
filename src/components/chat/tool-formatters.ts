@@ -7,13 +7,18 @@ const CWD = process.cwd();
 
 const ABS_PATH_RE = /(?:^|\s)(\/[\w./-]+)/g;
 
+/** Type guard: narrows `unknown` to `Record<string, unknown>` without `as` cast */
+function isObj(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === "object" && !Array.isArray(v);
+}
+
 export function formatArgs(toolName: string, args?: string): string {
   if (!args) return "";
   try {
-    const parsed = JSON.parse(args);
+    const parsed: Record<string, unknown> = JSON.parse(args);
     if (toolName === "read") {
       const files = Array.isArray(parsed.files) ? parsed.files : parsed.files ? [parsed.files] : [];
-      if (files.length === 0 && parsed.path) return parsed.path; // legacy
+      if (files.length === 0 && parsed.path) return String(parsed.path); // legacy
       if (files.length === 1) {
         const f = files[0];
         const hasRanges = f.ranges && f.ranges.length > 0;
@@ -38,16 +43,16 @@ export function formatArgs(toolName: string, args?: string): string {
       }
       return "";
     }
-    if (toolName === "edit_file" && parsed.path) return parsed.path;
-    if (toolName === "multi_edit" && parsed.path) return parsed.path;
-    if (toolName === "undo_edit" && parsed.path) return parsed.path;
+    if (toolName === "edit_file" && parsed.path) return String(parsed.path);
+    if (toolName === "multi_edit" && parsed.path) return String(parsed.path);
+    if (toolName === "undo_edit" && parsed.path) return String(parsed.path);
     if (toolName === "list_dir" && parsed.path) {
       if (Array.isArray(parsed.path)) {
-        const paths = parsed.path as string[];
+        const paths = parsed.path.map(String);
         const label = paths.join(", ");
         return label.length > 60 ? `${String(paths.length)} dirs` : label;
       }
-      return parsed.path;
+      return String(parsed.path);
     }
     if (toolName === "rename_file") {
       if (parsed.from && parsed.to) {
@@ -62,8 +67,8 @@ export function formatArgs(toolName: string, args?: string): string {
       if (codeExec) return codeExec.preview;
       return cmd.length > 60 ? `${cmd.slice(0, 57)}...` : cmd;
     }
-    if (toolName === "grep" && parsed.pattern) return `/${parsed.pattern}/`;
-    if (toolName === "glob" && parsed.pattern) return parsed.pattern;
+    if (toolName === "grep" && parsed.pattern) return `/${String(parsed.pattern)}/`;
+    if (toolName === "glob" && parsed.pattern) return String(parsed.pattern);
     if (toolName === "web_search" && parsed.query) {
       const q = String(parsed.query);
       return q.length > 50 ? `${q.slice(0, 47)}...` : q;
@@ -76,13 +81,19 @@ export function formatArgs(toolName: string, args?: string): string {
       if (parsed.action === "search" && parsed.query) return `search: ${String(parsed.query)}`;
       return String(parsed.action);
     }
-    if (toolName === "dispatch" && parsed.tasks) {
-      const tasks = parsed.tasks as Array<{ task: string; role?: string }>;
-      const roles = new Set(tasks.map((t) => t.role ?? "explore"));
+    if (toolName === "dispatch" && Array.isArray(parsed.tasks)) {
+      const tasks: unknown[] = parsed.tasks;
+      const roles = new Set(
+        tasks.map((t) => {
+          if (isObj(t)) return String(t.role ?? "explore");
+          return "explore";
+        }),
+      );
       const roleTags = [...roles].map((r) => `[${r}]`).join("");
       if (tasks.length === 1 && tasks[0]) {
-        const t = String(tasks[0].task);
-        const trimmed = t.length > 45 ? `${t.slice(0, 42)}...` : t;
+        const task0 = tasks[0];
+        const taskStr = isObj(task0) ? String(task0.task ?? "") : "";
+        const trimmed = taskStr.length > 45 ? `${taskStr.slice(0, 42)}...` : taskStr;
         return `${roleTags} ${trimmed}`;
       }
       const obj = parsed.objective ? String(parsed.objective) : `${String(tasks.length)} agents`;
@@ -216,11 +227,11 @@ export function formatArgs(toolName: string, args?: string): string {
 export function formatResult(toolName: string, result?: string): string {
   if (!result) return "";
   try {
-    const p = JSON.parse(result);
+    const p: Record<string, unknown> = JSON.parse(result);
     if (p.repoMapHit && p.output) {
       const out = String(p.output);
       const match = out.match(/indexed at ([^\s]+)/);
-      return match ? `→ ${match[1]}` : out.slice(0, 40);
+      return match?.[1] ? `→ ${match[1]}` : out.slice(0, 40);
     }
     if (p.output && typeof p.output === "string" && p.output.startsWith("[from dispatch cache]")) {
       const lines = p.output.split("\n").length - 1;
@@ -325,12 +336,13 @@ export function formatResult(toolName: string, result?: string): string {
   }
   if (SUBAGENT_NAMES.has(toolName)) {
     try {
-      const p = JSON.parse(result);
+      const p: Record<string, unknown> = JSON.parse(result);
       if (p.success === false && p.error) return String(p.error).slice(0, 50);
       if (Array.isArray(p.reads) || Array.isArray(p.filesEdited)) {
         const parts: string[] = [];
         if (Array.isArray(p.reads)) {
-          const paths = new Set((p.reads as Array<{ path: string }>).map((r) => r.path));
+          const reads: unknown[] = p.reads;
+          const paths = new Set(reads.map((r) => (isObj(r) ? String(r.path) : "")));
           if (paths.size > 0) parts.push(`${String(paths.size)} files read`);
         }
         if (Array.isArray(p.filesEdited) && p.filesEdited.length > 0)
@@ -361,7 +373,7 @@ export function formatResult(toolName: string, result?: string): string {
     return result.length > 40 ? `${result.slice(0, 37)}...` : result;
   }
   try {
-    const parsed = JSON.parse(result);
+    const parsed: Record<string, unknown> = JSON.parse(result);
     if (parsed.output) {
       const out = String(parsed.output);
       const lines = out.split("\n").length;
@@ -370,7 +382,7 @@ export function formatResult(toolName: string, result?: string): string {
     }
     if (parsed.error) return String(parsed.error).slice(0, 50);
     if (parsed.branch !== undefined) {
-      const parts = [parsed.branch as string];
+      const parts = [String(parsed.branch)];
       const counts: string[] = [];
       if (Array.isArray(parsed.staged) && parsed.staged.length > 0)
         counts.push(`${String(parsed.staged.length)} staged`);
@@ -396,7 +408,7 @@ export function formatResult(toolName: string, result?: string): string {
   }
   // Don't show raw JSON like {"success": true} — the ✓/✗ icon + file path is enough
   try {
-    const p = JSON.parse(result);
+    const p: Record<string, unknown> = JSON.parse(result);
     if (p.success !== undefined && !p.output && !p.error) return "";
   } catch {}
   const lines = result.split("\n").length;
@@ -407,7 +419,7 @@ export function formatResult(toolName: string, result?: string): string {
 export function detectOutsideCwd(toolName: string, args?: string): OutsideKind | null {
   if (!args) return null;
   try {
-    const parsed = JSON.parse(args);
+    const parsed: Record<string, unknown> = JSON.parse(args);
     for (const val of Object.values(parsed)) {
       if (typeof val === "string" && (val.startsWith("/") || val.startsWith("~"))) {
         const resolved = resolve(val);

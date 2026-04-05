@@ -14,13 +14,8 @@ import { icon as getIcon, icon } from "../../core/icons.js";
 import { getThemeTokens, type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { resolveToolDisplay, TOOL_ICONS, TOOL_LABELS } from "../../core/tool-display.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
-import type {
-  ChatMessage,
-  ChatStyle,
-  MessageSegment,
-  PlanOutput,
-  ToolCall,
-} from "../../types/index.js";
+import type { ChatMessage, ChatStyle, MessageSegment, ToolCall } from "../../types/index.js";
+import { parsePlanOutput } from "../../types/plan-schema.js";
 import { Spinner } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
 import { DiffView } from "./DiffView.js";
@@ -86,11 +81,11 @@ function cleanErrorDetail(msg: string): string {
 
 function extractErrorCode(raw: string): string | null {
   const statusMatch = raw.match(/\b(4\d{2}|5\d{2})\b/);
-  if (statusMatch) return statusMatch[1] as string;
+  if (statusMatch?.[1]) return statusMatch[1];
   const typeMatch = raw.match(/"type"\s*:\s*"([^"]+)"/);
-  if (typeMatch) return typeMatch[1] as string;
+  if (typeMatch?.[1]) return typeMatch[1];
   const codeMatch = raw.match(/\b(ECONNREFUSED|ETIMEDOUT|INTERNAL_ERROR)\b/);
-  if (codeMatch) return codeMatch[1] as string;
+  if (codeMatch?.[1]) return codeMatch[1];
   return null;
 }
 
@@ -157,8 +152,8 @@ function categorizeError(msg: string): {
 
 function parseRetry(text: string): { attempt: string; reason: string; delay: string } | null {
   const match = text.match(/^Retry (\d+\/\d+): (.+?) \[delay:(\d+)s\]$/);
-  if (!match) return null;
-  return { attempt: match[1] as string, reason: match[2] as string, delay: match[3] as string };
+  if (!match?.[1] || !match[2] || !match[3]) return null;
+  return { attempt: match[1], reason: match[2], delay: match[3] };
 }
 
 function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: boolean }) {
@@ -427,22 +422,18 @@ function CollapsedToolGroup({
   );
 }
 
-function parsePlanFromArgs(tc: ToolCall): PlanOutput | null {
+function parsePlanFromArgs(tc: ToolCall) {
   if (tc.name !== "write_plan" && tc.name !== "plan") return null;
-  const a = tc.args;
-  if (typeof a.title === "string" && Array.isArray(a.files) && Array.isArray(a.steps)) {
-    return a as unknown as PlanOutput;
-  }
-  return null;
+  return parsePlanOutput(tc.args);
 }
 
 function parsePlanResult(tc: ToolCall): { file?: string; resultStr?: string } {
   if (!tc.result?.output) return {};
   try {
-    const parsed = JSON.parse(tc.result.output);
+    const parsed: Record<string, unknown> = JSON.parse(tc.result.output);
     return {
-      file: typeof parsed.file === "string" ? (parsed.file as string) : undefined,
-      resultStr: typeof parsed.output === "string" ? (parsed.output as string) : tc.result.output,
+      file: typeof parsed.file === "string" ? parsed.file : undefined,
+      resultStr: typeof parsed.output === "string" ? parsed.output : tc.result.output,
     };
   } catch {
     return { resultStr: tc.result.output };

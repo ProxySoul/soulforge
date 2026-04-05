@@ -32,10 +32,7 @@ export function StructuredPlanView({ plan, result, planFile, collapsed }: Props)
   const STEP_NUM_COLOR = t.brandAlt;
   const TEXT_COLOR = t.textSecondary;
   const CHECK_COLOR = t.success;
-  const files = plan.files ?? [];
-  const steps = plan.steps ?? [];
-  const verification = plan.verification ?? [];
-  const context = plan.context ?? "";
+  const { files, steps, verification, context } = plan;
 
   let resolvedFile = planFile;
   if (!resolvedFile && result) {
