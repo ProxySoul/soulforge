@@ -11,10 +11,18 @@ import {
   useState,
 } from "react";
 import { icon as getIcon, icon } from "../../core/icons.js";
+import type { ImageArt } from "../../core/terminal/image.js";
+import { renderImageFromData } from "../../core/terminal/image.js";
 import { getThemeTokens, type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { resolveToolDisplay, TOOL_ICONS, TOOL_LABELS } from "../../core/tool-display.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
-import type { ChatMessage, ChatStyle, MessageSegment, ToolCall } from "../../types/index.js";
+import type {
+  ChatMessage,
+  ChatStyle,
+  ImageAttachment,
+  MessageSegment,
+  ToolCall,
+} from "../../types/index.js";
 import { parsePlanOutput } from "../../types/plan-schema.js";
 import { Spinner } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
@@ -544,6 +552,40 @@ function parsePlanTitle(content: string): string {
   return match?.[1] ?? "Plan";
 }
 
+/** Renders pasted image attachments inline using soul_vision's rendering pipeline. */
+function UserImageAttachments({ images }: { images: ImageAttachment[] }) {
+  const [arts, setArts] = useState<ImageArt[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const render = async () => {
+      const results: ImageArt[] = [];
+      for (const img of images) {
+        const buf = Buffer.from(img.base64, "base64");
+        const art = await renderImageFromData(buf, img.label, { cols: 60 });
+        if (cancelled) return;
+        if (art) results.push(art);
+      }
+      if (!cancelled) setArts(results);
+    };
+    render();
+    return () => {
+      cancelled = true;
+    };
+  }, [images]);
+
+  if (arts.length === 0) return null;
+  return (
+    <box flexDirection="column">
+      {arts.map((art) => (
+        <box key={art.name} flexDirection="column">
+          <ImageDisplay img={art} />
+        </box>
+      ))}
+    </box>
+  );
+}
+
 const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMessage }) {
   const t = useTheme();
   const time = formatTime(msg.timestamp);
@@ -610,6 +652,7 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
         )}
       </box>
       {truncateUserContent(msg.content, expanded, t)}
+      {msg.images && msg.images.length > 0 && <UserImageAttachments images={msg.images} />}
     </box>
   );
 });
@@ -630,6 +673,7 @@ const UserMessageBubble = memo(function UserMessageBubble({ msg }: { msg: ChatMe
         backgroundColor={t.bgUser}
       >
         {truncateUserContent(msg.content, expanded, t)}
+        {msg.images && msg.images.length > 0 && <UserImageAttachments images={msg.images} />}
       </box>
       <text fg={t.textMuted}>
         {" "}
