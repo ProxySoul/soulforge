@@ -9,7 +9,7 @@ import {
 	sampleArea,
 	supportsKittyAnimation,
 } from "../src/core/terminal/image.js";
-import { ensurePng, parseGifDelays } from "../src/core/tools/show-image.js";
+import { ensurePng, hasFfmpeg, hasYtDlp, parseGifDelays } from "../src/core/tools/show-image.js";
 
 // ── Helpers ──
 
@@ -416,5 +416,27 @@ describe("ensurePng", () => {
 		// We just verify it doesn't throw
 		const result = ensurePng(jpeg, "test.jpg");
 		expect(result === null || Buffer.isBuffer(result)).toBe(true);
+	});
+});
+
+describe("hasFfmpeg / hasYtDlp", () => {
+	it("hasFfmpeg returns a boolean", () => {
+		expect(typeof hasFfmpeg()).toBe("boolean");
+	});
+
+	it("hasYtDlp returns a boolean", () => {
+		expect(typeof hasYtDlp()).toBe("boolean");
+	});
+
+	it("hasFfmpeg is consistent across calls (cached)", () => {
+		const first = hasFfmpeg();
+		const second = hasFfmpeg();
+		expect(first).toBe(second);
+	});
+
+	it("hasYtDlp is consistent across calls (cached)", () => {
+		const first = hasYtDlp();
+		const second = hasYtDlp();
+		expect(first).toBe(second);
 	});
 });

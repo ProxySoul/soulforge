@@ -88,7 +88,7 @@ async function fetchImageUrl(
 
     const contentType = res.headers.get("content-type") ?? "";
     if (!contentType.startsWith("image/")) {
-      return { error: `Not an image (content-type: ${contentType})` };
+      return { error: `not_image:${contentType}` };
     }
 
     const buf = Buffer.from(await res.arrayBuffer());
@@ -107,6 +107,218 @@ async function fetchImageUrl(
   } catch (e) {
     return { error: `Fetch failed: ${e instanceof Error ? e.message : String(e)}` };
   }
+}
+
+// ── External tool detection (cached) ──
+
+const _toolCache: Record<string, boolean> = {};
+
+function hasTool(name: string): boolean {
+  if (name in _toolCache) return _toolCache[name]!;
+  try {
+    // `where` on Windows, `which` everywhere else
+    const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
+    execSync(cmd, { stdio: "pipe", timeout: 5000 });
+    _toolCache[name] = true;
+  } catch {
+    _toolCache[name] = false;
+  }
+  return _toolCache[name]!;
+}
+
+export function hasYtDlp(): boolean {
+  return hasTool("yt-dlp");
+}
+export function hasFfmpeg(): boolean {
+  return hasTool("ffmpeg");
+}
+
+const VIDEO_EXTENSIONS = /\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v|ts|3gp)$/i;
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100 MB for video
+const MAX_GIF_DURATION = 15; // seconds — cap GIF length to avoid huge files
+const MAX_GIF_FPS = 12; // keep GIF size reasonable
+
+/**
+ * Convert a video file (local path) to GIF using ffmpeg.
+ * Returns GIF buffer or null.
+ */
+function videoToGif(videoPath: string, maxDuration = MAX_GIF_DURATION): Buffer | null {
+  if (!hasFfmpeg()) return null;
+
+  const id = `soul-vision-v2g-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`;
+  const gifPath = resolve(tmpdir(), `${id}.gif`);
+  const palettePath = resolve(tmpdir(), `${id}-palette.png`);
+
+  try {
+    // Two-pass for quality: generate palette then use it
+    // Scale to max 480px wide, cap duration and fps
+    const filters = `fps=${String(MAX_GIF_FPS)},scale=480:-1:flags=lanczos`;
+    execSync(
+      `ffmpeg -y -t ${String(maxDuration)} -i "${videoPath}" -vf "${filters},palettegen=stats_mode=diff" "${palettePath}" 2>/dev/null`,
+      { timeout: 60_000, stdio: "pipe" },
+    );
+    execSync(
+      `ffmpeg -y -t ${String(maxDuration)} -i "${videoPath}" -i "${palettePath}" -lavfi "${filters} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=3" -loop 0 "${gifPath}" 2>/dev/null`,
+      { timeout: 60_000, stdio: "pipe" },
+    );
+
+    if (existsSync(gifPath)) {
+      const data = readFileSync(gifPath);
+      if (data.length > 0 && data.length <= MAX_IMAGE_SIZE) return data;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    for (const p of [gifPath, palettePath]) {
+      try {
+        if (existsSync(p)) execSync(`rm -f "${p}"`, { stdio: "pipe", timeout: 2000 });
+      } catch {
+        /* */
+      }
+    }
+  }
+}
+
+/**
+ * Handle a video URL: download with yt-dlp, convert to GIF with ffmpeg.
+ *
+ * Tool requirements and fallback chain:
+ *   yt-dlp + ffmpeg → animated GIF from video
+ *   yt-dlp only    → static thumbnail (yt-dlp can extract thumbnails without ffmpeg)
+ *   ffmpeg only    → can't download video URLs (need yt-dlp)
+ *   neither        → error with install instructions
+ */
+function fetchVideoFromUrl(
+  url: string,
+): { data: Buffer; name: string; isGif: boolean } | { error: string } {
+  const urlName = (() => {
+    try {
+      return basename(new URL(url).pathname) || "video";
+    } catch {
+      return "video";
+    }
+  })();
+
+  // Neither tool available
+  if (!hasYtDlp() && !hasFfmpeg()) {
+    return {
+      error:
+        "This URL points to a video page, not a direct image. " +
+        "Install yt-dlp and ffmpeg to extract and display video content:\n" +
+        "  macOS:  brew install yt-dlp ffmpeg\n" +
+        "  Linux:  pip install yt-dlp && sudo apt install ffmpeg\n" +
+        "  Windows: winget install yt-dlp.yt-dlp && winget install Gyan.FFmpeg",
+    };
+  }
+
+  // ffmpeg only — can't download video URLs
+  if (!hasYtDlp()) {
+    return {
+      error:
+        "This URL points to a video page. ffmpeg is installed but yt-dlp is needed to download videos:\n" +
+        "  macOS:  brew install yt-dlp\n" +
+        "  Linux:  pip install yt-dlp\n" +
+        "  Windows: winget install yt-dlp.yt-dlp",
+    };
+  }
+
+  const id = `soul-vision-video-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`;
+  const videoPath = resolve(tmpdir(), `${id}.mp4`);
+  const thumbDir = tmpdir();
+  const thumbBase = resolve(thumbDir, id);
+  const cleanupFiles: string[] = [videoPath];
+
+  try {
+    // yt-dlp + ffmpeg → download video → convert to GIF
+    if (hasFfmpeg()) {
+      try {
+        execSync(
+          `yt-dlp -f "best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best" ` +
+            `--max-filesize 100M -o "${videoPath}" "${url}" 2>/dev/null`,
+          { timeout: 120_000, stdio: "pipe" },
+        );
+
+        if (existsSync(videoPath)) {
+          const gif = videoToGif(videoPath);
+          if (gif) {
+            return { data: gif, name: `${urlName}.gif`, isGif: true };
+          }
+        }
+      } catch {
+        // download failed — fall through to thumbnail
+      }
+    }
+
+    // Fallback: yt-dlp thumbnail only (no ffmpeg needed)
+    try {
+      execSync(
+        `yt-dlp --skip-download --write-thumbnail --convert-thumbnails png -o "${thumbBase}" "${url}" 2>/dev/null`,
+        { timeout: 30_000, stdio: "pipe" },
+      );
+      const thumbFile = `${thumbBase}.png`;
+      cleanupFiles.push(thumbFile);
+      if (existsSync(thumbFile)) {
+        const data = readFileSync(thumbFile);
+        if (data.length > 0 && data.length <= MAX_IMAGE_SIZE) {
+          const suffix = hasFfmpeg()
+            ? " (video download failed, showing thumbnail)"
+            : " (install ffmpeg for animated GIF)";
+          return { data, name: `${urlName}-thumbnail.png${suffix}`, isGif: false };
+        }
+      }
+    } catch {
+      // thumbnail extraction failed
+    }
+
+    // yt-dlp available but no ffmpeg — explain
+    if (!hasFfmpeg()) {
+      return {
+        error:
+          "yt-dlp is installed but ffmpeg is needed to convert video to GIF:\n" +
+          "  macOS:  brew install ffmpeg\n" +
+          "  Linux:  sudo apt install ffmpeg\n" +
+          "  Windows: winget install Gyan.FFmpeg",
+      };
+    }
+
+    return { error: "Failed to extract video content from URL." };
+  } finally {
+    for (const p of cleanupFiles) {
+      try {
+        if (existsSync(p)) execSync(`rm -f "${p}"`, { stdio: "pipe", timeout: 2000 });
+      } catch {
+        /* */
+      }
+    }
+  }
+}
+
+/**
+ * Handle a local video file: convert to GIF with ffmpeg.
+ * Returns { data, name, isGif } or { error }.
+ */
+function convertLocalVideo(
+  filePath: string,
+  displayName: string,
+): { data: Buffer; name: string; isGif: boolean } | { error: string } {
+  if (!hasFfmpeg()) {
+    return {
+      error:
+        "Video files require ffmpeg to convert to GIF:\n" +
+        "  macOS:  brew install ffmpeg\n" +
+        "  Linux:  sudo apt install ffmpeg\n" +
+        "  Windows: winget install Gyan.FFmpeg",
+    };
+  }
+
+  const gif = videoToGif(filePath);
+  if (!gif) {
+    return { error: "Failed to convert video to GIF." };
+  }
+
+  const baseName = basename(displayName, extname(displayName));
+  return { data: gif, name: `${baseName}.gif`, isGif: true };
 }
 
 /**
@@ -271,8 +483,10 @@ export function parseGifDelays(data: Buffer): number[] {
 }
 
 /**
- * soul_vision tool — displays an image inline in the chat.
+ * soul_vision tool — displays images and videos inline in the chat.
  * Accepts local file paths or URLs. Converts non-PNG formats automatically.
+ * Video URLs are downloaded via yt-dlp and converted to animated GIF via ffmpeg.
+ * Local video files are converted to GIF via ffmpeg directly.
  */
 export async function showImage(
   args: SoulVisionArgs,
@@ -292,10 +506,21 @@ export async function showImage(
     // ── URL mode ──
     const result = await fetchImageUrl(args.path);
     if ("error" in result) {
-      return { success: false, output: result.error };
+      // If the URL returned non-image content, try video extraction
+      if (result.error.startsWith("not_image:")) {
+        const videoResult = fetchVideoFromUrl(args.path);
+        if ("error" in videoResult) {
+          return { success: false, output: videoResult.error };
+        }
+        data = videoResult.data;
+        name = videoResult.name;
+      } else {
+        return { success: false, output: result.error };
+      }
+    } else {
+      data = result.data;
+      name = result.name;
     }
-    data = result.data;
-    name = result.name;
   } else {
     // ── Local file mode ──
     const filePath = resolve(cwd, args.path);
@@ -311,26 +536,44 @@ export async function showImage(
       return { success: false, output: `Not a file: ${args.path}` };
     }
 
-    if (stat.size > MAX_IMAGE_SIZE) {
-      return {
-        success: false,
-        output: `Image too large (${String(Math.round(stat.size / 1024 / 1024))}MB). Max: 10MB.`,
-      };
-    }
+    // Local video file → convert to GIF
+    if (VIDEO_EXTENSIONS.test(filePath)) {
+      if (stat.size > MAX_VIDEO_SIZE) {
+        return {
+          success: false,
+          output: `Video too large (${String(Math.round(stat.size / 1024 / 1024))}MB). Max: 100MB.`,
+        };
+      }
+      const videoResult = convertLocalVideo(filePath, args.path);
+      if ("error" in videoResult) {
+        return { success: false, output: videoResult.error };
+      }
+      data = videoResult.data;
+      name = videoResult.name;
+    } else {
+      // Image file
+      if (stat.size > MAX_IMAGE_SIZE) {
+        return {
+          success: false,
+          output: `Image too large (${String(Math.round(stat.size / 1024 / 1024))}MB). Max: 10MB.`,
+        };
+      }
 
-    if (!SUPPORTED_EXTENSIONS.test(filePath)) {
-      return {
-        success: false,
-        output: "Unsupported format. Supported: PNG, JPG, WebP, GIF, BMP, TIFF.",
-      };
-    }
+      if (!SUPPORTED_EXTENSIONS.test(filePath)) {
+        return {
+          success: false,
+          output:
+            "Unsupported format. Supported: PNG, JPG, WebP, GIF, BMP, TIFF, MP4, MKV, WebM, AVI, MOV.",
+        };
+      }
 
-    try {
-      data = readFileSync(filePath);
-    } catch (e) {
-      return { success: false, output: `Failed to read file: ${String(e)}` };
+      try {
+        data = readFileSync(filePath);
+      } catch (e) {
+        return { success: false, output: `Failed to read file: ${String(e)}` };
+      }
+      name = args.path;
     }
-    name = args.path;
   }
 
   // GIF animation path — extract frames and animate in Kitty

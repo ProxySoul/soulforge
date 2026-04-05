@@ -32,7 +32,7 @@ export const TOOL_CATALOG: Record<string, string> = {
   soul_grep: "Token-efficient search with count mode and word-boundary matching",
   soul_analyze: "Codebase analysis: file profiles, dead code, packages, symbol queries",
   soul_impact: "Dependency graph: dependents, dependencies, cochanges, blast radius",
-  soul_vision: "Display images inline in chat (PNG, JPG, WebP, GIF, BMP — local files or URLs)",
+  soul_vision: "Display images and videos inline in chat (PNG, JPG, GIF, video files/URLs)",
   analyze: "LSP diagnostics, type info, outline, code actions on a file",
   discover_pattern: "Discover recurring patterns/conventions in the codebase",
   web_search: "Search the web for documentation, APIs, error messages",

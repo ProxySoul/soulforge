@@ -677,18 +677,20 @@ export function App({
       tabMgr.restoreFromMeta(data.meta.tabs, data.meta.activeTabId, data.tabMessages);
       setForgeModeHeader(data.meta.forgeMode);
       setExitSessionId(data.meta.id);
-      // Re-fetch images so Kitty placeholders render again
-      const allMessages = [...data.tabMessages.values()].flat();
-      restoreSessionImages(allMessages, cwd)
-        .then((restored) => {
-          if (restored > 0) {
-            // Force React re-render — the objects were mutated in-place
-            for (const tab of data.meta.tabs) {
-              tabMgr.getChat(tab.id)?.setMessages((prev) => [...prev]);
+      // Defer image restore so chat UI renders first — extractGifFrames uses execSync
+      setTimeout(() => {
+        const allMessages = [...data.tabMessages.values()].flat();
+        restoreSessionImages(allMessages, cwd)
+          .then((restored) => {
+            if (restored > 0) {
+              // Force React re-render — the objects were mutated in-place
+              for (const tab of data.meta.tabs) {
+                tabMgr.getChat(tab.id)?.setMessages((prev) => [...prev]);
+              }
             }
-          }
-        })
-        .catch(() => {});
+          })
+          .catch(() => {});
+      }, 100);
     }
   }, []);
 
@@ -1210,17 +1212,19 @@ export function App({
             tabMgr.restoreFromMeta(data.meta.tabs, data.meta.activeTabId, data.tabMessages);
             setForgeModeHeader(data.meta.forgeMode);
             setExitSessionId(data.meta.id);
-            // Re-fetch images so Kitty placeholders render again
-            const allMessages = [...data.tabMessages.values()].flat();
-            restoreSessionImages(allMessages, cwd)
-              .then((restored) => {
-                if (restored > 0) {
-                  for (const tab of data.meta.tabs) {
-                    tabMgr.getChat(tab.id)?.setMessages((prev) => [...prev]);
+            // Defer image restore so chat UI renders first
+            setTimeout(() => {
+              const allMessages = [...data.tabMessages.values()].flat();
+              restoreSessionImages(allMessages, cwd)
+                .then((restored) => {
+                  if (restored > 0) {
+                    for (const tab of data.meta.tabs) {
+                      tabMgr.getChat(tab.id)?.setMessages((prev) => [...prev]);
+                    }
                   }
-                }
-              })
-              .catch(() => {});
+                })
+                .catch(() => {});
+            }, 100);
           }
         }}
         onSystemMessage={addSystemMessage}
