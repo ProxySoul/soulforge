@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, mock, afterEach } from "bun:test";
 import { registerCustomProviders, getAllProviders, getProvider, buildCustomProvider } from "../src/core/llm/providers/index.js";
 import type { CustomProviderConfig, ProviderDefinition } from "../src/core/llm/providers/types.js";
+import { PROVIDER_CONFIGS } from "../src/core/llm/models.js";
 
 // Reset provider state between tests by re-registering empty
 beforeEach(() => {
@@ -228,6 +229,21 @@ describe("registerCustomProviders", () => {
 		for (let i = builtinCount; i < all.length; i++) {
 			expect(all[i].custom).toBe(true);
 		}
+	});
+
+	test("PROVIDER_CONFIGS updates when custom providers are registered", () => {
+		const before = PROVIDER_CONFIGS.length;
+		const hadCustom = PROVIDER_CONFIGS.some((c) => c.id === "cfgtest");
+		expect(hadCustom).toBe(false);
+
+		registerCustomProviders([
+			{ id: "cfgtest", name: "Config Test", baseURL: "https://api.test.com/v1", models: ["m1"] },
+		]);
+
+		expect(PROVIDER_CONFIGS.length).toBe(before + 1);
+		const entry = PROVIDER_CONFIGS.find((c) => c.id === "cfgtest");
+		expect(entry).toBeDefined();
+		expect(entry!.name).toBe("Config Test");
 	});
 });
 

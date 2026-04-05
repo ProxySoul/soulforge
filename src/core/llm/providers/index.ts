@@ -64,6 +64,13 @@ const BUILTIN_PROVIDERS: ProviderDefinition[] = [
 let allProviders: ProviderDefinition[] = [...BUILTIN_PROVIDERS];
 let providerMap = new Map(allProviders.map((p) => [p.id, p]));
 
+const changeListeners: Array<() => void> = [];
+
+/** Register a callback that fires when custom providers are added. */
+export function onProvidersChanged(fn: () => void): void {
+  changeListeners.push(fn);
+}
+
 export function registerCustomProviders(configs: CustomProviderConfig[]): void {
   const builtinIds = new Set(BUILTIN_PROVIDERS.map((p) => p.id));
 
@@ -85,6 +92,8 @@ export function registerCustomProviders(configs: CustomProviderConfig[]): void {
 
   allProviders = [...BUILTIN_PROVIDERS, ...seen.values()];
   providerMap = new Map(allProviders.map((p) => [p.id, p]));
+
+  for (const fn of changeListeners) fn();
 }
 
 export function getProvider(id: string): ProviderDefinition | undefined {

@@ -1,7 +1,7 @@
 import { toErrorMessage } from "../../utils/errors.js";
 import { ensureProxy } from "../proxy/lifecycle.js";
 import { getProviderApiKey } from "../secrets.js";
-import { getAllProviders, getProvider } from "./providers/index.js";
+import { getAllProviders, getProvider, onProvidersChanged } from "./providers/index.js";
 import type { ProviderModelInfo } from "./providers/types.js";
 
 // Re-export for backward compatibility
@@ -31,13 +31,21 @@ export interface ProviderConfig {
   fallbackModels?: ProviderModelInfo[];
 }
 
-export const PROVIDER_CONFIGS: ProviderConfig[] = getAllProviders().map((p) => ({
-  id: p.id,
-  name: p.name,
-  envVar: p.envVar,
-  grouped: p.grouped,
-  fallbackModels: p.fallbackModels,
-}));
+function buildProviderConfigs(): ProviderConfig[] {
+  return getAllProviders().map((p) => ({
+    id: p.id,
+    name: p.name,
+    envVar: p.envVar,
+    grouped: p.grouped,
+    fallbackModels: p.fallbackModels,
+  }));
+}
+
+export const PROVIDER_CONFIGS: ProviderConfig[] = buildProviderConfigs();
+
+onProvidersChanged(() => {
+  PROVIDER_CONFIGS.splice(0, PROVIDER_CONFIGS.length, ...buildProviderConfigs());
+});
 
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 const METADATA_FETCH_TIMEOUT = 5_000;
