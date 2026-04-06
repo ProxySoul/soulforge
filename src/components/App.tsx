@@ -43,6 +43,7 @@ import { getModeColor, getModeLabel } from "../hooks/useForgeMode.js";
 import { useGitStatus } from "../hooks/useGitStatus.js";
 import { useGlobalKeyboard } from "../hooks/useGlobalKeyboard.js";
 import { useNeovim } from "../hooks/useNeovim.js";
+import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { buildSessionMeta } from "../hooks/useSessionBuilder.js";
 import { useTabs } from "../hooks/useTabs.js";
 import { useVersionCheck } from "../hooks/useVersionCheck.js";
@@ -628,6 +629,7 @@ export function App({
                 (m: ChatMessage) => m.role !== "system" || m.showInChat,
               ),
             });
+            updateEmergencySnapshot(sessionManager, meta, tabMessages);
             await sessionManager.saveSession(meta, tabMessages);
             setExitSessionId(meta.id);
             savedSessionIdRef.current = meta.id;
@@ -784,6 +786,7 @@ export function App({
               (m: ChatMessage) => m.role !== "system" || m.showInChat,
             ),
           });
+          updateEmergencySnapshot(sessionManager, meta, tabMessages);
           await sessionManager.saveSession(meta, tabMessages);
         } catch (err) {
           logBackgroundError(

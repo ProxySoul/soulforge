@@ -5,6 +5,7 @@ import type { App as AppComponent } from "./components/App.js";
 import type { ContextManager } from "./core/context/manager.js";
 import { icon } from "./core/icons.js";
 import { disposeIntelligenceRouter } from "./core/intelligence/index.js";
+import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import { deactivateCurrentProvider, type ProviderStatus } from "./core/llm/provider.js";
 import { killAllTracked } from "./core/process-tracker.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
@@ -124,15 +125,32 @@ process.on("exit", () => {
 });
 
 process.on("SIGINT", () => {
+  flushEmergencySession();
   cleanupAndExit(130);
 });
 
 process.on("SIGTERM", () => {
+  flushEmergencySession();
   cleanupAndExit(143);
 });
 
 process.on("SIGHUP", () => {
+  flushEmergencySession();
   cleanupAndExit(129);
+});
+
+process.on("uncaughtException", (err) => {
+  flushEmergencySession();
+  restoreTerminal();
+  process.stderr.write(`\nUncaught exception: ${err?.message ?? String(err)}\n`);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  flushEmergencySession();
+  restoreTerminal();
+  process.stderr.write(`\nUnhandled rejection: ${String(reason)}\n`);
+  process.exit(1);
 });
 
 const RESTART_STEPS = [
