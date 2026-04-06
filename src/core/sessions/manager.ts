@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
@@ -206,6 +215,45 @@ export class SessionManager {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Synchronous save — used only for emergency crash-recovery writes
+   * (signal handlers, uncaughtException). Never call from normal async paths.
+   */
+  saveSessionSync(meta: SessionMeta, tabMessages: Map<string, ChatMessage[]>): void {
+    this.ensureDir();
+    const sessionDir = join(this.dir, meta.id);
+    if (!existsSync(sessionDir)) {
+      mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+    }
+
+    const allMessages: ChatMessage[] = [];
+    const updatedTabs: TabMeta[] = [];
+
+    for (const tab of meta.tabs) {
+      const msgs = tabMessages.get(tab.id) ?? [];
+      const startLine = allMessages.length;
+      for (const msg of msgs) allMessages.push(msg);
+      const endLine = allMessages.length;
+      updatedTabs.push({ ...tab, messageRange: { startLine, endLine } });
+    }
+
+    const updatedMeta: SessionMeta = { ...meta, tabs: updatedTabs };
+    const metaPath = join(sessionDir, "meta.json");
+    const jsonlPath = join(sessionDir, "messages.jsonl");
+    const lines = allMessages.map((m) => JSON.stringify(m)).join("\n");
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const metaTmp = `${metaPath}.${suffix}.tmp`;
+    const jsonlTmp = `${jsonlPath}.${suffix}.tmp`;
+
+    writeFileSync(metaTmp, JSON.stringify(updatedMeta, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    writeFileSync(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
+    renameSync(jsonlTmp, jsonlPath);
+    renameSync(metaTmp, metaPath);
   }
 
   deleteSession(id: string): boolean {

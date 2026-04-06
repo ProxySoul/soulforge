@@ -28,6 +28,7 @@ import {
 } from "../core/llm/models.js";
 import { notifyProviderSwitch } from "../core/llm/provider.js";
 import { initForbidden } from "../core/security/forbidden.js";
+import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { getMissingRequired } from "../core/setup/prerequisites.js";
 import { suspendAndRun } from "../core/terminal/suspend.js";
@@ -628,6 +629,7 @@ export function App({
                 (m: ChatMessage) => m.role !== "system" || m.showInChat,
               ),
             });
+            updateEmergencySnapshot(sessionManager, meta, tabMessages);
             await sessionManager.saveSession(meta, tabMessages);
             setExitSessionId(meta.id);
             savedSessionIdRef.current = meta.id;
@@ -784,6 +786,7 @@ export function App({
               (m: ChatMessage) => m.role !== "system" || m.showInChat,
             ),
           });
+          updateEmergencySnapshot(sessionManager, meta, tabMessages);
           await sessionManager.saveSession(meta, tabMessages);
         } catch (err) {
           logBackgroundError(

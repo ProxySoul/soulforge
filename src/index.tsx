@@ -7,6 +7,7 @@ import { icon } from "./core/icons.js";
 import { disposeIntelligenceRouter } from "./core/intelligence/index.js";
 import { deactivateCurrentProvider, type ProviderStatus } from "./core/llm/provider.js";
 import { killAllTracked } from "./core/process-tracker.js";
+import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
 import { closeAllTerminals } from "./core/terminal/manager.js";
 import { getThemeTokens, useTheme } from "./core/theme/index.js";
@@ -124,15 +125,30 @@ process.on("exit", () => {
 });
 
 process.on("SIGINT", () => {
+  flushEmergencySession();
   cleanupAndExit(130);
 });
 
 process.on("SIGTERM", () => {
+  flushEmergencySession();
   cleanupAndExit(143);
 });
 
 process.on("SIGHUP", () => {
+  flushEmergencySession();
   cleanupAndExit(129);
+});
+
+process.on("uncaughtException", (err) => {
+  flushEmergencySession();
+  restoreTerminal();
+  process.stderr.write(`\nUncaught exception: ${err?.stack ?? err?.message ?? String(err)}\n`);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  flushEmergencySession();
+  process.stderr.write(`\nUnhandled rejection: ${String(reason)}\n`);
 });
 
 const RESTART_STEPS = [

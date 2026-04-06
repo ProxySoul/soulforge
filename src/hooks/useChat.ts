@@ -42,6 +42,7 @@ import {
   isProviderOptionsError,
 } from "../core/llm/provider-options.js";
 import { resolveTaskModel } from "../core/llm/task-router.js";
+import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { createThinkingParser } from "../core/thinking-parser.js";
 import { emitCacheReset, onFileEdited } from "../core/tools/file-events.js";
@@ -1381,7 +1382,28 @@ export function useChat({
         timestamp: Date.now(),
         images: images && images.length > 0 ? images : undefined,
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages((prev) => {
+        const allMsgs = [...prev, userMsg];
+        // Persist immediately after user sends — crash-safe checkpoint
+        queueMicrotask(() => {
+          try {
+            const snapshot = getWorkspaceSnapshot?.();
+            if (!snapshot) return;
+            const { meta, tabMessages } = buildSessionMeta({
+              sessionId: sessionIdRef.current,
+              title: SessionManager.deriveTitle(allMsgs),
+              cwd,
+              snapshot,
+              currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
+            });
+            updateEmergencySnapshot(sessionManager, meta, tabMessages);
+            sessionManager.saveSession(meta, tabMessages).catch(() => {});
+          } catch {
+            // Don't let checkpoint failures interrupt the request
+          }
+        });
+        return allMsgs;
+      });
 
       const currentCoreMessages = coreMessagesRef.current;
       // Build user content: text + optional image parts for multimodal models
@@ -2498,6 +2520,7 @@ export function useChat({
                           (m) => m.role !== "system" || m.showInChat,
                         ),
                       });
+                      updateEmergencySnapshot(sessionManager, meta, tabMessages);
                       sessionManager.saveSession(meta, tabMessages).catch(() => {});
                       return prev;
                     });
@@ -2647,6 +2670,7 @@ export function useChat({
                 snapshot,
                 currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
               });
+              updateEmergencySnapshot(sessionManager, meta, tabMessages);
               sessionManager.saveSession(meta, tabMessages).catch(() => {});
             }
           });
