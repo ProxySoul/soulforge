@@ -276,11 +276,10 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - run: corepack enable
-      - run: corepack prepare npm@latest --activate
+      - run: npm install -g npm@latest
 
       - run: bun install --frozen-lockfile
 
