@@ -50,13 +50,14 @@ After installing, set it as your terminal's font. Or run `/setup` inside SoulFor
 
 You need at least one LLM provider key:
 
-| Provider | Env Variable | Models |
-|----------|-------------|--------|
-| Anthropic | `ANTHROPIC_API_KEY` | Claude Opus 4, Sonnet 4, Haiku 3.5 |
-| OpenAI | `OPENAI_API_KEY` | GPT-4o, o3, o4-mini |
-| xAI | `XAI_API_KEY` | Grok |
-| Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini |
-| Ollama | *(none — runs locally)* | Llama, Mistral, Qwen, etc. |
+| Provider | Env Variable | Models                                 |
+|----------|-------------|----------------------------------------|
+| Anthropic | `ANTHROPIC_API_KEY` | Claude Opus 4.5, Sonnet 4.6, Haiku 4.5 |
+| OpenAI | `OPENAI_API_KEY` | GPT-4o, o3, o4-mini                    |
+| xAI | `XAI_API_KEY` | Grok                                   |
+| Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini 3 Flash, Gemini 3.1 Pro         |
+| OpenRouter | `OPENROUTER_API_KEY` | 300+ models from all providers         |
+| Ollama | *(none — runs locally)* | Llama, Mistral, Qwen, DeepSeek, etc.   |
 
 Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
 
@@ -173,18 +174,20 @@ Press `Ctrl+L` to open the model picker. Pick a provider, then a model. The swit
 
 Use `/router` to assign different models to different task types:
 
-| Task Type | Use Case |
-|-----------|----------|
-| `planning` | Plan mode, architecture decisions |
-| `coding` | File edits, implementation |
-| `exploration` | Read-only research, code analysis |
-| `webSearch` | Web search and summarization |
-| `semantic` | Repo map semantic summaries |
-| `trivial` | Single-file reads, small edits (fast/cheap model) |
-| `desloppify` | Cleanup pass after code agents |
-| `default` | Fallback for unmatched tasks |
+| Slot | Section | Use Case |
+|------|---------|----------|
+| `spark` | Dispatch | Read-only explore/investigate agents — searches, reads, analyzes |
+| `ember` | Dispatch | Code agents — reads files and makes edits |
+| `webSearch` | Dispatch | Web search and page fetching agent |
+| `desloppify` | Post-Dispatch | Cleanup pass after code agents finish |
+| `verify` | Post-Dispatch | Adversarial review pass after code agents |
+| `compact` | Background | Context compaction summarizer |
+| `semantic` | Background | Repo map LLM symbol summaries |
+| `default` | — | Fallback when no specific slot matches |
 
-For example, Opus for planning, Sonnet for coding, Haiku for exploration and trivial tasks.
+For example: Sonnet for `ember` (code quality matters), a fast cheap model for `spark` and `desloppify`.
+
+> **Legacy fields** `coding`, `exploration`, `trivial`, and `planning` are still accepted for backwards compatibility but map to `spark`/`ember` internally and are hidden from the `/router` UI.
 
 ## Agent Features
 
@@ -193,7 +196,7 @@ Use `/agent-features` to toggle agent behavior. All features default to **on** (
 | Feature | What it does |
 |---------|-------------|
 | **De-sloppify** | Runs a cleanup agent after code agents to remove sloppy patterns (console.log, commented-out code, redundant checks). Requires a model in the `desloppify` router slot. |
-| **Tier Routing** | Auto-classifies tasks as trivial (single-file, short prompt) and routes them to the `trivial` model for faster, cheaper execution. |
+| **Tier Routing** | Auto-classifies tasks as trivial (single-file, short prompt) and routes them to the `spark` model for faster, cheaper execution. |
 | **Dispatch Cache** | Caches file reads across dispatch boundaries so the parent agent doesn't re-read files that subagents already returned. |
 | **Target File Validation** | Requires file paths on dispatch tasks — rejects vague instructions before any subagent runs. |
 
@@ -325,7 +328,7 @@ Install a [Nerd Font](https://www.nerdfonts.com/) and set it as your terminal fo
 Make sure your terminal supports true color. Most modern terminals do, but you may need `export COLORTERM=truecolor` in your shell profile.
 
 **Forge seems slow**
-Switch to a faster model with `Ctrl+L` (e.g. Haiku or GPT-4o-mini). Use `/router` to assign fast models to exploration tasks and reserve expensive models for coding.
+Switch to a faster model with `Ctrl+L` (e.g. Haiku 4.5 or a local Ollama model). Use `/router` to assign fast/cheap models to `spark`, `desloppify`, and `compact` slots, and reserve a strong model for `ember`.
 
 **Context getting large**
 Run `/summarize` or `/compact` to condense the conversation. `/context` shows exactly where tokens are going.
