@@ -32,12 +32,14 @@ Project settings override global. Session-level settings (changed via commands b
     "keepRecent": 4
   },
   "taskRouter": {
-    "planning": "anthropic/claude-sonnet-4-6",
-    "coding": "anthropic/claude-opus-4-6",
-    "exploration": "anthropic/claude-sonnet-4-6",
-    "webSearch": "anthropic/claude-haiku-3-5",
-    "trivial": "anthropic/claude-haiku-3-5",
-    "compact": "google/gemini-2.0-flash"
+    "spark":      "anthropic/claude-haiku-4-5",
+    "ember":      "anthropic/claude-sonnet-4-6",
+    "webSearch":  "anthropic/claude-haiku-4-5",
+    "desloppify": "anthropic/claude-haiku-4-5",
+    "verify":     "anthropic/claude-haiku-4-5",
+    "compact":    "google/gemini-2.5-flash",
+      "semantic":   "anthropic/claude-haiku-4-5",
+    "default":    null
   },
   "agentFeatures": {
     "desloppify": true,
@@ -94,32 +96,43 @@ Assign different models to different task types. Configure via `/router` in the 
 ```json
 {
   "taskRouter": {
-    "planning": "anthropic/claude-sonnet-4-6",
-    "coding": "anthropic/claude-opus-4-6",
-    "exploration": "anthropic/claude-sonnet-4-6",
-    "webSearch": "anthropic/claude-haiku-3-5",
-    "semantic": "anthropic/claude-haiku-3-5",
-    "trivial": "anthropic/claude-haiku-3-5",
-    "desloppify": "anthropic/claude-haiku-3-5",
-    "compact": "google/gemini-2.0-flash",
-    "default": null
+    "spark":      "anthropic/claude-haiku-4-5",
+    "ember":      "anthropic/claude-sonnet-4-6",
+    "webSearch":  "anthropic/claude-haiku-4-5",
+    "desloppify": "anthropic/claude-haiku-4-5",
+    "verify":     "anthropic/claude-haiku-4-5",
+    "compact":    "google/gemini-2.5-flash",
+    "semantic":   "anthropic/claude-haiku-4-5",
+    "default":    null
   }
 }
 ```
 
-| Slot | Purpose |
-|------|---------|
-| `planning` | Plan mode, architecture decisions |
-| `coding` | File edits, implementation |
-| `exploration` | Read-only research, code analysis |
-| `webSearch` | Web search agent model |
-| `semantic` | Repo map semantic summaries |
-| `trivial` | Single-file reads, small edits (auto-detected) |
-| `desloppify` | Cleanup pass after code agents |
-| `compact` | Context compaction summarizer |
-| `default` | Fallback for unmatched tasks |
+| Slot | Section | Purpose |
+|------|---------|--------|
+| `spark` | Dispatch | Read-only explore/investigate agents — searches, reads, analyzes |
+| `ember` | Dispatch | Code agents — reads files and makes edits |
+| `webSearch` | Dispatch | Web search and page fetching agent |
+| `desloppify` | Post-Dispatch | Cleanup pass after code agents finish |
+| `verify` | Post-Dispatch | Adversarial review pass after code agents |
+| `compact` | Background | Context compaction summarizer |
+| `semantic` | Background | Repo map LLM symbol summaries |
+| `default` | — | Fallback for background tasks when no specific slot is set |
 
-Resolution order: `taskRouter[taskType]` then `taskRouter.default` then active model.
+Resolution order: `taskRouter[slot]` → `taskRouter.default` → active model.
+
+<Note>
+**Legacy fields** (`coding`, `exploration`, `trivial`, `planning`) are accepted for backwards compatibility but are hidden from the `/router` UI. They map to `ember` and `spark` respectively on load. Use `spark` and `ember` in new configs.
+</Note>
+
+### Spark vs Ember tier
+
+Spark and ember are architectural tiers, not just model slots:
+
+- **Spark** — explore/investigate agents that share the forge's system prompt and tool definitions for cache prefix hits. Only activated when `spark` model matches the main model; otherwise the agent runs as an ember automatically.
+- **Ember** — agents with their own model and fresh context. Code agents are always embers. Explore agents become embers when `spark` points to a different model than the main one.
+
+This means setting `spark` to a cheaper model routes all read-only agents through it, while `ember` handles all code-writing agents regardless.
 
 ## Agent features
 
