@@ -279,7 +279,8 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - run: npm install -g npm@latest
+      - run: corepack enable
+      - run: corepack prepare npm@latest --activate
 
       - run: bun install --frozen-lockfile
 
