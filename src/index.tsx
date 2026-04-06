@@ -142,15 +142,13 @@ process.on("SIGHUP", () => {
 process.on("uncaughtException", (err) => {
   flushEmergencySession();
   restoreTerminal();
-  process.stderr.write(`\nUncaught exception: ${err?.message ?? String(err)}\n`);
+  process.stderr.write(`\nUncaught exception: ${err?.stack ?? err?.message ?? String(err)}\n`);
   process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
   flushEmergencySession();
-  restoreTerminal();
   process.stderr.write(`\nUnhandled rejection: ${String(reason)}\n`);
-  process.exit(1);
 });
 
 const RESTART_STEPS = [

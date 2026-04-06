@@ -32,7 +32,10 @@ export function updateEmergencySnapshot(
   // Deep-copy messages so mutations during streaming don't corrupt the snapshot
   const frozen = new Map<string, ChatMessage[]>();
   for (const [id, msgs] of tabMessages) {
-    frozen.set(id, [...msgs]);
+    frozen.set(
+      id,
+      msgs.map((m) => ({ ...m })),
+    );
   }
   _snapshot = { manager, meta: { ...meta }, tabMessages: frozen };
 }
