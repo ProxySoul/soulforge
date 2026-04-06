@@ -28,6 +28,7 @@ import {
 } from "../core/llm/models.js";
 import { notifyProviderSwitch } from "../core/llm/provider.js";
 import { initForbidden } from "../core/security/forbidden.js";
+import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { getMissingRequired } from "../core/setup/prerequisites.js";
 import { suspendAndRun } from "../core/terminal/suspend.js";
@@ -43,7 +44,6 @@ import { getModeColor, getModeLabel } from "../hooks/useForgeMode.js";
 import { useGitStatus } from "../hooks/useGitStatus.js";
 import { useGlobalKeyboard } from "../hooks/useGlobalKeyboard.js";
 import { useNeovim } from "../hooks/useNeovim.js";
-import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { buildSessionMeta } from "../hooks/useSessionBuilder.js";
 import { useTabs } from "../hooks/useTabs.js";
 import { useVersionCheck } from "../hooks/useVersionCheck.js";
