@@ -1381,7 +1381,27 @@ export function useChat({
         timestamp: Date.now(),
         images: images && images.length > 0 ? images : undefined,
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages((prev) => {
+        const allMsgs = [...prev, userMsg];
+        // Persist immediately after user sends — crash-safe checkpoint
+        queueMicrotask(() => {
+          try {
+            const snapshot = getWorkspaceSnapshot?.();
+            if (!snapshot) return;
+            const { meta, tabMessages } = buildSessionMeta({
+              sessionId: sessionIdRef.current,
+              title: SessionManager.deriveTitle(allMsgs),
+              cwd,
+              snapshot,
+              currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
+            });
+            sessionManager.saveSession(meta, tabMessages).catch(() => {});
+          } catch {
+            // Don't let checkpoint failures interrupt the request
+          }
+        });
+        return allMsgs;
+      });
 
       const currentCoreMessages = coreMessagesRef.current;
       // Build user content: text + optional image parts for multimodal models
