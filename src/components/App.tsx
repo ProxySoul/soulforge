@@ -1364,7 +1364,11 @@ export function App({
           const mode = contextManager.getSemanticMode();
           contextManager
             .setSemanticSummaries(mode === "off" ? "synthetic" : mode)
-            .then(() => contextManager.generateSemanticSummaries(activeModelForHeader))
+            .then(() =>
+              contextManager.generateSemanticSummaries(
+                contextManager.getSemanticModelId(activeModelForHeader),
+              ),
+            )
             .catch(() => {});
         }}
         onClearSummaries={() => {
@@ -1392,7 +1396,9 @@ export function App({
             .setSemanticSummaries(typedMode)
             .then(() =>
               typedMode === "llm" || typedMode === "full"
-                ? contextManager.generateSemanticSummaries(activeModelForHeader)
+                ? contextManager.generateSemanticSummaries(
+                    contextManager.getSemanticModelId(activeModelForHeader),
+                  )
                 : undefined,
             )
             .catch(() => {});
