@@ -28,6 +28,9 @@ export interface ProviderConfig {
   name: string;
   envVar: string;
   grouped?: boolean;
+  badge?: string;
+  noAuthLabel?: string;
+  authErrorLabel?: string;
   fallbackModels?: ProviderModelInfo[];
 }
 
@@ -37,6 +40,9 @@ function buildProviderConfigs(): ProviderConfig[] {
     name: p.name,
     envVar: p.envVar,
     grouped: p.grouped,
+    badge: p.badge,
+    noAuthLabel: p.noAuthLabel,
+    authErrorLabel: p.authErrorLabel,
     fallbackModels: p.fallbackModels,
   }));
 }

@@ -19,6 +19,12 @@ export interface ProviderDefinition {
   asciiIcon?: string;
   /** Short description for wizard/UI (e.g. "Claude models"). */
   description?: string;
+  /** Inline badge for provider selectors (e.g. "unofficial", "non-streaming"). */
+  badge?: string;
+  /** Custom label shown when the provider is unavailable and needs auth. */
+  noAuthLabel?: string;
+  /** Custom label shown when model loading fails after the provider is available. */
+  authErrorLabel?: string;
   createModel(modelId: string): LanguageModel;
   fetchModels(): Promise<ProviderModelInfo[] | null>;
   fallbackModels: ProviderModelInfo[];
@@ -26,6 +32,7 @@ export interface ProviderDefinition {
   grouped?: boolean;
   custom?: boolean;
   checkAvailability?(): Promise<boolean>;
+  onRequestAuth?(): Promise<void>;
   onActivate?(): Promise<void>;
   onDeactivate?(): void;
 }

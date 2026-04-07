@@ -97,6 +97,7 @@ export const copilot: ProviderDefinition = {
   keyUrl: "github.com/features/copilot",
   asciiIcon: "CP",
   description: "Free with Copilot sub",
+  badge: "unofficial",
 
   createModel: createCopilotModel,
 

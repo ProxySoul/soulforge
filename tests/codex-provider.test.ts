@@ -26,12 +26,24 @@ describe("codex provider", () => {
     expect(getAllProviders().filter((provider) => !provider.custom)).toHaveLength(19);
   });
 
-  test("has local-provider metadata and no static fallback models", () => {
+  test("has provider metadata, fallback models, and shared auth hook", () => {
     expect(codex.id).toBe("codex");
     expect(codex.name).toBe("Codex");
     expect(codex.envVar).toBe("");
     expect(codex.description).toContain("Codex");
-    expect(codex.fallbackModels).toEqual([]);
+    expect(codex.description).toContain("turn finishes");
+    expect(codex.noAuthLabel).toBe("login required — Enter to authenticate");
+    expect(codex.authErrorLabel).toBe("login/session error");
+    expect(codex.badge).toBe("non-streaming");
+    expect(codex.onRequestAuth).toBeDefined();
+    expect(codex.fallbackModels).toEqual([
+      { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_050_000 },
+      { id: "gpt-5.2-codex", name: "GPT-5.2-Codex", contextWindow: 400_000 },
+    ]);
+    expect(codex.contextWindows).toEqual([
+      ["gpt-5.4", 1_050_000],
+      ["gpt-5.2-codex", 400_000],
+    ]);
   });
 
   test("parses official codex login status output", () => {
