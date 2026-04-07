@@ -28,7 +28,6 @@ import {
 } from "../core/compaction/index.js";
 import type { ContextManager } from "../core/context/manager.js";
 import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
-import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
 import {
   getModelContextInfo,
@@ -43,6 +42,7 @@ import {
   isProviderOptionsError,
 } from "../core/llm/provider-options.js";
 import { resolveTaskModel } from "../core/llm/task-router.js";
+import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
 import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { createThinkingParser } from "../core/thinking-parser.js";
@@ -1175,7 +1175,7 @@ export function useChat({
         }
       }
     },
-    [setTokenUsage, effectiveConfig, contextManager],
+    [setTokenUsage, effectiveConfig, contextManager, cwd],
   );
   summarizeConversationRef.current = summarizeConversation;
 
