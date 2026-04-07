@@ -19,7 +19,7 @@
 
 <br/><br/>
 
-<video src="https://github.com/ProxySoul/soulforge/raw/main/assets/intro.mp4" width="900" autoplay loop muted playsinline></video>
+https://github.com/ProxySoul/soulforge/raw/main/assets/intro.mp4
 
 <br/>
 
