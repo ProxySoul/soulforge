@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fuzzyMatch } from "../../core/history/fuzzy.js";
 import { icon, providerIcon } from "../../core/icons.js";
 import { PROVIDER_CONFIGS } from "../../core/llm/models.js";
+import { checkProviders } from "../../core/llm/provider.js";
+import { runCodexBrowserLogin } from "../../core/llm/providers/codex.js";
 import { useTheme } from "../../core/theme/index.js";
 import { useAllProviderModels } from "../../hooks/useAllProviderModels.js";
 import { isModelFree } from "../../stores/statusbar.js";
@@ -89,12 +91,14 @@ function HeaderRow({
       )}
       {!entry.avail && !entry.loading && (
         <text fg={t.textDim} bg={bg}>
-          {" · no key — Enter to add"}
+          {entry.id === "codex"
+            ? " · login required — Enter to authenticate"
+            : " · no key — Enter to add"}
         </text>
       )}
       {entry.avail && !entry.loading && entry.count === 0 && entry.error && (
         <text fg={t.error ?? t.brandSecondary} bg={bg}>
-          {" · invalid key"}
+          {entry.id === "codex" ? " · login/session error" : " · invalid key"}
         </text>
       )}
       {entry.id === "copilot" && entry.avail && !entry.loading && (
@@ -191,6 +195,48 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   const [scrollOff, setScrollOff] = useState(0);
   const [spinFrame, setSpinFrame] = useState(0);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const startCodexLogin = useCallback(() => {
+    type Line = import("./InfoPopup.js").InfoPopupLine;
+    const lines: Line[] = [
+      {
+        type: "text",
+        label: "Starting Codex login...",
+        color: t.textSecondary,
+      },
+    ];
+
+    let handle: ReturnType<typeof runCodexBrowserLogin> | null = null;
+    const updatePopup = () => {
+      useUIStore.getState().openInfoPopup({
+        title: "Codex Login",
+        icon: providerIcon("codex"),
+        lines: [...lines],
+        onClose: () => handle?.abort(),
+      });
+    };
+
+    updatePopup();
+    handle = runCodexBrowserLogin((message) => {
+      lines.push({ type: "text", label: message, color: t.textPrimary });
+      updatePopup();
+    });
+
+    handle.promise
+      .then(async () => {
+        await checkProviders().catch(() => {});
+        useUIStore.getState().openModal("llmSelector");
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        lines.push({
+          type: "text",
+          label: `Error: ${message}`,
+          color: t.error ?? t.brandSecondary,
+        });
+        updatePopup();
+      });
+  }, [t]);
 
   useEffect(() => {
     if (!visible) return;
@@ -418,7 +464,11 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
       const e = ents[cursorRef.current];
       if (e?.kind === "header" && (e.noKey || (e.error && e.count === 0))) {
         onClose();
-        useUIStore.getState().openModal("apiKeySettings");
+        if (e.id === "codex") {
+          startCodexLogin();
+        } else {
+          useUIStore.getState().openModal("apiKeySettings");
+        }
       } else if (e?.kind === "header") {
         toggleCollapse(e.id);
       } else if (e?.kind === "model") {

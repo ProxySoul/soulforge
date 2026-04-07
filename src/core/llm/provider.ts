@@ -10,9 +10,19 @@ export interface ProviderStatus {
 }
 
 let cachedStatuses: ProviderStatus[] | null = null;
+const providerStatusListeners = new Set<(statuses: ProviderStatus[]) => void>();
 
 export function getCachedProviderStatuses(): ProviderStatus[] | null {
   return cachedStatuses;
+}
+
+export function subscribeProviderStatuses(
+  listener: (statuses: ProviderStatus[]) => void,
+): () => void {
+  providerStatusListeners.add(listener);
+  return () => {
+    providerStatusListeners.delete(listener);
+  };
 }
 
 export async function checkProviders(): Promise<ProviderStatus[]> {
@@ -28,6 +38,7 @@ export async function checkProviders(): Promise<ProviderStatus[]> {
     }),
   );
   cachedStatuses = results;
+  for (const listener of providerStatusListeners) listener(results);
   return results;
 }
 

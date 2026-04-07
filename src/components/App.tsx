@@ -183,7 +183,11 @@ function ShutdownSplash({
   );
 }
 
-import type { ProviderStatus } from "../core/llm/provider.js";
+import {
+  getCachedProviderStatuses,
+  type ProviderStatus,
+  subscribeProviderStatuses,
+} from "../core/llm/provider.js";
 import type { PrerequisiteStatus } from "../core/setup/prerequisites.js";
 
 interface Props {
@@ -221,6 +225,9 @@ export function App({
   // Subscribe to theme changes so the entire tree re-renders with new colors
   useThemeStore((s) => s.name);
   const t = useTheme();
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(() => {
+    return getCachedProviderStatuses() ?? bootProviders;
+  });
   const [shutdownPhase, setShutdownPhase] = useState(-1);
   const savedSessionIdRef = useRef<string | null>(null);
 
@@ -254,6 +261,12 @@ export function App({
     },
     [renderer],
   );
+
+  useEffect(() => {
+    setProviderStatuses(getCachedProviderStatuses() ?? bootProviders);
+  }, [bootProviders]);
+
+  useEffect(() => subscribeProviderStatuses(setProviderStatuses), []);
 
   useEffect(() => {
     const onSelection = (sel: Selection) => {
@@ -1155,7 +1168,7 @@ export function App({
             editorVisible={editorVisible}
             focusMode={focusMode}
             anyModalOpen={anyModalOpen}
-            bootProviders={bootProviders}
+            bootProviders={providerStatuses}
             bootPrereqs={bootPrereqs}
             getWorkspaceSnapshot={getWorkspaceSnapshot}
             editorIntegration={effectiveConfig.editorIntegration}

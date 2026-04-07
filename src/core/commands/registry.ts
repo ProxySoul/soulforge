@@ -1,4 +1,5 @@
 import { matchClaimsPrefix, register as registerClaims } from "./claims.js";
+import { register as registerCodex } from "./codex.js";
 import { matchConfigPrefix, register as registerConfig } from "./config.js";
 import { matchContextPrefix, register as registerContext } from "./context.js";
 import { register as registerDebug } from "./debug.js";
@@ -23,6 +24,7 @@ registerProxy(commandMap);
 registerStorage(commandMap);
 registerSecurity(commandMap);
 registerClaims(commandMap);
+registerCodex(commandMap);
 
 const prefixMatchers = [
   matchContextPrefix,
@@ -273,6 +275,13 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Manage LLM provider API keys",
     category: "Models",
     tags: ["api", "auth"],
+  },
+  {
+    cmd: "/codex login",
+    ic: "openai",
+    desc: "Log in to Codex with your ChatGPT subscription",
+    category: "Models",
+    tags: ["codex", "auth", "oauth", "browser", "chatgpt"],
   },
   {
     cmd: "/model-scope",
