@@ -19,7 +19,7 @@
 
 <br/><br/>
 
-https://github.com/ProxySoul/soulforge/raw/main/assets/intro.mp4
+<img src="assets/intro.gif" alt="SoulForge" width="900" />
 
 <br/>
 
