@@ -380,6 +380,13 @@ const COMMAND_DEFS: CommandDef[] = [
     category: "Models",
     tags: ["search", "api"],
   },
+  {
+    cmd: "/mcp",
+    ic: "mcp",
+    desc: "MCP servers — status, tools, reconnect",
+    category: "Models",
+    tags: ["mcp", "servers", "tools", "protocol"],
+  },
 
   // ── Intelligence ──
   {

@@ -60,6 +60,7 @@
             "group": "Tools",
             "pages": [
               "tools/project",
+              "tools/mcp",
               "tools/headless",
               "tools/themes",
               "tools/terminals"

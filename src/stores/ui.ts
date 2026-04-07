@@ -30,7 +30,8 @@ export type ModalName =
   | "toolsPopup"
   | "firstRunWizard"
   | "floatingTerminal"
-  | "updateModal";
+  | "updateModal"
+  | "mcpSettings";
 
 type Modals = Record<ModalName, boolean>;
 
@@ -61,6 +62,7 @@ const INITIAL_MODALS: Modals = {
   firstRunWizard: false,
   floatingTerminal: false,
   updateModal: false,
+  mcpSettings: false,
 };
 
 interface UIState {

@@ -5,6 +5,7 @@ import { createForgeAgent } from "../core/agents/index.js";
 import { ContextManager } from "../core/context/manager.js";
 import { resolveModel } from "../core/llm/provider.js";
 import { buildProviderOptions } from "../core/llm/provider-options.js";
+import { disposeMCPManager } from "../core/mcp/index.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import type { AppConfig, ChatMessage, ForgeMode } from "../types/index.js";
 import { DIM, EXIT_ABORT, EXIT_ERROR, EXIT_OK, EXIT_TIMEOUT, PURPLE, RST } from "./constants.js";
@@ -102,6 +103,11 @@ async function setupAgent(
     const { warmupIntelligence } = await import("../core/intelligence/index.js");
     warmupIntelligence(cwd, merged.codeIntelligence);
   } catch {}
+
+  if (merged.mcpServers?.length) {
+    const { getMCPManager } = await import("../core/mcp/index.js");
+    await getMCPManager().connectAll(merged.mcpServers);
+  }
 
   const agent = createForgeAgent({
     model,
@@ -339,6 +345,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
     if (!fullId) {
       stderrError(`Session "${opts.sessionId}" not found`);
       env.contextManager.dispose();
+      await disposeMCPManager();
       process.exit(EXIT_ERROR);
     }
     const data = env.sessionManager.loadSessionMessages(fullId);
@@ -515,6 +522,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
   }
 
   env.contextManager.dispose();
+  await disposeMCPManager();
   process.exit(exitCode);
 }
 
@@ -690,6 +698,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     }
 
     env.contextManager.dispose();
+    await disposeMCPManager();
     process.exit(code);
   }
 
@@ -698,6 +707,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     if (aborted) {
       // Second Ctrl+C — force exit
       env.contextManager.dispose();
+      disposeMCPManager();
       process.exit(EXIT_ABORT);
     }
     aborted = true;

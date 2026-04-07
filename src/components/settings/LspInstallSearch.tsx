@@ -529,7 +529,7 @@ export function LspInstallSearch({
                   attributes={active ? TextAttributes.BOLD : undefined}
                   bg={active ? pc.hl : POPUP_BG}
                 >
-                  {active ? ` ${TAB_LABELS[tabItem]} ` : TAB_LABELS[tabItem]}
+                  {` ${TAB_LABELS[tabItem]} `}
                 </span>
               </text>
             );

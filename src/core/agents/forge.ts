@@ -12,6 +12,7 @@ import type {
 } from "../../types/index.js";
 import type { ContextManager } from "../context/manager.js";
 import { detectModelFamily, EPHEMERAL_CACHE, isAnthropicNative } from "../llm/provider-options.js";
+import { getMCPManager } from "../mcp/index.js";
 import {
   buildInteractiveTools,
   buildTools,
@@ -549,6 +550,13 @@ export function createForgeAgent({
   }
   for (const [name, def] of Object.entries(directTools)) {
     if (!(name in orderedTools)) orderedTools[name] = def;
+  }
+
+  {
+    const mcpTools = getMCPManager().getTools();
+    for (const [name, def] of Object.entries(mcpTools)) {
+      orderedTools[name] = def;
+    }
   }
 
   // Spark mode: share the forge system prompt + tool definitions with subagents for prefix cache hits.

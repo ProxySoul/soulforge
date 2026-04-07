@@ -340,6 +340,29 @@ export interface AppConfig {
   keyPriority?: "env" | "app";
   /** Whether the first-run onboarding wizard has been completed. */
   onboardingComplete?: boolean;
+  /** MCP servers to connect to. Each entry spawns a subprocess (stdio) or connects via HTTP+SSE. */
+  mcpServers?: MCPServerConfig[];
+}
+
+export interface MCPServerConfig {
+  /** Display name and tool namespace prefix (e.g. "github" → tools namespaced as mcp__github__*) */
+  name: string;
+  /** Transport type. "stdio" for local subprocess, "http" for Streamable HTTP (recommended for remote), "sse" for legacy SSE. Default: "stdio" */
+  transport?: "stdio" | "http" | "sse";
+  /** Command to spawn (stdio transport). e.g. "npx" */
+  command?: string;
+  /** Arguments for the command. e.g. ["-y", "@modelcontextprotocol/server-github"] */
+  args?: string[];
+  /** Environment variables passed to the subprocess. */
+  env?: Record<string, string>;
+  /** URL for http/sse transports (remote servers). */
+  url?: string;
+  /** Per-tool-call timeout in ms. Default: 30000 */
+  timeout?: number;
+  /** Disable this server without removing config. */
+  disabled?: boolean;
+  /** HTTP headers for http/sse transports (e.g. Authorization). */
+  headers?: Record<string, string>;
 }
 
 export type FocusMode = "chat" | "editor";

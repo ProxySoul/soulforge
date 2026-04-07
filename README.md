@@ -118,6 +118,10 @@ SoulForge already knows. On startup it builds a **live dependency graph** of you
 <td>Installable skills for domain work. Destructive actions need confirmation. Auto mode for full autonomy.</td>
 </tr>
 <tr>
+<td><strong>MCP servers</strong></td>
+<td>Connect to any <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server. stdio, HTTP, SSE transports. Auto-reconnect, bounded concurrency, tool namespacing. <a href="docs/mcp.md">More</a></td>
+</tr>
+<tr>
 <td><strong>Inline images</strong></td>
 <td>Pixel-perfect images, animated GIFs, and video-to-GIF inline in chat via <code>soul_vision</code>. Kitty graphics protocol with Unicode placeholders. Supports local files, URLs, and code execution output. <a href="#inline-image-support">See terminal support</a></td>
 </tr>
@@ -298,6 +302,14 @@ brew install ffmpeg chafa yt-dlp
 <td>Rename via LSP</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><strong>MCP support</strong></td>
+<td>Built-in: stdio, HTTP, SSE. Auto-reconnect, namespaced tools</td>
+<td>MCP client</td>
+<td>MCP client</td>
+<td>MCP-based</td>
 <td>-</td>
 </tr>
 <tr>
@@ -541,6 +553,7 @@ See [GETTING_STARTED.md](GETTING_STARTED.md) for the full config reference.
 <tr><td colspan="2"><strong>Tools</strong></td></tr>
 <tr><td><a href="docs/compound-tools.md">Compound Tools</a></td><td>read, multi_edit, rename_symbol, move_symbol, refactor, project</td></tr>
 <tr><td><a href="docs/project-tool.md">Project Tool</a></td><td>25+ ecosystems, pre-commit checks, monorepo discovery</td></tr>
+<tr><td><a href="docs/mcp.md">MCP Servers</a></td><td>Model Context Protocol integration, transports, configuration, lifecycle</td></tr>
 <tr><td><a href="docs/commands-reference.md">Commands</a></td><td>All 86 slash commands</td></tr>
 <tr><td colspan="2"><strong>Usage</strong></td></tr>
 <tr><td><a href="docs/headless.md">Headless Mode</a></td><td>CLI flags, JSON/JSONL output, CI/CD integration</td></tr>
@@ -566,11 +579,12 @@ Extracting the intelligence layer into reusable packages:
 - **`@soulforge/intelligence`** : graph intelligence, tools, agent orchestration as a library
 - **`@soulforge/mcp`** : Soul Map tools as MCP servers for Claude Code, Cursor, Copilot, any MCP client
 - **`sf --headless`** : shipped. [Docs](docs/headless.md)
+- **MCP servers** : shipped. Connect to any MCP server. [Docs](docs/mcp.md)
 
 <table>
 <thead><tr><th width="120">Status</th><th>Item</th></tr></thead>
 <tbody>
-<tr><td><strong>In progress</strong></td><td>MCP support, repo map visualization, GitHub CLI integration, dispatch worktrees, <a href="https://agentclientprotocol.com/">ACP</a></td></tr>
+<tr><td><strong>In progress</strong></td><td>Repo map visualization, GitHub CLI integration, dispatch worktrees, <a href="https://agentclientprotocol.com/">ACP</a></td></tr>
 <tr><td><strong>Planned</strong></td><td>Monorepo graph support, benchmarks, orchestrated workflows (planner &gt; TDD &gt; reviewer &gt; security)</td></tr>
 </tbody>
 </table>

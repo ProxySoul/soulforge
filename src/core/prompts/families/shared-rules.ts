@@ -15,6 +15,7 @@ export const SHARED_RULES = `
 - Batch all independent tool calls in one parallel block — it's faster and cheaper.
 - Use multi_edit for multiple changes to the same file. Edits are applied immediately.
 - The user does not see full tool output — summarize results when relevant to your response.
+- The user is on a CLI — they cannot see images except through soul_vision. Call soul_vision whenever any tool returns an image path or URL.
 - Use absolute paths. Maintain your working directory — avoid cd in shell commands.
 
 # Doing tasks
@@ -51,4 +52,5 @@ export const SHARED_RULES = `
 - Write modern, idiomatic code for the language and ecosystem. Use current ${CURRENT_YEAR}-era APIs, patterns, and best practices — avoid deprecated or legacy approaches.
 
 Only commit changes when the user explicitly asks you to.
+You are already in CWD of the repo, no need to <cd> to it when using shell.
 Use conventional commits: type: description (scope optional). Types: feat, fix, refactor, docs, test, chore, perf, ci, build, style, revert, etc.`;

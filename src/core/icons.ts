@@ -102,6 +102,19 @@ const NERD: Record<string, string> = {
   web: "\uF0AC",
   review: "\uDB80\uDF50",
   compact_task: "󰁜",
+  mcp: "󰌆",
+  mcp_server: "󰒋",
+  mcp_tool: "󰠭",
+  plug: "󰗧",
+  unplug: "󰗨",
+  shield: "󰒃",
+  pulse: "󰣐",
+  refresh: "󰑓",
+  circle_dot: "󰪥",
+  circle_empty: "󰝦",
+  chevron_right: "󰅂",
+  server: "󰒋",
+  cloud: "󰒍",
 };
 
 const ASCII: Record<string, string> = {
@@ -206,6 +219,19 @@ const ASCII: Record<string, string> = {
   web: "⊕",
   review: "◎",
   compact_task: "↕",
+  mcp: "⛨",
+  mcp_server: "⚡",
+  mcp_tool: "⚒",
+  plug: "⚡",
+  unplug: "✗",
+  shield: "⊙",
+  pulse: "~",
+  refresh: "↻",
+  circle_dot: "●",
+  circle_empty: "○",
+  chevron_right: "›",
+  server: "⚡",
+  cloud: "☁",
 };
 
 let _nerdFont: boolean | null = null;

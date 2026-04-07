@@ -15,7 +15,8 @@ export type ToolCategory =
   | "ui"
   | "editor"
   | "smithy"
-  | "soul-map";
+  | "soul-map"
+  | "vision";
 
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // File tools
@@ -71,7 +72,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   code_execution: "smithy",
 
   // Vision (inline image display)
-  soul_vision: "soul-map",
+  soul_vision: "vision",
 
   // Repo map powered
   soul_grep: "soul-map",
@@ -98,6 +99,7 @@ function getCategoryColors(): Record<string, string> {
     editor: t.info,
     smithy: t.amber,
     "soul-map": t.success,
+    vision: t.brand,
     brave: t.brandSecondary,
     ddg: t.brandSecondary,
     jina: t.warning,

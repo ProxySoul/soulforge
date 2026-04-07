@@ -1,4 +1,5 @@
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { decodePasteBytes, type PasteEvent } from "@opentui/core";
+import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { ptyToJson, type TerminalData } from "ghostty-opentui";
 import { useEffect, useMemo, useState } from "react";
 import { icon } from "../../core/icons.js";
@@ -53,6 +54,7 @@ function TerminalLines({ data, rows, bg }: { data: TerminalData; rows: number; b
 
 export function FloatingTerminal() {
   const t = useTheme();
+  const renderer = useRenderer();
   const isOpen = useUIStore((s) => s.modals.floatingTerminal);
   const selectedId = useTerminalStore((s) => s.selectedId);
   const terminals = useTerminalStore((s) => s.terminals);
@@ -83,6 +85,19 @@ export function FloatingTerminal() {
     if (ansiBuffer.byteLength === 0) return null;
     return ptyToJson(ansiBuffer, { cols: termCols, rows: termRows });
   }, [ansiBuffer, termCols, termRows]);
+
+  // Forward clipboard paste into the terminal shell
+  useEffect(() => {
+    if (!isOpen || !selectedId) return;
+    const handler = (event: PasteEvent) => {
+      const text = decodePasteBytes(event.bytes);
+      if (text) writeToTerminal(selectedId, text);
+    };
+    renderer.keyInput.on("paste", handler);
+    return () => {
+      renderer.keyInput.off("paste", handler);
+    };
+  }, [isOpen, selectedId, renderer]);
 
   useKeyboard((key) => {
     if (!isOpen || !selectedId) return;

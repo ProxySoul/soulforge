@@ -27,6 +27,7 @@ import {
   PROVIDER_CONFIGS,
 } from "../core/llm/models.js";
 import { notifyProviderSwitch } from "../core/llm/provider.js";
+import { disposeMCPManager, getMCPManager } from "../core/mcp/index.js";
 import { initForbidden } from "../core/security/forbidden.js";
 import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
@@ -77,6 +78,7 @@ import { StatusDashboard } from "./modals/StatusDashboard.js";
 import { UpdateModal } from "./modals/UpdateModal.js";
 import { EditorSettings } from "./settings/EditorSettings.js";
 import { LspInstallSearch } from "./settings/LspInstallSearch.js";
+import { MCPSettings } from "./settings/MCPSettings.js";
 import { ProviderSettings } from "./settings/ProviderSettings.js";
 import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { RouterSettings } from "./settings/RouterSettings.js";
@@ -414,6 +416,7 @@ export function App({
   const modalDiagnose = useUIStore((s) => s.modals.diagnosePopup);
   const modalStatusDashboard = useUIStore((s) => s.modals.statusDashboard);
   const modalToolsPopup = useUIStore((s) => s.modals.toolsPopup);
+  const modalMCPSettings = useUIStore((s) => s.modals.mcpSettings);
   const modalFirstRunWizard = useUIStore((s) => s.modals.firstRunWizard);
   const modalUpdateModal = useUIStore((s) => s.modals.updateModal);
   const toolsState = useToolsStore();
@@ -513,6 +516,21 @@ export function App({
     [cwd, preloadedContextManager],
   );
   const sessionManager = useMemo(() => new SessionManager(cwd), [cwd]);
+
+  const mcpManager = useMemo(() => getMCPManager(), []);
+
+  // MCP lifecycle: connectAll is idempotent and serialized — safe to call on every config change.
+  // It handles connect, disconnect, enable, disable, edit, and removal.
+  useEffect(() => {
+    mcpManager.connectAll(effectiveConfig.mcpServers ?? []);
+  }, [mcpManager, effectiveConfig.mcpServers]);
+
+  // Cleanup on unmount only
+  useEffect(() => {
+    return () => {
+      disposeMCPManager();
+    };
+  }, []);
 
   const git = useGitStatus(cwd);
   const [forgeMode, setForgeModeHeader] =
@@ -1273,6 +1291,15 @@ export function App({
         disabledTools={toolsState.disabledTools}
         onToggleTool={toolsState.toggleTool}
         onClose={getCloser("toolsPopup")}
+      />
+
+      <MCPSettings
+        visible={modalMCPSettings}
+        mcpManager={mcpManager}
+        globalServers={globalConfig.mcpServers ?? []}
+        projectServers={projConfig?.mcpServers ?? []}
+        onSave={(servers, scope) => saveToScope({ mcpServers: servers }, scope)}
+        onClose={getCloser("mcpSettings")}
       />
 
       <RouterSettings

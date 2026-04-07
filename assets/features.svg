@@ -1,10 +1,10 @@
-<svg width="800" height="140" viewBox="0 0 800 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="800" height="155" viewBox="0 0 800 155" fill="none" xmlns="http://www.w3.org/2000/svg">
   <foreignObject width="100%" height="100%">
     <div xmlns="http://www.w3.org/1999/xhtml">
       <style>
         .w {
           width: 800px;
-          height: 140px;
+          height: 155px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -47,6 +47,7 @@
         <span class="p c3"><span class="i">⊙</span> 24 Themes</span>
         <span class="p c4"><span class="i">⊗</span> Headless / CI Mode</span>
         <span class="p c2"><span class="i">⊛</span> Cross-File Refactoring</span>
+        <span class="p c5"><span class="i">⊜</span> MCP Servers</span>
       </div>
     </div>
   </foreignObject>

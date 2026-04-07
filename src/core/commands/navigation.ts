@@ -241,6 +241,9 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/open", handleOpen); // legacy alias
 
   map.set("/router", handleRouter);
+  map.set("/mcp", (_input: string) => {
+    useUIStore.getState().openModal("mcpSettings");
+  });
   map.set("/provider-settings", handleProviderSettings);
   map.set("/perf", handleProviderSettings);
   map.set("/providers", handleModels);

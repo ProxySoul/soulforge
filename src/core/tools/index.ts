@@ -816,9 +816,10 @@ export function buildTools(
 
     soul_vision: tool({
       description:
-        "Display an image or video inline in the chat. Supports PNG, JPG, WebP, GIF, BMP, TIFF, and video files/URLs. " +
-        "Accepts a local file path or a URL (https://...). " +
-        "Videos are converted to animated GIF (requires ffmpeg; video URLs also need yt-dlp). " +
+        "Display an image or video inline in the chat. " +
+        "Supported formats: PNG, JPG/JPEG, WebP, GIF, BMP, TIFF (images); MP4, MKV, WebM, AVI, MOV and other common video formats (converted to animated GIF). " +
+        "Accepts a local file path or a URL (https://...). Max file size: 10 MB. " +
+        "Videos require ffmpeg; video URLs also need yt-dlp. " +
         "The image is rendered as real pixels in Kitty or half-block art in other terminals.",
       inputSchema: z.object({
         path: z.string().describe("Path to the image/video file or URL (https://...)"),

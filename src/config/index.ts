@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CustomProviderConfig } from "../core/llm/providers/types.js";
-import type { AppConfig } from "../types";
+import type { AppConfig, MCPServerConfig } from "../types";
 
 function mergeProviders(
   base?: CustomProviderConfig[],
@@ -14,6 +14,19 @@ function mergeProviders(
 
   const map = new Map(base.map((p) => [p.id, p]));
   for (const p of overlay) map.set(p.id, p);
+  return [...map.values()];
+}
+
+function mergeMCPServers(
+  base?: MCPServerConfig[],
+  overlay?: MCPServerConfig[],
+): MCPServerConfig[] | undefined {
+  if (!base && !overlay) return undefined;
+  if (!overlay) return base;
+  if (!base) return overlay;
+
+  const map = new Map(base.map((s) => [s.name, s]));
+  for (const s of overlay) map.set(s.name, s);
   return [...map.values()];
 }
 
@@ -121,6 +134,7 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
       ? { ...merged.compaction, ...layer.compaction }
       : merged.compaction;
     const providers = mergeProviders(merged.providers, layer.providers);
+    const mcpServers = mergeMCPServers(merged.mcpServers, layer.mcpServers);
     merged = {
       ...merged,
       ...layer,
@@ -133,6 +147,7 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
       contextManagement: cm,
       compaction: comp,
       providers,
+      mcpServers,
     };
   }
   return merged;

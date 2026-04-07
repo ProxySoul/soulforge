@@ -455,9 +455,9 @@ export function ProviderSettings({
               <span
                 fg={tabItem === tab ? t.brandSecondary : t.textMuted}
                 attributes={tabItem === tab ? TextAttributes.BOLD : undefined}
-                bg={POPUP_BG}
+                bg={tabItem === tab ? POPUP_HL : POPUP_BG}
               >
-                {TAB_ICONS[tabItem]} {TAB_LABELS[tabItem]}
+                {` ${TAB_ICONS[tabItem]} ${TAB_LABELS[tabItem]} `}
               </span>
             </text>
           ))}
