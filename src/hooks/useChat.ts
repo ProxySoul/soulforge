@@ -28,6 +28,7 @@ import {
 } from "../core/compaction/index.js";
 import type { ContextManager } from "../core/context/manager.js";
 import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
+import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
 import {
   getModelContextInfo,
@@ -888,6 +889,30 @@ export function useChat({
           });
           summary = v2Result.summary;
           compactUsage = v2Result.usage;
+
+          // Save to MemPalace if connected (fire-and-forget, never blocks compaction)
+          const ws = wsm.getState();
+          onCompaction(
+            summary,
+            {
+              decisions: [...ws.decisions],
+              discoveries: [...ws.discoveries],
+              failures: [...ws.failures],
+            },
+            cwd,
+          );
+
+          // Write agent diary entry summarising this compaction chunk
+          if (ws.task) {
+            const diaryParts = [`TASK:${ws.task}`];
+            if (ws.decisions.length > 0) diaryParts.push(`DECISIONS:${ws.decisions.join("|")}`);
+            if (ws.discoveries.length > 0)
+              diaryParts.push(`DISCOVERIES:${ws.discoveries.join("|")}`);
+            if (ws.failures.length > 0) diaryParts.push(`FAILURES:${ws.failures.join("|")}`);
+            diaryParts.push(`FILES:${[...ws.files.keys()].slice(0, 10).join("|")}`);
+            writeDiary("forge", diaryParts.join("|"));
+          }
+
           wsm.reset();
         } else {
           const formatMessage = (m: ModelMessage, charLimit: number) => {

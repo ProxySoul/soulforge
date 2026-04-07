@@ -204,3 +204,15 @@ The same compaction with V1 would have:
 - Produced a prose summary that captures reasoning better but loses structured data
 
 V2's tradeoff: **zero cost, instant, structured data preserved, but reasoning chains truncated**. For mechanical coding sessions (fix/edit/test cycles), V2 is strictly better. For design-heavy sessions where the "why" matters more than the "what", V1's LLM summarization may retain more nuance.
+
+### MemPalace integration
+
+When a [MemPalace](https://github.com/milla-jovovich/mempalace) MCP server is connected, compaction v2 automatically persists the working state to the palace before resetting. Three things happen at zero extra cost:
+
+1. **Drawer** — the full serialized summary is filed as a palace drawer (wing = project name, room = compaction)
+2. **Knowledge graph** — decisions, discoveries, and failures are filed as temporal triples with `valid_from` timestamps. MemPalace's contradiction detection flags conflicting decisions across compactions.
+3. **Agent diary** — a compact AAAK-format entry summarising the task, key decisions, and files touched
+
+This means every compaction event becomes searchable across sessions. Six months later, `mempalace search "auth migration decisions"` finds the exact tradeoffs and file changes.
+
+Setup: add `mempalace` as an [MCP server](mcp.md). See [examples/soulforge_setup.md](https://github.com/milla-jovovich/mempalace/blob/main/examples/soulforge_setup.md) in the MemPalace repo for the full guide.

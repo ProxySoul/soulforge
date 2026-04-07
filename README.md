@@ -129,6 +129,10 @@ SoulForge already knows. On startup it builds a **live dependency graph** of you
 <td><strong>4-tier intelligence</strong></td>
 <td>LSP, ts-morph, tree-sitter, regex. 33 languages. Dual LSP: Neovim bridge when the editor is open, standalone servers when it's not. <a href="docs/architecture.md">More</a></td>
 </tr>
+<tr>
+<td><strong>Persistent memory</strong></td>
+<td>Optional <a href="https://github.com/milla-jovovich/mempalace">MemPalace</a> integration. Compaction v2 automatically saves decisions, discoveries, and failures to a searchable knowledge graph. Agent diary persists across sessions. Zero extra tokens. <a href="docs/compaction.md#mempalace-integration">More</a></td>
+</tr>
 </table>
 
 </details>
@@ -554,6 +558,7 @@ See [GETTING_STARTED.md](GETTING_STARTED.md) for the full config reference.
 <tr><td><a href="docs/compound-tools.md">Compound Tools</a></td><td>read, multi_edit, rename_symbol, move_symbol, refactor, project</td></tr>
 <tr><td><a href="docs/project-tool.md">Project Tool</a></td><td>25+ ecosystems, pre-commit checks, monorepo discovery</td></tr>
 <tr><td><a href="docs/mcp.md">MCP Servers</a></td><td>Model Context Protocol integration, transports, configuration, lifecycle</td></tr>
+<tr><td><a href="docs/compaction.md#mempalace-integration">MemPalace</a></td><td>Persistent memory via <a href="https://github.com/milla-jovovich/mempalace">MemPalace</a>. Compaction auto-saves to knowledge graph, agent diary, semantic search</td></tr>
 <tr><td><a href="docs/commands-reference.md">Commands</a></td><td>All 86 slash commands</td></tr>
 <tr><td colspan="2"><strong>Usage</strong></td></tr>
 <tr><td><a href="docs/headless.md">Headless Mode</a></td><td>CLI flags, JSON/JSONL output, CI/CD integration</td></tr>
