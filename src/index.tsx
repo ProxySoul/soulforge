@@ -359,6 +359,7 @@ export async function start(opts: StartOptions): Promise<void> {
     // Native .node addon can't be embedded in compiled binaries — graceful fallback
     try {
       const { GhosttyTerminalRenderable } = await import("ghostty-opentui/terminal-buffer");
+      // biome-ignore lint/suspicious/noExplicitAny: ghostty-opentui may resolve a different @opentui/core version
       extend({ "ghostty-terminal": GhosttyTerminalRenderable as any });
     } catch {}
   }
