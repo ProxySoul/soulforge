@@ -8,6 +8,7 @@ import { disposeIntelligenceRouter } from "./core/intelligence/index.js";
 import { deactivateCurrentProvider, type ProviderStatus } from "./core/llm/provider.js";
 import { disposeMCPManager } from "./core/mcp/index.js";
 import { killAllTracked } from "./core/process-tracker.js";
+import { getRestartSpec } from "./core/restart.js";
 import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
 import { closeAllTerminals } from "./core/terminal/manager.js";
@@ -110,10 +111,9 @@ export function hardRestart(): void {
   renderer?.destroy();
   // Clear screen and restore cursor before handing off
   process.stdout.write("\x1b[?25h\x1b[2J\x1b[H");
-  const args = process.argv.slice(1);
+  const restart = getRestartSpec();
   // Spawn the (now-updated) binary with full terminal inheritance
-  const argv0 = process.argv[0] ?? "soulforge";
-  const child = Bun.spawn([argv0, ...args], {
+  const child = Bun.spawn([restart.command, ...restart.args], {
     stdio: ["inherit", "inherit", "inherit"],
     env: process.env,
   });
