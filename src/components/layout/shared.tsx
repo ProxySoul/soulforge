@@ -104,11 +104,18 @@ export const Spinner = memo(function Spinner({
   const fg = color ?? t.brand;
 
   useEffect(() => {
+    const isInline = !!inline;
     const listener = (f: number) => {
       try {
         if (textRef.current) {
           const idx = Math.floor(f / divisor) % frames.length;
-          textRef.current.content = (frames[idx] ?? "⠋") + (suffix ?? "");
+          const val = (frames[idx] ?? "⠋") + (suffix ?? "");
+          if (isInline) {
+            // TextNodeRenderable (<span>) uses children, not content
+            textRef.current.children = [val];
+          } else {
+            textRef.current.content = val;
+          }
         }
       } catch {}
     };
@@ -126,7 +133,7 @@ export const Spinner = memo(function Spinner({
         }
       }
     };
-  }, [frames, divisor, suffix]);
+  }, [frames, divisor, suffix, inline]);
 
   const initIdx = Math.floor(globalFrame / divisor) % frames.length;
   const content = (frames[initIdx] ?? "⠋") + (suffix ?? "");
