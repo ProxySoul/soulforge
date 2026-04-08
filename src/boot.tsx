@@ -33,7 +33,7 @@ if (isCompiledBinary) {
 }
 
 import { applyTheme, getThemeTokens, watchThemes } from "./core/theme/index.js";
-import { garble, getBrandSegments, WISP_FRAMES, WORDMARK } from "./core/utils/splash.js";
+import { garble, WORDMARK } from "./core/utils/splash.js";
 import { logBackgroundError } from "./stores/errors.js";
 
 const RST = "\x1b[0m";
@@ -71,7 +71,6 @@ const DIM_PURPLE = rgb(_t.brandDim);
 const FAINT = rgb("#333333");
 const MUTED = rgb("#777777");
 const SUBTLE = rgb("#555555");
-const RED = rgb(_t.brandSecondary);
 
 const cols = process.stdout.columns ?? 80;
 const rows = process.stdout.rows ?? 24;
@@ -103,7 +102,13 @@ const GHOST = (() => {
   return "◆";
 })();
 
-const LAYOUT_H = 14;
+// ── Boot splash — unique forge ignition sequence ────────────────────
+// Ghost fades in, wordmark glitch-decodes, rune spinner shows loading.
+// Distinct from the landing page — this is the forge warming up.
+
+const RUNE_SPINNER = ["ᛁ", "ᚲ", "ᚠ", "ᛊ", "ᛏ", "ᛉ", "ᛞ", "ᛉ", "ᛏ", "ᛊ", "ᚠ", "ᚲ"];
+
+const LAYOUT_H = 12;
 const base = Math.max(1, Math.floor((rows - LAYOUT_H) / 2));
 
 const ROW = {
@@ -111,9 +116,8 @@ const ROW = {
   wisp: base + 1,
   word: base + 3,
   sub: base + 6,
-  brand: base + 8,
-  div: base + 10,
-  status: base + 12,
+  spinner: base + 8, // rune spinner on its own row
+  status: base + 9, // status text below spinner
 };
 
 const at = (r: number, c: number) => `\x1b[${r};${c}H`;
@@ -128,12 +132,9 @@ function center(row: number, text: string, style = ""): void {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const bootStartWall = Date.now();
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-// Spinner runs in a child process so it stays alive even when the main
-// event loop is blocked by Bun's synchronous module resolution (~3s).
-// BUN_BE_BUN=1 makes compiled binaries act as the bun CLI (supports -e).
-// Pass theme colors to spinner subprocess as hex → ANSI
+// Rune spinner subprocess — stays alive during sync module resolution.
+// Uses the ForgeSpinner's oscillating rune wheel instead of braille dots.
 function hexToAnsi(hex: string): string {
   let h = hex.slice(1);
   if (h.length <= 4) h = [...h].map((c) => c + c).join("");
@@ -146,11 +147,15 @@ const spinnerProc = Bun.spawn(
     "-e",
     `
 const RST = "\\x1b[0m";
-const PURPLE = "${hexToAnsi(_t.brand)}";
+const BRAND = "${hexToAnsi(_t.brand)}";
+const SPARK = "${hexToAnsi(_t.warning)}";
 const MUTED = "${hexToAnsi("#777777")}";
-const DIM = "\\x1b[2m";
-const SPINNER = ${JSON.stringify(SPINNER)};
-const row = ${ROW.status};
+const FAINT = "${hexToAnsi("#555555")}";
+const DIM_C = "\\x1b[2m";
+const RUNES = ${JSON.stringify(RUNE_SPINNER)};
+const INTENSITY = [0,0,1,2,2,3,4,3,2,2,1,0];
+const spinnerRow = ${ROW.spinner};
+const statusRow = ${ROW.status};
 const cols = ${cols};
 const bootStart = ${bootStartWall};
 const at = (r, c) => "\\x1b[" + r + ";" + c + "H";
@@ -182,13 +187,17 @@ setInterval(() => {
   }
   const elapsed = ((now - bootStart) / 1000).toFixed(1);
   const msg = msgs[msgIdx % msgs.length] || msgs[0];
-  const frame = SPINNER[spinIdx % SPINNER.length];
-  const full = frame + " " + msg + "  " + elapsed + "s";
-  const c = Math.max(1, Math.floor((cols - full.length) / 2) + 1);
-  process.stdout.write(
-    at(row, 1) + "\\x1b[2K" + at(row, c) + PURPLE + frame + RST + " " + MUTED + msg + "  " + DIM + elapsed + "s" + RST
-  );
-}, 80);
+  const rune = RUNES[spinIdx % RUNES.length];
+  const intensity = INTENSITY[spinIdx % INTENSITY.length];
+  const runeColor = intensity >= 4 ? SPARK : intensity >= 2 ? BRAND : intensity >= 1 ? MUTED : FAINT;
+  // Rune spinner centered on its own row
+  const runeC = Math.max(1, Math.floor((cols - 1) / 2) + 1);
+  process.stdout.write(at(spinnerRow, 1) + "\\x1b[2K" + at(spinnerRow, runeC) + runeColor + rune + RST);
+  // Status text centered below
+  const statusFull = msg + "  " + elapsed + "s";
+  const statusC = Math.max(1, Math.floor((cols - statusFull.length) / 2) + 1);
+  process.stdout.write(at(statusRow, 1) + "\\x1b[2K" + at(statusRow, statusC) + MUTED + msg + "  " + DIM_C + elapsed + "s" + RST);
+}, 150);
 `,
   ],
   { stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { ...process.env, BUN_BE_BUN: "1" } },
@@ -212,74 +221,48 @@ const earlyModules = Promise.all([
   import("./core/setup/install.js"),
 ]);
 
+// ── Ghost materialization ───────────────────────────────────────────
+
 for (const frame of ["░", "▒", "▓", GHOST]) {
   center(ROW.ghost, frame, PURPLE + BOLD);
-  await sleep(50);
+  await sleep(60);
 }
 
-center(ROW.wisp, WISP_FRAMES[0] ?? "", DIM + DIM_PURPLE);
-let wispTick = 0;
-const wispTimer = setInterval(() => {
-  wispTick++;
-  center(ROW.wisp, WISP_FRAMES[wispTick % WISP_FRAMES.length] ?? "", DIM + DIM_PURPLE);
-}, 500);
+center(ROW.wisp, "∿~·~∿", DIM + DIM_PURPLE);
 
-const narrow = cols < 40;
 await sleep(100);
 
+// ── Wordmark glitch-decode ──────────────────────────────────────────
+
+const narrow = cols < 40;
+
 if (narrow) {
+  center(ROW.word + 1, garble("SOULFORGE"), FAINT);
+  await sleep(60);
   center(ROW.word + 1, "SOULFORGE", PURPLE + BOLD);
 } else {
   for (let i = 0; i < 3; i++) {
     center(ROW.word + i, garble(WORDMARK[i] ?? ""), FAINT);
-    await sleep(40);
+  }
+  await sleep(70);
+  for (let i = 0; i < 3; i++) {
+    center(ROW.word + i, garble(WORDMARK[i] ?? ""), FAINT);
+  }
+  await sleep(70);
+  for (let i = 0; i < 3; i++) {
     center(ROW.word + i, WORDMARK[i] ?? "", PURPLE + BOLD);
-    await sleep(30);
+    await sleep(25);
   }
 }
 
 await sleep(60);
+
+// ── Tagline ─────────────────────────────────────────────────────────
+
 center(
   ROW.sub,
   `${SUBTLE}── ${RST}${MUTED}${ITALIC}Graph-Powered Code Intelligence${RST}${SUBTLE} ──${RST}`,
 );
-
-await sleep(100);
-const brandParts = getBrandSegments().map((s) => ({ text: s.text, color: rgb(s.color) }));
-const brandPlain = getBrandSegments()
-  .map((s) => s.text)
-  .join("");
-const brandCol = Math.max(1, Math.floor((cols - brandPlain.length) / 2) + 1);
-let charIdx = 0;
-for (const part of brandParts) {
-  for (let _c = 0; _c < part.text.length; _c++) {
-    charIdx++;
-    let out = `${at(ROW.brand, brandCol)}`;
-    let pos = 0;
-    for (const p of brandParts) {
-      const visible = p.text.slice(0, Math.max(0, charIdx - pos));
-      out += `${p.color}${visible}`;
-      pos += p.text.length;
-    }
-    out += `${RED}${charIdx < brandPlain.length ? "█" : ""}${RST}  `;
-    process.stdout.write(out);
-    await sleep(25);
-  }
-}
-let brandFinal = `${at(ROW.brand, brandCol)}`;
-for (const p of brandParts) brandFinal += `${p.color}${p.text}`;
-brandFinal += `${RST}  `;
-process.stdout.write(brandFinal);
-
-await sleep(60);
-const divW = Math.min(40, cols - 10);
-for (let w = 2; w <= divW; w += 3) {
-  const dc = Math.max(1, Math.floor((cols - w) / 2) + 1);
-  process.stdout.write(`${at(ROW.div, dc)}${FAINT}${"─".repeat(w)}${RST}`);
-  await sleep(8);
-}
-const divCol = Math.max(1, Math.floor((cols - divW) / 2) + 1);
-process.stdout.write(`${at(ROW.div, divCol)}${FAINT}${"─".repeat(divW)}${RST}`);
 
 // App.tsx pulls in the entire tool/hook/AI SDK module graph (~3s).
 // Kick it off here so the spinner (child process) shows progress.
@@ -398,15 +381,14 @@ if (!getVendoredPath("lazygit")) {
 status("Reaching out to the LLM gods…", "Negotiating API keys…");
 const { checkProviders } = await import("./core/llm/provider.js");
 const { checkPrerequisites } = await import("./core/setup/prerequisites.js");
-const { fetchGroupedModels } = await import("./core/llm/models.js");
+const { prewarmAllModels } = await import("./core/llm/models.js");
 const [bootProviders, bootPrereqs] = await Promise.all([
   checkProviders(),
   Promise.resolve(checkPrerequisites()),
-  // Pre-warm model metadata caches (no API keys needed) so context windows
-  // are available immediately when the user selects a model.
-  fetchGroupedModels("openrouter").catch(() => {}),
-  fetchGroupedModels("llmgateway").catch(() => {}),
 ]);
+// Pre-warm model caches AFTER boot-critical work completes.
+// Fire-and-forget — populates caches in background so Ctrl+L opens instantly.
+prewarmAllModels();
 
 status("Kicking the neurons awake…", "Waking the tree-sitter…");
 // Ensure setIntelligenceClient() has run before warmup to avoid spawning
@@ -430,7 +412,6 @@ const { start } = await import("./index.js");
 
 status("Igniting…");
 
-clearInterval(wispTimer);
 stopSpinner();
 process.stdout.write("\x1b[?25h\x1b[2J\x1b[H");
 
