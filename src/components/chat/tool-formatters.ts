@@ -244,7 +244,15 @@ export function extractMultiReadFiles(
       if (f.target && f.name) {
         detail = `(${String(f.target)}:${String(f.name)})`;
       } else if (Array.isArray(f.ranges) && f.ranges.length > 0) {
-        detail = `(${String(f.ranges.length)} range${f.ranges.length > 1 ? "s" : ""})`;
+        const rangeCount = f.ranges.length;
+        let lineCount = 0;
+        for (const r of f.ranges) {
+          if (isObj(r) && typeof r.start === "number" && typeof r.end === "number") {
+            lineCount += r.end - r.start + 1;
+          }
+        }
+        const rangeLabel = `${String(rangeCount)} range${rangeCount > 1 ? "s" : ""}`;
+        detail = lineCount > 0 ? `(${rangeLabel}, ${String(lineCount)} lines)` : `(${rangeLabel})`;
       } else {
         detail = "(full)";
       }

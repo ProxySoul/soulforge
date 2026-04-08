@@ -776,6 +776,31 @@ const ToolRow = memo(
         ? (() => {
             const cwd = process.cwd();
             const detailMap = new Map(multiReadFiles.map((f) => [f.path, f.detail]));
+
+            // Standalone (not in tree): flat file list, no tree connectors
+            if (!inTree) {
+              const { icon: readIcon, iconColor: readIconColor } = resolveToolDisplay("read");
+              return (
+                <box flexDirection="column">
+                  {multiReadFiles.map((f, fi) => {
+                    const rel = f.path.startsWith(cwd)
+                      ? f.path.slice(cwd.length + 1)
+                      : f.path.split("/").slice(-2).join("/");
+                    const detail = detailMap.get(f.path);
+                    return (
+                      <box key={`mr-${String(fi)}`} height={1}>
+                        <text truncate>
+                          <span fg={readIconColor}>{readIcon} </span>
+                          <span fg={t.textSecondary}>{rel}</span>
+                          {detail ? <span fg={t.textDim}> {detail}</span> : null}
+                        </text>
+                      </box>
+                    );
+                  })}
+                </box>
+              );
+            }
+
             const entries = multiReadFiles.map((f) => ({
               path: f.path,
               editCount: 1,

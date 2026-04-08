@@ -140,8 +140,8 @@ export function flattenTree(node: TreeNode, depth: number, parentLasts: boolean[
       };
       const isCollapsedDir = collapsed.children.size > 0 && !collapsed.file;
       if (isCollapsedDir) {
-        const wrapper: TreeNode = { name: "", children: new Map([[collapsed.name, collapsed]]) };
-        rows.push(...flattenTree(wrapper, depth, parentLasts));
+        rows.push({ depth, name: collapsed.name, isDir: true, isLast, parentLasts });
+        rows.push(...flattenTree(collapsed, depth + 1, [...parentLasts, isLast]));
       } else {
         rows.push({
           depth,

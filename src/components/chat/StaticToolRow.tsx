@@ -187,22 +187,47 @@ function resolveBackendCategory(
 /** Extract edit diff from parsed args + result. */
 function extractEditDiff(
   toolName: string,
-  args: { path?: unknown; oldString?: unknown; newString?: unknown },
+  args: { path?: unknown; oldString?: unknown; newString?: unknown; edits?: unknown },
   result: { success: boolean; output?: string; error?: string } | null,
 ): StaticToolRowProps["diff"] {
-  if (toolName !== "edit_file") return null;
-  if (
-    typeof args.path !== "string" ||
-    typeof args.oldString !== "string" ||
-    typeof args.newString !== "string"
-  )
-    return null;
+  if (toolName !== "edit_file" && toolName !== "multi_edit") return null;
 
   let impact: string | undefined;
   if (result?.success && result.output) {
     const m = result.output.match(/\[impact: (.+)\]/);
     if (m?.[1]) impact = m[1];
   }
+
+  // multi_edit: combine all edits into a single before/after
+  if (toolName === "multi_edit") {
+    if (typeof args.path !== "string" || !Array.isArray(args.edits)) return null;
+    const edits = args.edits as Array<{ oldString?: unknown; newString?: unknown }>;
+    const oldParts: string[] = [];
+    const newParts: string[] = [];
+    for (const e of edits) {
+      if (typeof e.oldString === "string" && typeof e.newString === "string") {
+        oldParts.push(e.oldString);
+        newParts.push(e.newString);
+      }
+    }
+    if (oldParts.length === 0) return null;
+    return {
+      path: args.path,
+      oldString: oldParts.join("\n…\n"),
+      newString: newParts.join("\n…\n"),
+      success: result?.success ?? false,
+      errorMessage: result?.error,
+      impact,
+    };
+  }
+
+  // edit_file
+  if (
+    typeof args.path !== "string" ||
+    typeof args.oldString !== "string" ||
+    typeof args.newString !== "string"
+  )
+    return null;
 
   return {
     path: args.path,

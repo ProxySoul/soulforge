@@ -417,7 +417,7 @@ function ToolCallRow({
         <StaticToolRow {...props} suppressExpanded />
         <box
           border={["left"]}
-          customBorderChars={treePosition?.isLast ? TREE_SPACE : TREE_PIPE}
+          customBorderChars={!inTree || treePosition?.isLast ? TREE_SPACE : TREE_PIPE}
           borderColor={t.textFaint}
           paddingLeft={1}
         >
@@ -1008,7 +1008,21 @@ function renderSegments(
               g.kind === "edits" ? "edit_file" : g.kind === "reads" ? "read" : "soul_grep";
             const { icon: batchIcon, iconColor } = resolveToolDisplay(kindLabel);
 
-            // Build nested tree from paths
+            // Search batches: no file tree, just the summary line
+            if (g.kind === "search") {
+              return (
+                <box key={`batch-${String(gi)}`} height={1} flexShrink={0}>
+                  <text truncate>
+                    {connChar ? <span fg={t.textFaint}>{connChar}</span> : null}
+                    <span fg={statusColor}>{statusIcon} </span>
+                    <span fg={iconColor}>{batchIcon} </span>
+                    <span fg={t.textSecondary}>{String(g.calls.length)} searches</span>
+                  </text>
+                </box>
+              );
+            }
+
+            // Build nested tree from paths (reads/edits only)
             const treeEntries = batchFiles.map((f) => ({
               path: f.path,
               editCount: 1,
@@ -1016,6 +1030,31 @@ function renderSegments(
             }));
             const treeRoot = buildTree(treeEntries, cwd);
             const rows = flattenTree(treeRoot, 0, []);
+
+            // Standalone batch (no chaining): flat file list without tree connectors
+            if (!useTree) {
+              const fileNames = batchFiles.map((f) => {
+                const rel = f.path.startsWith(cwd)
+                  ? f.path.slice(cwd.length + 1)
+                  : f.path.split("/").slice(-2).join("/");
+                return rel;
+              });
+              return (
+                <box key={`batch-${String(gi)}`} height={1} flexShrink={0}>
+                  <text truncate>
+                    <span fg={statusColor}>{statusIcon} </span>
+                    <span fg={iconColor}>{batchIcon} </span>
+                    <span fg={t.textSecondary}>{fileNames.join(", ")}</span>
+                    {fail > 0 && ok > 0 ? (
+                      <span fg={t.textMuted}>
+                        {" "}
+                        ({String(ok)} ok, {String(fail)} failed)
+                      </span>
+                    ) : null}
+                  </text>
+                </box>
+              );
+            }
 
             return (
               <box key={`batch-${String(gi)}`} flexDirection="column" flexShrink={0}>
@@ -1033,27 +1072,34 @@ function renderSegments(
                     ) : null}
                   </text>
                 </box>
-                {rows.map((row, ri) => {
-                  const prefix = buildPrefix(row);
-                  if (row.isDir) {
+                <box
+                  border={["left"]}
+                  customBorderChars={treePos?.isLast ? TREE_SPACE : TREE_PIPE}
+                  borderColor={t.textFaint}
+                  flexDirection="column"
+                >
+                  {rows.map((row, ri) => {
+                    const prefix = buildPrefix(row);
+                    if (row.isDir) {
+                      return (
+                        <box key={`d-${row.name}-${String(ri)}`} paddingLeft={2} height={1}>
+                          <text truncate>
+                            <span fg={t.textFaint}>{prefix}</span>
+                            <span fg={t.textMuted}>{row.name}/</span>
+                          </text>
+                        </box>
+                      );
+                    }
                     return (
-                      <box key={`d-${row.name}-${String(ri)}`} paddingLeft={3} height={1}>
+                      <box key={`f-${row.name}-${String(ri)}`} paddingLeft={2} height={1}>
                         <text truncate>
                           <span fg={t.textFaint}>{prefix}</span>
-                          <span fg={t.textMuted}>{row.name}/</span>
+                          <span fg={t.textSecondary}>{row.name}</span>
                         </text>
                       </box>
                     );
-                  }
-                  return (
-                    <box key={`f-${row.name}-${String(ri)}`} paddingLeft={3} height={1}>
-                      <text truncate>
-                        <span fg={t.textFaint}>{prefix}</span>
-                        <span fg={t.textSecondary}>{row.name}</span>
-                      </text>
-                    </box>
-                  );
-                })}
+                  })}
+                </box>
               </box>
             );
           }
