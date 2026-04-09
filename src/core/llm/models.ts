@@ -359,6 +359,11 @@ export function getCachedModels(providerId: string): ProviderModelInfo[] | null 
   return getCached(modelCache, providerId);
 }
 
+export function invalidateProviderModelCache(providerId: string): void {
+  modelCache.delete(providerId);
+  groupedCache.delete(providerId);
+}
+
 export async function fetchProviderModels(providerId: string): Promise<FetchModelsResult> {
   // Check cache first
   const entry = modelCache.get(providerId);

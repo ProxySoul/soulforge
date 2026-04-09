@@ -1,8 +1,6 @@
 import type { InfoPopupLine } from "../../../../components/modals/InfoPopup.js";
 import { useUIStore } from "../../../../stores/ui.js";
-import { providerIcon } from "../../../icons.js";
 import { getThemeTokens } from "../../../theme/index.js";
-import { checkProviders } from "../../provider.js";
 import {
   type CodexAppServerClient,
   getCodexLoginStatus,
@@ -123,7 +121,7 @@ export async function requestCodexAuth(): Promise<void> {
   const updatePopup = () => {
     useUIStore.getState().openInfoPopup({
       title: "Codex Login",
-      icon: providerIcon("codex"),
+      icon: "⌘",
       lines: [...lines],
       onClose: () => handle?.abort(),
     });
@@ -137,6 +135,7 @@ export async function requestCodexAuth(): Promise<void> {
 
   try {
     await handle.promise;
+    const { checkProviders } = await import("../../provider.js");
     await checkProviders().catch(() => {});
     lines.push({
       type: "text",

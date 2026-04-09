@@ -4,6 +4,7 @@ import {
   assertCodexReady,
   fetchCodexModelsFromAppServer,
   getCodexLoginStatus,
+  logoutCodex,
   parseCodexLoginStatus,
   parseCodexModelListResult,
 } from "./client.js";
@@ -57,6 +58,8 @@ export const codex: ProviderDefinition = {
 export {
   buildCodexSchema,
   createCodexLanguageModel,
+  getCodexLoginStatus,
+  logoutCodex,
   parseCodexLoginStatus,
   parseCodexModelListResult,
   parseCodexResponse,

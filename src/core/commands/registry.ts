@@ -284,6 +284,27 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["codex", "auth", "oauth", "browser", "chatgpt"],
   },
   {
+    cmd: "/codex logout",
+    ic: "openai",
+    desc: "Log out of the current Codex account",
+    category: "Models",
+    tags: ["codex", "auth", "logout", "account"],
+  },
+  {
+    cmd: "/codex switch",
+    ic: "openai",
+    desc: "Switch to a different Codex account",
+    category: "Models",
+    tags: ["codex", "auth", "switch", "account"],
+  },
+  {
+    cmd: "/codex status",
+    ic: "openai",
+    desc: "Show Codex login status",
+    category: "Models",
+    tags: ["codex", "auth", "status", "account"],
+  },
+  {
     cmd: "/model-scope",
     ic: "cog",
     desc: "Set model scope (project/global)",

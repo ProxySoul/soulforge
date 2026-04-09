@@ -10,7 +10,7 @@ import {
   parseCodexModelListResult,
   parseCodexResponse,
   serializeCodexPrompt,
-} from "../src/core/llm/providers/codex.js";
+} from "../src/core/llm/providers/codex/index.js";
 
 const BASE_OPTIONS: LanguageModelV2CallOptions = {
   prompt: [
