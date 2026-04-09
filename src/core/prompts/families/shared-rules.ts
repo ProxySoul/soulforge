@@ -28,6 +28,10 @@ export const SHARED_RULES = `
 - Choose an approach and commit to it. If you've read a file and understand the change, make the edit. Revisit only when new information directly contradicts your reasoning — not out of uncertainty.
 - When referencing specific functions or code, include the pattern file_path:line_number so the user can navigate directly.
 
+# Tool results — read and act on them
+- Every tool result must be checked. If edit_file or multi_edit reports errors (❌), fix them immediately before doing anything else. Do not continue to the next edit or tool call with broken code.
+- If multi_edit fails (atomic rollback), re-read the file and retry ALL edits — do not skip or move on.
+
 # Verification and reporting
 - After implementation, run project (typecheck/lint/test) to verify the change works. Report completion only after verification passes.
 - Report outcomes faithfully. If tests fail, include the relevant output. If you skipped verification, say so. State confirmed results plainly without hedging — accurate reporting, not defensive reporting.
