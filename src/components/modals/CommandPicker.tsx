@@ -34,6 +34,16 @@ interface PickerSelector {
   onChange: (index: number) => void;
 }
 
+interface PickerInput {
+  key: string;
+  label: string;
+  value: string;
+  placeholder?: string;
+  activateFromOptionValue?: string;
+  onChange: (value: string) => void;
+  onSubmit?: (value: string) => void;
+}
+
 export interface CommandPickerConfig {
   title: string;
   icon?: string;
@@ -46,6 +56,7 @@ export interface CommandPickerConfig {
   searchable?: boolean;
   toggles?: PickerToggle[];
   selectors?: PickerSelector[];
+  input?: PickerInput;
   onSelect: (value: string, scope?: ConfigScope) => void;
   onScopeMove?: (value: string, fromScope: ConfigScope, toScope: ConfigScope) => void;
   onCursorChange?: (value: string) => void;
@@ -183,14 +194,20 @@ export function CommandPicker({ visible, config, onClose }: Props) {
   const [toggleState, setToggleState] = useState<Record<string, boolean>>({});
   const [toggleLabels, setToggleLabels] = useState<Record<string, string>>({});
   const [selectorState, setSelectorState] = useState<Record<string, number>>({});
+  const [inputValue, setInputValue] = useState("");
   const [focusZone, setFocusZone] = useState(ZONE_LIST);
 
   const controls = (() => {
-    const list: Array<{ type: "toggle"; key: string } | { type: "selector"; key: string }> = [];
+    const list: Array<
+      | { type: "toggle"; key: string }
+      | { type: "selector"; key: string }
+      | { type: "input"; key: string }
+    > = [];
     if (config?.toggles)
       for (const tg of config.toggles) list.push({ type: "toggle", key: tg.key });
     if (config?.selectors)
       for (const sel of config.selectors) list.push({ type: "selector", key: sel.key });
+    if (config?.input) list.push({ type: "input", key: config.input.key });
     return list;
   })();
 
@@ -238,6 +255,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
         for (const sel of config.selectors) initial[sel.key] = sel.value;
         setSelectorState(initial);
       }
+      setInputValue(config.input?.value ?? "");
       let idx = filteredOptions.findIndex((o) => o.value === config.currentValue);
       if (idx < 0) idx = filteredOptions.findIndex((o) => !o.disabled);
       const startIdx = idx >= 0 ? idx : 0;
@@ -316,6 +334,53 @@ export function CommandPicker({ visible, config, onClose }: Props) {
           });
           return;
         }
+      }
+    }
+
+    if (config.input && focusZone >= 0 && controls[focusZone]?.type === "input") {
+      if (evt.name === "backspace" || evt.name === "delete") {
+        const next = inputValue.slice(0, -1);
+        setInputValue(next);
+        config.input.onChange(next);
+        return;
+      }
+      if (evt.name === "return") {
+        config.input.onSubmit?.(inputValue);
+        return;
+      }
+      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
+        const next = inputValue + evt.name;
+        setInputValue(next);
+        config.input.onChange(next);
+        return;
+      }
+    }
+
+    if (
+      config.input &&
+      focusZone === ZONE_LIST &&
+      filteredOptions[cursor]?.value === config.input.activateFromOptionValue
+    ) {
+      if (evt.name === "return") {
+        const inputIndex = controls.findIndex((ctrl) => ctrl.type === "input");
+        if (inputIndex >= 0) setFocusZone(inputIndex);
+        return;
+      }
+      if (evt.name === "backspace" || evt.name === "delete") {
+        const next = inputValue.slice(0, -1);
+        setInputValue(next);
+        config.input.onChange(next);
+        const inputIndex = controls.findIndex((ctrl) => ctrl.type === "input");
+        if (inputIndex >= 0) setFocusZone(inputIndex);
+        return;
+      }
+      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
+        const next = inputValue + evt.name;
+        setInputValue(next);
+        config.input.onChange(next);
+        const inputIndex = controls.findIndex((ctrl) => ctrl.type === "input");
+        if (inputIndex >= 0) setFocusZone(inputIndex);
+        return;
       }
     }
 
@@ -629,6 +694,35 @@ export function CommandPicker({ visible, config, onClose }: Props) {
                       {">"}
                     </span>
                   </text>
+                </PopupRow>
+              );
+            }
+            if (ctrl.type === "input") {
+              const input = config.input;
+              if (!input) return null;
+              const activatedFromList =
+                !!input.activateFromOptionValue &&
+                filteredOptions[cursor]?.value === input.activateFromOptionValue;
+              return (
+                <PopupRow key={ctrl.key} bg={bg} w={innerW}>
+                  <text bg={bg} fg={focused || activatedFromList ? t.brandAlt : t.textMuted}>
+                    {focused ? "› " : "  "}
+                    {input.label}
+                    {"  "}
+                  </text>
+                  <text bg={bg} fg={t.textPrimary}>
+                    {inputValue || ""}
+                  </text>
+                  {(focused || activatedFromList) && (
+                    <text bg={bg} fg={t.brand}>
+                      ▌
+                    </text>
+                  )}
+                  {!inputValue && input.placeholder && (
+                    <text bg={bg} fg={t.textDim}>
+                      {` ${input.placeholder}`}
+                    </text>
+                  )}
                 </PopupRow>
               );
             }

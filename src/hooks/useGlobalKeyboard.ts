@@ -16,6 +16,7 @@ interface GlobalKeyboardParams {
   activeChatRef: MutableRefObject<ChatInstance | null>;
   cycleMode: () => void;
   tabMgr: UseTabsReturn;
+  openThinkingVariantPicker: () => void;
 }
 
 export function useGlobalKeyboard({
@@ -29,6 +30,7 @@ export function useGlobalKeyboard({
   activeChatRef,
   cycleMode,
   tabMgr,
+  openThinkingVariantPicker,
 }: GlobalKeyboardParams): void {
   useKeyboard((evt) => {
     if (shutdownPhase >= 0) return;
@@ -87,6 +89,7 @@ export function useGlobalKeyboard({
     if (evt.ctrl && evt.name === "x") return consume(() => activeChatRef.current?.abort());
     if (evt.ctrl && evt.name === "l")
       return consume(() => useUIStore.getState().toggleModal("llmSelector"));
+    if (evt.ctrl && evt.name === "y") return consume(() => openThinkingVariantPicker());
     if (evt.ctrl && evt.name === "s")
       return consume(() => useUIStore.getState().toggleModal("skillSearch"));
     if (evt.ctrl && evt.name === "t") return consume(() => tabMgr.createTab());

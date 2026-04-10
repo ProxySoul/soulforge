@@ -29,6 +29,7 @@ function buildHelpLines(t: ReturnType<typeof useTheme>): HelpLine[] {
     { type: "entry", label: "Ctrl+D", desc: "cycle forge mode" },
     { type: "entry", label: "Ctrl+K", desc: "command palette" },
     { type: "entry", label: "Ctrl+O", desc: "expand/collapse all (code, reasoning)" },
+    { type: "entry", label: "Ctrl+Y", desc: "thinking variant for current model" },
     { type: "spacer" },
     { type: "text", label: "Panels" },
     { type: "entry", label: "Ctrl+L", desc: "switch LLM model" },
