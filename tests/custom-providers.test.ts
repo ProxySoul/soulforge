@@ -797,4 +797,124 @@ describe("buildCustomProvider reasoning config", () => {
 		const body = JSON.parse(capturedBody as string);
 		expect(body.reasoning).toEqual({ effort: "high" });
 	});
+
+	test("model-level reasoning overrides provider-level default", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "model-override-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "low" },
+			models: [
+				{
+					id: "test-model",
+					name: "Test Model",
+					reasoning: { effort: "high" },
+				},
+			],
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.reasoning).toEqual({ effort: "high" });
+	});
+
+	test("provider-level reasoning is used when model has no override", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "provider-fallback-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "medium" },
+			models: [{ id: "test-model", name: "Test Model" }],
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.reasoning).toEqual({ effort: "medium" });
+	});
+
+	test("model-only reasoning works without provider default", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "model-only-test",
+			baseURL: "https://api.test.com/v1",
+			models: [
+				{
+					id: "test-model",
+					name: "Test Model",
+					reasoning: { enabled: true, budget: 2048 },
+				},
+			],
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.enable_thinking).toBe(true);
+		expect(body.thinking_budget).toBe(2048);
+	});
 });
