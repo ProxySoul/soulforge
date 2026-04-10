@@ -97,14 +97,17 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
 
     let dead = false;
 
-    checkProviders()
-      .then((statuses) => {
-        if (dead) return;
-        const map = new Map<string, boolean>();
-        for (const s of statuses) map.set(s.id, s.available);
-        setAvailability(map);
-      })
-      .catch(() => {});
+    // Only re-check provider availability if we don't have a boot-time cache
+    if (!getCachedProviderStatuses()) {
+      checkProviders()
+        .then((statuses) => {
+          if (dead) return;
+          const map = new Map<string, boolean>();
+          for (const s of statuses) map.set(s.id, s.available);
+          setAvailability(map);
+        })
+        .catch(() => {});
+    }
 
     // Only fetch providers that aren't cached yet
     for (const cfg of PROVIDER_CONFIGS) {
