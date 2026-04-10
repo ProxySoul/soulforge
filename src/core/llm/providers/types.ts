@@ -6,6 +6,24 @@ export interface ProviderModelInfo {
   contextWindow?: number;
 }
 
+/** Reasoning/thinking configuration for custom OpenAI-compatible providers.
+ *  Covers three API styles:
+ *  - OpenAI-style: `reasoning.effort` (low/medium/high/xhigh/none)
+ *  - DashScope-style: `enable_thinking` + `thinking_budget`
+ *  - Raw extra params: forwarded verbatim to the request body */
+export interface CustomReasoningConfig {
+  /** OpenAI-style reasoning effort level */
+  effort?: "low" | "medium" | "high" | "xhigh" | "none";
+  /** DashScope-style: enable/disable thinking */
+  enabled?: boolean;
+  /** DashScope-style: thinking budget in tokens */
+  budget?: number;
+  /** Raw extra params forwarded verbatim to the request body.
+   *  Useful for APIs with non-standard thinking schemas, e.g.:
+   *  `{ thinking: { type: "enabled", budget_tokens: 8192 } }` */
+  extraParams?: Record<string, unknown>;
+}
+
 export interface ProviderDefinition {
   id: string;
   name: string;
@@ -39,6 +57,9 @@ export interface ProviderDefinition {
   onRequestAuth?(): Promise<void>;
   onActivate?(): Promise<void>;
   onDeactivate?(): void;
+  /** Reasoning/thinking config for custom providers.
+   *  Injected into every request body as OpenAI-style, DashScope-style, or raw params. */
+  customReasoning?: CustomReasoningConfig;
 }
 
 export interface CustomProviderConfig {
@@ -48,4 +69,7 @@ export interface CustomProviderConfig {
   envVar?: string;
   models?: (string | ProviderModelInfo)[];
   modelsAPI?: string;
+  /** Reasoning/thinking configuration for this provider.
+   *  Enables thinking control for models that support it via OpenAI-compatible APIs. */
+  reasoning?: CustomReasoningConfig;
 }
