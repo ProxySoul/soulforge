@@ -8,7 +8,11 @@ export function useMarqueeScroll(text: string, maxWidth: number, active: boolean
   const pauseRef = useRef(PAUSE_TICKS);
 
   useEffect(() => {
-    if (!active || maxWidth <= 0 || text.length <= maxWidth) {
+    if (maxWidth <= 0) {
+      setScrollPos(0);
+      return;
+    }
+    if (!active || text.length <= maxWidth) {
       setScrollPos(0);
       return;
     }
@@ -40,10 +44,13 @@ export function useMarqueeScroll(text: string, maxWidth: number, active: boolean
     return () => clearInterval(timer);
   }, [active, text.length, maxWidth]);
 
-  if (active && maxWidth > 0 && text.length > maxWidth) {
+  if (maxWidth <= 0) {
+    return "";
+  }
+  if (active && text.length > maxWidth) {
     return text.slice(scrollPos, scrollPos + maxWidth);
   }
-  if (maxWidth > 0 && text.length > maxWidth) {
+  if (text.length > maxWidth) {
     return `${text.slice(0, maxWidth - 1)}…`;
   }
   return text;

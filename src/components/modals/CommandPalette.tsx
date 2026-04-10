@@ -206,7 +206,7 @@ function CommandRow({
   const descColor = isActive ? textSecondary : textMuted;
   const cmdText = def.cmd;
 
-  const descMaxWidth = Math.max(0, innerW - cmdText.length - 12);
+  const descMaxWidth = Math.max(0, innerW - cmdText.length - 14);
   const displayDesc = useMarqueeScroll(def.desc, descMaxWidth, isActive);
 
   return (
