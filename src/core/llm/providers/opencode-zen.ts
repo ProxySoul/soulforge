@@ -28,7 +28,7 @@ export const opencodeZen: ProviderDefinition = {
       baseURL: BASE_URL,
       apiKey,
     });
-    return provider(modelId);
+    return provider.chatModel(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

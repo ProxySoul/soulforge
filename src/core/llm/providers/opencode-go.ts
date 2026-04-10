@@ -13,7 +13,7 @@ export const opencodeGo: ProviderDefinition = {
   secretKey: "opencode-go-api-key",
   keyUrl: "opencode.ai",
   asciiIcon: "GO",
-  description: "GLM, Kimi, MiMo models",
+  description: "GLM, Kimi, MiMo, MiniMax models",
 
   createModel(modelId: string): LanguageModel {
     const apiKey = getProviderApiKey("OPENCODE_GO_API_KEY");
@@ -27,7 +27,7 @@ export const opencodeGo: ProviderDefinition = {
       baseURL: BASE_URL,
       apiKey,
     });
-    return provider(modelId);
+    return provider.chatModel(modelId);
   },
 
   async fetchModels(): Promise<null> {
