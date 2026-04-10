@@ -37,8 +37,8 @@ describe("new providers registration", () => {
 
 	test("total builtin count increased by 5", () => {
 		const builtins = getAllProviders().filter((p) => !p.custom);
-		// Was 13, then 18 after the previous provider batch, now 19 with Codex.
-		expect(builtins.length).toBe(19);
+		// Was 13, then 18 after the previous provider batch, now 20 with Codex + OpenCode.
+		expect(builtins.length).toBe(20);
 	});
 });
 

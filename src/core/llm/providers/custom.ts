@@ -1,4 +1,4 @@
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { getProviderApiKey } from "../../secrets.js";
 import type { CustomProviderConfig, ProviderDefinition, ProviderModelInfo } from "./types.js";
 
@@ -24,8 +24,12 @@ export function buildCustomProvider(config: CustomProviderConfig): ProviderDefin
 
     createModel(modelId: string) {
       const apiKey = envVar ? (getProviderApiKey(envVar) ?? "") : "custom";
-      const client = createOpenAI({ baseURL: config.baseURL, apiKey });
-      return client.chat(modelId);
+      const client = createOpenAICompatible({
+        name: config.id,
+        baseURL: config.baseURL,
+        apiKey,
+      });
+      return client.chatModel(modelId);
     },
 
     async fetchModels(): Promise<ProviderModelInfo[] | null> {

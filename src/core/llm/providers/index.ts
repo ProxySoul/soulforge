@@ -14,6 +14,7 @@ export { minimax } from "./minimax.js";
 export { mistral } from "./mistral.js";
 export { ollama } from "./ollama.js";
 export { openai } from "./openai.js";
+export { opencode } from "./opencode.js";
 export { openrouter } from "./openrouter.js";
 export { proxy } from "./proxy.js";
 export type { CustomProviderConfig, ProviderDefinition, ProviderModelInfo } from "./types.js";
@@ -36,6 +37,7 @@ import { minimax } from "./minimax.js";
 import { mistral } from "./mistral.js";
 import { ollama } from "./ollama.js";
 import { openai } from "./openai.js";
+import { opencode } from "./opencode.js";
 import { openrouter } from "./openrouter.js";
 import { proxy } from "./proxy.js";
 import type { CustomProviderConfig, ProviderDefinition } from "./types.js";
@@ -59,6 +61,7 @@ const BUILTIN_PROVIDERS: ProviderDefinition[] = [
   codex,
   copilot,
   githubModels,
+  opencode,
   openrouter,
   ollama,
   lmstudio,
