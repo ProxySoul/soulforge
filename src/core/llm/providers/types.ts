@@ -4,6 +4,9 @@ export interface ProviderModelInfo {
   id: string;
   name: string;
   contextWindow?: number;
+  /** Optional reasoning override for this specific model.
+   *  When set, takes precedence over provider-level `reasoning`. */
+  reasoning?: CustomReasoningConfig;
 }
 
 /** Reasoning/thinking configuration for custom OpenAI-compatible providers.
