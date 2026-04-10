@@ -1822,7 +1822,9 @@ export function buildTools(
   // objects, internal SDK metadata). Only the execute property is shadowed.
   if (hasToolHooks(effectiveCwd)) {
     for (const [toolName, toolDef] of Object.entries(tools)) {
-      const def = toolDef as { execute?: (args: Record<string, unknown>) => Promise<unknown> };
+      const def = toolDef as {
+        execute?: (args: Record<string, unknown>, ctx?: unknown) => Promise<unknown>;
+      };
       if (typeof def.execute !== "function") continue;
       const originalExecute = def.execute;
       // Shadow execute on a prototype-linked clone — all other properties
@@ -1830,7 +1832,7 @@ export function buildTools(
       // inherited from the original via the prototype chain.
       const proxy = Object.create(def) as typeof def;
       Object.defineProperty(proxy, "execute", {
-        value: async (args: Record<string, unknown>) => {
+        value: async (args: Record<string, unknown>, execContext?: unknown) => {
           // PreToolUse — lazily reads config so mid-session changes apply
           const preResult = await runHooks({
             event: "PreToolUse",
@@ -1847,7 +1849,7 @@ export function buildTools(
             : args;
           let result: unknown;
           try {
-            result = await originalExecute(effectiveInput);
+            result = await originalExecute(effectiveInput, execContext);
           } catch (err) {
             // PostToolUseFailure — tool threw an exception
             runHooks({
