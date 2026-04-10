@@ -55,6 +55,9 @@ benchmarks/results-*.json
 # OpenCode local settings
 .opencode/
 
+# Local git worktrees
+.worktrees/
+
 # Installed agent skills (user-specific)
 .agents/
 
