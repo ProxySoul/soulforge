@@ -1845,7 +1845,19 @@ export function buildTools(
           const effectiveInput = preResult.updatedInput
             ? { ...args, ...preResult.updatedInput }
             : args;
-          const result = await originalExecute(effectiveInput);
+          let result: unknown;
+          try {
+            result = await originalExecute(effectiveInput);
+          } catch (err) {
+            // PostToolUseFailure — tool threw an exception
+            runHooks({
+              event: "PostToolUseFailure",
+              toolName,
+              toolInput: effectiveInput,
+              cwd: effectiveCwd,
+            }).catch(() => {});
+            throw err;
+          }
           // PostToolUse — fire-and-forget, never blocks the agent
           runHooks({
             event: "PostToolUse",

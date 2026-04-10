@@ -12,12 +12,16 @@
 export type HookEventName =
   | "PreToolUse"
   | "PostToolUse"
+  | "PostToolUseFailure"
   | "UserPromptSubmit"
   | "Stop"
+  | "StopFailure"
   | "SessionStart"
   | "SessionEnd"
   | "PreCompact"
   | "PostCompact"
+  | "SubagentStart"
+  | "SubagentStop"
   | "Notification";
 
 // ── Hook handler types ───────────────────────────────────────────────

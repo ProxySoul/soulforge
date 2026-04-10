@@ -29,6 +29,7 @@ import {
 import type { ContextManager } from "../core/context/manager.js";
 import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
+import { hasToolHooks, runHooks } from "../core/hooks/index.js";
 import {
   getModelContextInfo,
   getModelContextInfoSync,
@@ -761,6 +762,9 @@ export function useChat({
       setIsCompacting(true);
       if (visibleRef.current) useStatusBarStore.getState().setCompacting(true);
 
+      // ── PreCompact hook ──
+      runHooks({ event: "PreCompact", sessionId: sessionIdRef.current, cwd }).catch(() => {});
+
       const compactAbort = new AbortController();
       compactAbortRef.current = compactAbort;
       const startTime = Date.now();
@@ -1152,6 +1156,8 @@ export function useChat({
           summaryLength: summary.length,
           summarySnippet: summary.slice(0, 2000),
         });
+        // ── PostCompact hook ──
+        runHooks({ event: "PostCompact", sessionId: sessionIdRef.current, cwd }).catch(() => {});
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logBackgroundError("compact", msg);
@@ -1414,6 +1420,28 @@ export function useChat({
         return;
       }
 
+      // ── UserPromptSubmit hook ──
+      if (hasToolHooks(cwd)) {
+        const hookResult = await runHooks({
+          event: "UserPromptSubmit",
+          toolInput: { prompt: input },
+          sessionId: sessionIdRef.current,
+          cwd,
+        });
+        if (hookResult.blocked) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content: `[Hook blocked] ${hookResult.reason ?? "Prompt blocked by hook"}`,
+              timestamp: Date.now(),
+            },
+          ]);
+          return;
+        }
+      }
+
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -1589,7 +1617,22 @@ export function useChat({
 
       const unsubMultiAgent = onMultiAgentEvent((event) => {
         if (!isOurDispatch(event.parentToolCallId)) return;
+        // ── SubagentStart / SubagentStop hooks ──
+        if (event.type === "agent-start" && event.agentId) {
+          runHooks({
+            event: "SubagentStart",
+            toolInput: { agent_id: event.agentId, agent_type: event.role },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
+        }
         if (event.type === "agent-done" && event.agentId) {
+          runHooks({
+            event: "SubagentStop",
+            toolInput: { agent_id: event.agentId, agent_type: event.role },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
           completedResultChars.set(event.agentId, event.resultChars ?? 0);
           updateSubagentChars();
           toolCallsDirty.current = true;
@@ -2861,6 +2904,15 @@ export function useChat({
         }
 
         const rawMsg = err instanceof Error ? err.message : String(err);
+        // ── StopFailure hook ──
+        if (!isAbort) {
+          runHooks({
+            event: "StopFailure",
+            toolInput: { error: rawMsg },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
+        }
         const isTransientStream = /overloaded|529|429|rate.?limit|too many requests|503|502/i.test(
           rawMsg,
         );
@@ -2985,6 +3037,15 @@ export function useChat({
         if (visibleRef.current) useStatusBarStore.getState().setSubagentChars(0);
         if (abortController.signal.aborted) getWorkspaceCoordinator().releaseAll(tabId);
         if (!stallRetryPendingRef.current) setIsLoading(false);
+        // ── Stop hook ── (fires when agent finishes responding)
+        if (!stallRetryPendingRef.current) {
+          runHooks({
+            event: "Stop",
+            toolInput: { stop_hook_active: true },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
+        }
         abortRef.current = null;
         planExecutionRef.current = false;
         setPendingQuestion(null);
