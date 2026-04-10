@@ -15,6 +15,7 @@ export const opencodeZen: ProviderDefinition = {
   keyUrl: "opencode.ai",
   asciiIcon: "Z",
   description: "GPT, Claude, Gemini, MiniMax, GLM, Kimi, Qwen, Nemotron models",
+  grouped: true,
 
   createModel(modelId: string): LanguageModel {
     const apiKey = getProviderApiKey("OPENCODE_ZEN_API_KEY");
@@ -105,5 +106,14 @@ export const opencodeZen: ProviderDefinition = {
     ["claude-opus-4.6", 1_000_000],
     ["claude-sonnet-4.6", 1_000_000],
     ["claude-sonnet-4.5", 200_000],
+    // MiniMax
+    ["minimax-m2.5", 196_000],
+    ["minimax-m2.5-free", 196_000],
+    // Kimi
+    ["kimi-k2.5", 262_000],
+    // Other models
+    ["big-pickle", 200_000],
+    ["qwen3.6-plus-free", 1_000_000],
+    ["nemotron-3-super-free", 262_000],
   ],
 };

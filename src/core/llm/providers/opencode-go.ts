@@ -54,5 +54,8 @@ export const opencodeGo: ProviderDefinition = {
     // MiMo models: assumed standard
     ["mimo-v2-pro", 131_072],
     ["mimo-v2-omni", 131_072],
+    // MiniMax
+    ["minimax-m2.7", 131_072],
+    ["minimax-m2.5", 131_072],
   ],
 };
