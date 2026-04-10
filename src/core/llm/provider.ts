@@ -55,7 +55,16 @@ function extractProviderId(modelId: string): string {
  */
 export async function notifyProviderSwitch(newModelId: string): Promise<void> {
   const newProviderId = extractProviderId(newModelId);
-  if (newProviderId === activeProviderId) return;
+  if (newProviderId === activeProviderId) {
+    // Provider definitions can be recreated in-place (e.g. custom provider config changes)
+    // while keeping the same provider ID. Re-run activation so the active chat picks up
+    // the latest provider implementation for the current model.
+    const currentProvider = activeProviderId ? getProvider(activeProviderId) : null;
+    if (currentProvider?.onActivate) {
+      await currentProvider.onActivate();
+    }
+    return;
+  }
 
   const oldProvider = activeProviderId ? getProvider(activeProviderId) : null;
   if (oldProvider?.onDeactivate) {

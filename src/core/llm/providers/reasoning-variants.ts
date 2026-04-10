@@ -111,3 +111,15 @@ export function parseBudgetInput(input: string): number | null {
   if (budget < 256) return null;
   return budget;
 }
+
+export function getReasoningVariantValue(reasoning: CustomReasoningConfig | undefined): string {
+  if (!reasoning) return "inherit";
+
+  const matched = THINKING_VARIANT_OPTIONS.find((opt) =>
+    sameReasoning(opt.reasoning ?? undefined, reasoning),
+  );
+  if (matched) return matched.value;
+
+  if (reasoning.enabled && reasoning.budget) return "custom-budget";
+  return "inherit";
+}

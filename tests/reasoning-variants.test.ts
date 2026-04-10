@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  getReasoningVariantValue,
   getReasoningVariantLabel,
   parseBudgetInput,
   THINKING_VARIANT_OPTIONS,
@@ -42,5 +43,12 @@ describe("reasoning variants", () => {
     expect(getReasoningVariantLabel({ enabled: true, budget: 4096 })).toBe("4096 tokens");
     expect(getReasoningVariantLabel({ enabled: true })).toBe("budget");
     expect(getReasoningVariantLabel(undefined)).toBeNull();
+  });
+
+  test("getReasoningVariantValue maps unknown budgets to custom-budget", () => {
+    expect(getReasoningVariantValue({ enabled: true, budget: 24576 })).toBe("custom-budget");
+    expect(getReasoningVariantValue({ enabled: true, budget: 16384 })).toBe("budget-16384");
+    expect(getReasoningVariantValue({ effort: "medium" })).toBe("medium");
+    expect(getReasoningVariantValue(undefined)).toBe("inherit");
   });
 });

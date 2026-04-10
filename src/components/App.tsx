@@ -38,8 +38,8 @@ import {
 } from "../core/llm/providers/reasoning-overrides.js";
 import {
   getReasoningVariantLabel,
+  getReasoningVariantValue,
   parseBudgetInput,
-  sameReasoning,
   THINKING_VARIANT_OPTIONS,
 } from "../core/llm/providers/reasoning-variants.js";
 import type { CustomReasoningConfig } from "../core/llm/providers/types.js";
@@ -841,10 +841,7 @@ export function App({
     const modelReasoning =
       typeof configuredModel === "string" ? undefined : configuredModel?.reasoning;
     const currentReasoning = modelReasoning ?? configuredProvider.reasoning;
-    const currentValue =
-      THINKING_VARIANT_OPTIONS.find((opt) =>
-        sameReasoning(opt.reasoning ?? undefined, currentReasoning),
-      )?.value ?? "inherit";
+    const currentValue = getReasoningVariantValue(currentReasoning);
 
     useUIStore.getState().openCommandPicker({
       title: `Thinking Variant — ${getShortModelLabel(modelId)}`,
@@ -866,7 +863,10 @@ export function App({
       input: {
         key: "budget",
         label: "Custom budget",
-        value: "",
+        value:
+          currentReasoning?.enabled && currentReasoning.budget
+            ? String(currentReasoning.budget)
+            : "",
         placeholder: "type tokens, e.g. 24576 or 32k",
         activateFromOptionValue: "custom-budget",
         onChange: () => {},
