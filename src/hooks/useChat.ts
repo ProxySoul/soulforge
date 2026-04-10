@@ -76,6 +76,7 @@ import type {
   QueuedMessage,
 } from "../types/index.js";
 import { reprimeContextFromMessages, safeParseArgs } from "./chat/message-processing.js";
+import { buildAssistantMessage, hasRenderableAssistantContent } from "./useChat-content.js";
 import { cycleForgeMode } from "./useForgeMode.js";
 import { buildSessionMeta } from "./useSessionBuilder.js";
 
@@ -1755,7 +1756,11 @@ export function useChat({
                   : {}),
             }));
           const allCalls = [...completedCalls, ...livePending];
-          const hasContent = fullText.trim().length > 0 || allCalls.length > 0;
+          const hasContent = hasRenderableAssistantContent({
+            fullText,
+            toolCallCount: allCalls.length,
+            segments: finalSegments,
+          });
 
           if (!hasContent) {
             setMessages((prev) => [...prev, ...steeringMsgs]);
@@ -2747,19 +2752,13 @@ export function useChat({
           syncV2Slots();
         }
 
-        const hasAssistantContent =
-          fullText.trim().length > 0 || completedCalls.length > 0 || finalSegments.length > 0;
-        const assistantMsg: ChatMessage | null = hasAssistantContent
-          ? {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content: fullText,
-              timestamp: Date.now(),
-              toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
-              segments: finalSegments.length > 0 ? finalSegments : undefined,
-              durationMs: Date.now() - responseStartedAt,
-            }
-          : null;
+        const assistantMsg = buildAssistantMessage({
+          fullText,
+          completedCalls,
+          segments: finalSegments,
+          responseStartedAt,
+          now: Date.now(),
+        });
 
         const errorMsgs: ChatMessage[] = streamErrors.map((errContent) => ({
           id: crypto.randomUUID(),
@@ -2860,14 +2859,14 @@ export function useChat({
           }
           // Commit any partial assistant output so the retry has context
           if (fullText.trim().length > 0 || completedCalls.length > 0) {
-            const partialMsg: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content: fullText,
-              timestamp: Date.now(),
-              toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
-              segments: finalSegments.length > 0 ? finalSegments : undefined,
-            };
+            const partialMsg = buildAssistantMessage({
+              fullText,
+              completedCalls,
+              segments: finalSegments,
+              responseStartedAt,
+              now: Date.now(),
+            });
+            if (!partialMsg) return;
             setMessages((prev) => [...prev, partialMsg]);
             if (completedCalls.length > 0) {
               const assistantContent: Array<TextPart | ToolCallPart> = [];
@@ -2981,15 +2980,22 @@ export function useChat({
         }
 
         const hasPlanPostAction = !!planPostActionRef.current;
-        if (!hasPlanPostAction && (fullText.trim().length > 0 || completedCalls.length > 0)) {
-          const partialMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: fullText,
-            timestamp: Date.now(),
-            toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
-            segments: finalSegments.length > 0 ? finalSegments : undefined,
-          };
+        if (
+          !hasPlanPostAction &&
+          hasRenderableAssistantContent({
+            fullText,
+            toolCallCount: completedCalls.length,
+            segments: finalSegments,
+          })
+        ) {
+          const partialMsg = buildAssistantMessage({
+            fullText,
+            completedCalls,
+            segments: finalSegments,
+            responseStartedAt,
+            now: Date.now(),
+          });
+          if (!partialMsg) return;
           setMessages((prev) => [...prev, partialMsg]);
 
           if (completedCalls.length > 0) {
