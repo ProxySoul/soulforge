@@ -1,6 +1,6 @@
 export { anthropic } from "./anthropic.js";
 export { bedrock } from "./bedrock.js";
-export { codex } from "./codex/index.js";
+export { codex } from "./codex.js";
 export { copilot } from "./copilot.js";
 export { buildCustomProvider } from "./custom.js";
 export { deepseek } from "./deepseek.js";
@@ -22,7 +22,7 @@ export { xai } from "./xai.js";
 
 import { anthropic } from "./anthropic.js";
 import { bedrock } from "./bedrock.js";
-import { codex } from "./codex/index.js";
+import { codex } from "./codex.js";
 import { copilot } from "./copilot.js";
 import { buildCustomProvider } from "./custom.js";
 import { deepseek } from "./deepseek.js";

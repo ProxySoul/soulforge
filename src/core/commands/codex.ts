@@ -1,18 +1,10 @@
-import { icon } from "../icons.js";
+import { providerIcon } from "../icons.js";
 import { invalidateProviderModelCache } from "../llm/models.js";
 import { checkProviders } from "../llm/provider.js";
-import { getCodexLoginStatus, logoutCodex } from "../llm/providers/codex/index.js";
+import { getCodexLoginStatus, logoutCodex } from "../llm/providers/codex.js";
 import { getProvider } from "../llm/providers/index.js";
 import { getThemeTokens } from "../theme/index.js";
 import type { CommandContext, CommandHandler } from "./types.js";
-
-interface CodexCommandTheme {
-  success: string;
-  brandSecondary: string;
-  warning: string;
-  textPrimary: string;
-  textSecondary: string;
-}
 
 async function refreshCodexState(): Promise<void> {
   invalidateProviderModelCache("codex");
@@ -21,7 +13,7 @@ async function refreshCodexState(): Promise<void> {
 
 export function getCodexStatusPopupLines(
   status: ReturnType<typeof getCodexLoginStatus>,
-  theme: CodexCommandTheme,
+  theme: ReturnType<typeof getThemeTokens>,
 ) {
   return [
     {
@@ -53,7 +45,7 @@ export function getCodexStatusPopupLines(
 export function getCodexLogoutPopupLines(
   result: { ok: boolean; message: string },
   usingCodex: boolean,
-  theme: CodexCommandTheme,
+  theme: ReturnType<typeof getThemeTokens>,
 ) {
   return [
     {
@@ -80,7 +72,7 @@ function showStatus(ctx: CommandContext): void {
   const status = getCodexLoginStatus();
   ctx.openInfoPopup({
     title: "Codex Status",
-    icon: icon("openai"),
+    icon: providerIcon("codex"),
     lines: getCodexStatusPopupLines(status, theme),
   });
 }
@@ -95,7 +87,7 @@ async function handleCodexLogin(_input: string, ctx: CommandContext): Promise<vo
   if (ctx.chat.activeModel === "none") {
     ctx.openInfoPopup({
       title: "Codex Login",
-      icon: icon("openai"),
+      icon: providerIcon("codex"),
       lines: [
         {
           type: "text",
@@ -118,7 +110,7 @@ async function handleCodexLogout(_input: string, ctx: CommandContext): Promise<v
   const usingCodex = ctx.chat.activeModel.startsWith("codex/");
   ctx.openInfoPopup({
     title: "Codex Logout",
-    icon: icon("openai"),
+    icon: providerIcon("codex"),
     lines: getCodexLogoutPopupLines(result, usingCodex, theme),
   });
 }
@@ -129,7 +121,7 @@ async function handleCodexSwitch(_input: string, ctx: CommandContext): Promise<v
   await refreshCodexState();
   ctx.openInfoPopup({
     title: "Codex Switch Account",
-    icon: icon("openai"),
+    icon: providerIcon("codex"),
     lines: [
       {
         type: "text",

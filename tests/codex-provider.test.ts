@@ -1,16 +1,16 @@
 import type { LanguageModelV2CallOptions } from "@ai-sdk/provider";
 import { describe, expect, test } from "bun:test";
 import { getAllProviders, getProvider } from "../src/core/llm/providers/index.js";
+import { performCodexBrowserLogin } from "../src/core/llm/providers/codex/auth.js";
 import {
   buildCodexSchema,
   codex,
   createCodexLanguageModel,
-  performCodexBrowserLogin,
   parseCodexLoginStatus,
   parseCodexModelListResult,
   parseCodexResponse,
   serializeCodexPrompt,
-} from "../src/core/llm/providers/codex/index.js";
+} from "../src/core/llm/providers/codex.js";
 
 const BASE_OPTIONS: LanguageModelV2CallOptions = {
   prompt: [
