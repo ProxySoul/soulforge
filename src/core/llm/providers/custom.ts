@@ -44,7 +44,7 @@ function buildReasoningBody(reasoning?: CustomReasoningConfig): Record<string, u
     body.thinking_budget = reasoning.budget;
   }
 
-  // Raw extra params (lowest priority — can override above if keys collide)
+  // Raw extra params (highest priority — overrides above keys on collision)
   if (reasoning.extraParams) {
     Object.assign(body, reasoning.extraParams);
   }

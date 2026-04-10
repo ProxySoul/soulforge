@@ -557,7 +557,7 @@ export async function buildProviderOptions(
   if (customProvider?.custom && customProvider.customReasoning) {
     const r = customProvider.customReasoning;
     const customOpts: Record<string, unknown> = {};
-    if (r.effort && r.effort !== "none") {
+    if (r.effort) {
       customOpts.effort = r.effort;
     }
     if (r.enabled !== undefined) {
