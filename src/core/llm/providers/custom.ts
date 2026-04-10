@@ -7,6 +7,9 @@ import type {
   ProviderModelInfo,
 } from "./types.js";
 
+// Fetch function alias — avoids Bun's typeof fetch which includes preconnect
+type FetchFn = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
+
 interface OpenAIModelListResponse {
   data: { id: string; owned_by?: string }[];
 }
@@ -48,25 +51,30 @@ function buildReasoningBody(reasoning?: CustomReasoningConfig): Record<string, u
 }
 
 /** Create a fetch wrapper that injects reasoning params into every request body.
- *  This ensures thinking control works for any OpenAI-compatible API endpoint. */
-function createReasoningFetchWrapper(
-  reasoningBody: Record<string, unknown>,
-): ((url: string, init: RequestInit) => Promise<Response>) | undefined {
+ *  This ensures thinking control works for any OpenAI-compatible API endpoint.
+ *  Matches the FetchFunction signature used by @ai-sdk/provider-utils to avoid
+ *  incompatibility with callers that pass a Request object or omit init. */
+function createReasoningFetchWrapper(reasoningBody: Record<string, unknown>): FetchFn | undefined {
   if (Object.keys(reasoningBody).length === 0) {
     return undefined;
   }
 
-  return async (url: string, init: RequestInit): Promise<Response> => {
-    if (init?.body && typeof init.body === "string") {
-      try {
-        const parsed = JSON.parse(init.body) as Record<string, unknown>;
-        Object.assign(parsed, reasoningBody);
-        init.body = JSON.stringify(parsed);
-      } catch {
-        // If body isn't valid JSON, pass through unchanged
-      }
+  return async (input, init): Promise<Response> => {
+    if (!init?.body || typeof init.body !== "string") {
+      return fetch(input, init);
     }
-    return fetch(url, init);
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(init.body);
+    } catch {
+      return fetch(input, init);
+    }
+
+    const merged = { ...parsed, ...reasoningBody };
+    // Shallow-copy init to avoid mutating the caller's object
+    const patchedInit: RequestInit = { ...init, body: JSON.stringify(merged) };
+    return fetch(input, patchedInit);
   };
 }
 
