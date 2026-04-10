@@ -90,7 +90,24 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       }
       if (init[cfg.id]?.loading) anyStale = true;
     }
-    setProviderData(init);
+
+    // Only trigger a re-render if the fresh cache differs from current state.
+    // Checks loading/error flags (value comparison) and items (reference
+    // comparison — cache returns the same array object on re-read).
+    setProviderData((prev) => {
+      let changed = false;
+      for (const k of Object.keys(init)) {
+        const a = prev[k];
+        const b = init[k];
+        if (!a || a.loading !== b!.loading || a.items !== b!.items || a.error !== b!.error) {
+          changed = true;
+          break;
+        }
+      }
+      // Also detect new providers (dynamic registration via onProvidersChanged)
+      if (!changed && Object.keys(prev).length !== Object.keys(init).length) changed = true;
+      return changed ? init : prev;
+    });
 
     // If everything is cached, no need to fetch
     if (!anyStale) return;
