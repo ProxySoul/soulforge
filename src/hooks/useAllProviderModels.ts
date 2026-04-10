@@ -105,17 +105,12 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       for (const k of initKeys) {
         const a = prev[k];
         const b = init[k];
-        if (!a || a.loading !== b!.loading || a.items !== b!.items || a.error !== b!.error) {
+        if (!a || !b || a.loading !== b.loading || a.items !== b.items || a.error !== b.error) {
           return init;
         }
       }
       return prev;
     });
-
-    // If everything is cached, no need to fetch
-    if (!anyStale) return;
-
-    let dead = false;
 
     // Re-sync availability from the global cache (cheap map read).
     // If checkProviders() ran elsewhere (auth flow, config reload) the
@@ -125,7 +120,14 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       const map = new Map<string, boolean>();
       for (const s of cachedStatuses) map.set(s.id, s.available);
       setAvailability(map);
-    } else {
+    }
+
+    // If everything is cached, no need to fetch
+    if (!anyStale) return;
+
+    let dead = false;
+
+    if (!cachedStatuses) {
       // No boot-time cache — fetch fresh availability
       checkProviders()
         .then((statuses) => {
@@ -134,7 +136,7 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
           for (const s of statuses) map.set(s.id, s.available);
           setAvailability(map);
         })
-        .catch(() => {});
+        .catch(() => undefined);
     }
 
     // Only fetch providers that aren't cached yet
