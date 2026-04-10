@@ -1,6 +1,6 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { icon } from "../core/icons.js";
 import { useTheme } from "../core/theme/index.js";
 import type { ThemeTokens } from "../core/theme/tokens.js";
@@ -46,6 +46,13 @@ export function QuestionPrompt({ question, isActive, onAnswer }: Props) {
 
   const showOther = !question.hideOther;
   const totalOptions = question.options.length + (showOther ? 1 : 0);
+
+  useEffect(() => {
+    if (question.options.length === 0 && showOther) {
+      setSelectedIdx(OTHER_IDX);
+      setTyping(true);
+    }
+  }, [question.options.length, showOther]);
 
   const handleKeyboard = (evt: import("@opentui/core").KeyEvent) => {
     if (!isActive) return;
