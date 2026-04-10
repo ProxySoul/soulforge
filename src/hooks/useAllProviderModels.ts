@@ -95,18 +95,21 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
     // Checks loading/error flags (value comparison) and items (reference
     // comparison — cache returns the same array object on re-read).
     setProviderData((prev) => {
-      let changed = false;
-      for (const k of Object.keys(init)) {
+      const initKeys = Object.keys(init);
+      const prevKeys = Object.keys(prev);
+      if (initKeys.length !== prevKeys.length) return init;
+      // Detect replaced keys: same length but different key set
+      for (const k of prevKeys) {
+        if (!(k in init)) return init;
+      }
+      for (const k of initKeys) {
         const a = prev[k];
         const b = init[k];
         if (!a || a.loading !== b!.loading || a.items !== b!.items || a.error !== b!.error) {
-          changed = true;
-          break;
+          return init;
         }
       }
-      // Also detect new providers (dynamic registration via onProvidersChanged)
-      if (!changed && Object.keys(prev).length !== Object.keys(init).length) changed = true;
-      return changed ? init : prev;
+      return prev;
     });
 
     // If everything is cached, no need to fetch
@@ -114,8 +117,16 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
 
     let dead = false;
 
-    // Only re-check provider availability if we don't have a boot-time cache
-    if (!getCachedProviderStatuses()) {
+    // Re-sync availability from the global cache (cheap map read).
+    // If checkProviders() ran elsewhere (auth flow, config reload) the
+    // global cache was updated but our local state wasn't.
+    const cachedStatuses = getCachedProviderStatuses();
+    if (cachedStatuses) {
+      const map = new Map<string, boolean>();
+      for (const s of cachedStatuses) map.set(s.id, s.available);
+      setAvailability(map);
+    } else {
+      // No boot-time cache — fetch fresh availability
       checkProviders()
         .then((statuses) => {
           if (dead) return;

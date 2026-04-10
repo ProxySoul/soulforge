@@ -233,8 +233,8 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
     if (!anyLoadingRef.current) {
       setReady(true);
     } else {
-      const raf = setTimeout(() => setReady(true), 0);
-      return () => clearTimeout(raf);
+      const tid = setTimeout(() => setReady(true), 0);
+      return () => clearTimeout(tid);
     }
     return undefined;
   }, [visible, activeModel]);
