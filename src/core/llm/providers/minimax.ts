@@ -1,6 +1,6 @@
-import {createMinimax} from "vercel-minimax-ai-provider";
-import {getProviderApiKey} from "../../secrets.js";
-import type {ProviderDefinition, ProviderModelInfo} from "./types.js";
+import { createMinimax } from "vercel-minimax-ai-provider";
+import { getProviderApiKey } from "../../secrets.js";
+import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 export const minimax: ProviderDefinition = {
   id: "minimax",
@@ -17,7 +17,7 @@ export const minimax: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("MINIMAX_API_KEY is not set");
     }
-    return createMinimax({apiKey})(modelId);
+    return createMinimax({ apiKey })(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {
@@ -26,13 +26,13 @@ export const minimax: ProviderDefinition = {
   },
 
   fallbackModels: [
-    {id: "MiniMax-M2.7", name: "MiniMax M2.7"},
-    {id: "MiniMax-M2.7-highspeed", name: "MiniMax M2.7 HighSpeed"},
-    {id: "MiniMax-M2.5", name: "MiniMax M2.5"},
-    {id: "MiniMax-M2.5-highspeed", name: "MiniMax M2.5 HighSpeed"},
-    {id: "MiniMax-M2.1", name: "MiniMax M2.1"},
-    {id: "MiniMax-M2.1-highspeed", name: "MiniMax M2.1 Lightning"},
-    {id: "MiniMax-M2", name: "MiniMax M2"},
+    { id: "MiniMax-M2.7", name: "MiniMax M2.7" },
+    { id: "MiniMax-M2.7-highspeed", name: "MiniMax M2.7 HighSpeed" },
+    { id: "MiniMax-M2.5", name: "MiniMax M2.5" },
+    { id: "MiniMax-M2.5-highspeed", name: "MiniMax M2.5 HighSpeed" },
+    { id: "MiniMax-M2.1", name: "MiniMax M2.1" },
+    { id: "MiniMax-M2.1-highspeed", name: "MiniMax M2.1 Lightning" },
+    { id: "MiniMax-M2", name: "MiniMax M2" },
   ],
 
   // from https://platform.minimax.io/docs/api-reference/text-openai-api#supported-models
