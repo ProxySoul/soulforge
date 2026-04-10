@@ -616,6 +616,41 @@ describe("buildCustomProvider reasoning config", () => {
 		expect(body.reasoning).toEqual({ effort: "high" });
 	});
 
+	test("fetch wrapper forwards effort 'none' to explicitly disable thinking", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "effort-none-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "none" },
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.reasoning).toEqual({ effort: "none" });
+	});
+
 	test("fetch wrapper injects DashScope-style thinking params", async () => {
 		let capturedBody: string | null = null;
 		globalThis.fetch = mock((url: string, init: RequestInit) => {

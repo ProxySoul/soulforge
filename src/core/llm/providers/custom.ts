@@ -30,7 +30,9 @@ function buildReasoningBody(reasoning?: CustomReasoningConfig): Record<string, u
   const body: Record<string, unknown> = {};
 
   // OpenAI-style reasoning effort
-  if (reasoning.effort && reasoning.effort !== "none") {
+  // Always forward the effort value — "none" is a valid signal for APIs
+  // that support explicitly disabling thinking/thought generation.
+  if (reasoning.effort) {
     body.reasoning = { effort: reasoning.effort };
   }
 
