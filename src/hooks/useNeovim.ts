@@ -2,30 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { setNvimInstance } from "../core/editor/instance.js";
 import { getEditorDimensions } from "../core/editor/layout.js";
 import {
-  getBufferName,
-  getCursorPosition,
-  getVisualSelection,
   launchNeovim,
   type NvimInstance,
   openFile as nvimOpenFile,
   shutdownNeovim,
 } from "../core/editor/neovim.js";
-import type { ScreenSegment } from "../core/editor/screen.js";
-import { useTheme } from "../core/theme/index.js";
 import { onFileEdited } from "../core/tools/file-events.js";
 import type { NvimConfigMode } from "../types/index.js";
 
-/** Combined screen state — single setState call instead of 3. */
-interface ScreenState {
-  lines: ScreenSegment[][];
-  defaultBg: string | undefined;
-  modeName: string;
-}
-
 export interface UseNeovimReturn {
   ready: boolean;
-  screenLines: ScreenSegment[][];
-  defaultBg: string | undefined;
+  ptyWrite: (data: string) => void;
+  ptyOnData: (cb: (data: Uint8Array) => void) => () => void;
+  ptyResize: (cols: number, rows: number) => void;
+  nvimCols: number;
+  nvimRows: number;
   modeName: string;
   fileName: string | null;
   cursorLine: number;
@@ -38,45 +29,70 @@ export interface UseNeovimReturn {
   error: string | null;
 }
 
-/** Throttle interval — 60fps cap for smooth scrolling. */
-const THROTTLE_MS = 16;
+const noop = () => {};
+const noopUnsub = () => noop;
+
+/** Map nvim_get_mode short codes to the full names used by mode_change redraw events. */
+function mapNvimMode(raw: string): string {
+  switch (raw) {
+    case "n":
+      return "normal";
+    case "i":
+      return "insert";
+    case "v":
+      return "visual";
+    case "V":
+      return "visual line";
+    case "\x16":
+      return "visual block"; // Ctrl-V
+    case "c":
+      return "cmdline_normal";
+    case "R":
+      return "replace";
+    case "r":
+      return "replace";
+    case "t":
+      return "terminal";
+    case "s":
+      return "visual"; // select mode → treat as visual
+    case "S":
+      return "visual line";
+    default:
+      return raw;
+  }
+}
 
 export function useNeovim(
   active: boolean,
   nvimPath?: string,
   nvimConfig?: NvimConfigMode,
   onExit?: () => void,
-  showHints = true,
   hasTabBar = true,
   splitPct = 60,
 ): UseNeovimReturn {
-  const themeTokens = useTheme();
   const nvimRef = useRef<NvimInstance | null>(null);
   const mountedRef = useRef(true);
   const launchingRef = useRef(false);
   const closeHandlerRef = useRef<(() => void) | null>(null);
 
   const [ready, setReady] = useState(false);
-  const [screen, setScreen] = useState<ScreenState>({
-    lines: [],
-    defaultBg: themeTokens.bgApp,
-    modeName: "normal",
-  });
   const [fileName, setFileName] = useState<string | null>(null);
+  const [modeName, setModeName] = useState("normal");
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(0);
   const [visualSelection, setVisualSelection] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [launchGeneration, setLaunchGeneration] = useState(0);
+  const [nvimDims, setNvimDims] = useState({ cols: 80, rows: 24 });
 
   // Stable ref for onExit so it doesn't re-trigger the launch effect
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
 
-  // Throttle refs — flush pending screen state at most every THROTTLE_MS
-  const pendingRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastFlushRef = useRef(0);
+  // PTY function refs — updated when nvim launches
+  const ptyWriteRef = useRef<(data: string) => void>(noop);
+  const ptyOnDataRef = useRef<(cb: (data: Uint8Array) => void) => () => void>(noopUnsub);
+  const ptyResizeRef = useRef<(cols: number, rows: number) => void>(noop);
 
   // Launch neovim on first active=true (launchGeneration triggers re-launch after close)
   useEffect(() => {
@@ -93,7 +109,7 @@ export function useNeovim(
 
     const termCols = process.stdout.columns ?? 120;
     const termRows = process.stdout.rows ?? 40;
-    const dims = getEditorDimensions(termCols, termRows, showHints, hasTabBar, splitPct);
+    const dims = getEditorDimensions(termCols, termRows, hasTabBar, splitPct);
 
     launchNeovim(nvimPath ?? "nvim", dims.cols, dims.rows, nvimConfig)
       .then((nvim) => {
@@ -104,65 +120,29 @@ export function useNeovim(
         nvimRef.current = nvim;
         setNvimInstance(nvim);
 
-        const flushScreen = () => {
-          if (!mountedRef.current) return;
-          const { screen: s } = nvim;
-          const lines = s.getSegmentedLines();
-          setScreen({
-            lines,
-            defaultBg: s.getDefaultBg(),
-            modeName: s.modeName,
-          });
-          lastFlushRef.current = Date.now();
-          pendingRef.current = false;
-        };
-
-        // Event-driven screen updates with throttle
-        nvim.screen.onFlush = () => {
-          if (!mountedRef.current) return;
-          const { screen: s } = nvim;
-          if (!s.dirty) return;
-          s.dirty = false;
-
-          const now = Date.now();
-          const elapsed = now - lastFlushRef.current;
-
-          if (elapsed >= THROTTLE_MS) {
-            // Enough time passed — flush immediately
-            if (timerRef.current) {
-              clearTimeout(timerRef.current);
-              timerRef.current = null;
-            }
-            flushScreen();
-          } else if (!pendingRef.current) {
-            // Schedule a flush for the remaining time
-            pendingRef.current = true;
-            timerRef.current = setTimeout(flushScreen, THROTTLE_MS - elapsed);
-          }
-        };
-
-        // Flush any initial events that arrived before onFlush was set
-        if (nvim.screen.dirty) {
-          nvim.screen.dirty = false;
-          flushScreen();
-        }
+        // Expose PTY functions
+        ptyWriteRef.current = nvim.pty.write;
+        ptyOnDataRef.current = nvim.pty.onData;
+        ptyResizeRef.current = nvim.pty.resize;
+        setNvimDims({ cols: dims.cols, rows: dims.rows });
 
         setReady(true);
         setError(null);
 
         // Detect when neovim exits (user runs :q, :qa, etc.)
-        // Always null the global instance — even after unmount — to prevent
-        // readBufferContent from calling RPC on a dead process (hangs forever).
         const handleClose = () => {
           nvimRef.current = null;
           setNvimInstance(null);
+          ptyWriteRef.current = noop;
+          ptyOnDataRef.current = noopUnsub;
+          ptyResizeRef.current = noop;
           if (!mountedRef.current) return;
           setReady(false);
           setLaunchGeneration((g) => g + 1);
           onExitRef.current?.();
         };
         closeHandlerRef.current = handleClose;
-        nvim.process.on("close", handleClose);
+        nvim.pty.proc.exited.then(handleClose);
       })
       .catch((err: unknown) => {
         if (mountedRef.current) {
@@ -172,7 +152,7 @@ export function useNeovim(
       .finally(() => {
         launchingRef.current = false;
       });
-  }, [active, nvimPath, nvimConfig, showHints, hasTabBar, splitPct, launchGeneration]);
+  }, [active, nvimPath, nvimConfig, hasTabBar, splitPct, launchGeneration]);
 
   // Resize neovim when terminal dimensions change
   useEffect(() => {
@@ -183,8 +163,9 @@ export function useNeovim(
       if (!nvim || !mountedRef.current) return;
       const tc = process.stdout.columns ?? 120;
       const tr = process.stdout.rows ?? 40;
-      const d = getEditorDimensions(tc, tr, showHints, hasTabBar, splitPct);
-      nvim.api.request("nvim_ui_try_resize", [d.cols, d.rows]).catch(() => {});
+      const d = getEditorDimensions(tc, tr, hasTabBar, splitPct);
+      nvim.pty.resize(d.cols, d.rows);
+      setNvimDims({ cols: d.cols, rows: d.rows });
     };
 
     onResize();
@@ -192,7 +173,7 @@ export function useNeovim(
     return () => {
       process.stdout.removeListener("resize", onResize);
     };
-  }, [ready, active, showHints, hasTabBar, splitPct]);
+  }, [ready, active, hasTabBar, splitPct]);
 
   // Poll buffer name, cursor position, and visual selection when ready
   useEffect(() => {
@@ -202,16 +183,72 @@ export function useNeovim(
       const nvim = nvimRef.current;
       if (!nvim || !mountedRef.current) return;
 
-      Promise.all([getBufferName(nvim), getCursorPosition(nvim), getVisualSelection(nvim)])
-        .then(([name, cursor, selection]) => {
+      // Single RPC call to get all editor state — avoids 4 separate round-trips
+      // that would serialize on neovim's single thread and compete with PTY I/O.
+      nvim.api
+        .executeLua(
+          `
+          local r = {}
+        r.name = vim.api.nvim_buf_get_name(0)
+          local pos = vim.api.nvim_win_get_cursor(0)
+          r.line = pos[1]
+          r.col = pos[2]
+          r.mode = vim.api.nvim_get_mode().mode
+          local m = vim.fn.mode()
+          if m == 'v' or m == 'V' or m == '\\22' then
+            local vs = vim.fn.getpos('v')
+          local ve = vim.fn.getpos('.')
+          local sr, sc = vs[2], vs[3]
+            local er, ec = ve[2], ve[3]
+            if sr > er or (sr == er and sc > ec) then
+              sr, sc, er, ec = er, ec, sr, sc
+            end
+            local lines = vim.api.nvim_buf_get_lines(0, sr - 1, er, false)
+          if #lines > 0 then
+            if m == 'V' then
+              r.sel = table.concat(lines, '\\n')
+            elseif #lines == 1 then
+              r.sel = lines[1]:sub(sc, ec)
+            else
+              lines[1] = lines[1]:sub(sc)
+              lines[#lines] = lines[#lines]:sub(1, ec)
+              r.sel = table.concat(lines, '\\n')
+            end
+          end
+        end
+        return r
+        `,
+          [],
+        )
+        .then((result: unknown) => {
           if (!mountedRef.current) return;
-          if (name) setFileName((prev) => (prev === name ? prev : name));
-          setCursorLine((prev) => (prev === cursor.line ? prev : cursor.line));
-          setCursorCol((prev) => (prev === cursor.col ? prev : cursor.col));
+          const r = result as {
+            name?: string;
+            line?: number;
+            col?: number;
+            mode?: string;
+            sel?: string;
+          };
+          if (r.name) {
+            const name = r.name;
+            setFileName((prev) => (prev === name ? prev : name));
+          }
+          if (r.line != null) {
+            const line = r.line;
+            setCursorLine((prev) => (prev === line ? prev : line));
+          }
+          if (r.col != null) {
+            const col = r.col;
+            setCursorCol((prev) => (prev === col ? prev : col));
+          }
           setVisualSelection((prev) => {
-            if (selection) return selection;
+            if (r.sel) return r.sel;
             return prev;
           });
+          if (typeof r.mode === "string") {
+            const mapped = mapNvimMode(r.mode);
+            setModeName((prev) => (prev === mapped ? prev : mapped));
+          }
         })
         .catch(() => {});
     };
@@ -226,17 +263,8 @@ export function useNeovim(
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
       const nvim = nvimRef.current;
       if (nvim) {
-        if (closeHandlerRef.current) {
-          nvim.process.removeListener("close", closeHandlerRef.current);
-          closeHandlerRef.current = null;
-        }
-        nvim.screen.onFlush = null;
         setNvimInstance(null);
         shutdownNeovim(nvim).catch(() => {});
         nvimRef.current = null;
@@ -293,9 +321,12 @@ export function useNeovim(
 
   return {
     ready,
-    screenLines: screen.lines,
-    defaultBg: screen.defaultBg,
-    modeName: screen.modeName,
+    ptyWrite: ptyWriteRef.current,
+    ptyOnData: ptyOnDataRef.current,
+    ptyResize: ptyResizeRef.current,
+    nvimCols: nvimDims.cols,
+    nvimRows: nvimDims.rows,
+    modeName,
     fileName,
     cursorLine,
     cursorCol,

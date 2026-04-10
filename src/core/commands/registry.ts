@@ -4,6 +4,7 @@ import { matchConfigPrefix, register as registerConfig } from "./config.js";
 import { matchContextPrefix, register as registerContext } from "./context.js";
 import { register as registerDebug } from "./debug.js";
 import { matchGitPrefix, register as registerGit } from "./git.js";
+import { register as registerHooks } from "./hooks.js";
 import { matchNavPrefix, register as registerNavigation } from "./navigation.js";
 import { register as registerProxy } from "./proxy.js";
 import { matchSecurityPrefix, register as registerSecurity } from "./security.js";
@@ -25,6 +26,7 @@ registerStorage(commandMap);
 registerSecurity(commandMap);
 registerClaims(commandMap);
 registerCodex(commandMap);
+registerHooks(commandMap);
 
 const prefixMatchers = [
   matchContextPrefix,
@@ -196,6 +198,13 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Start a new session (saves current)",
     category: "Session",
     tags: ["new", "fresh", "reset"],
+  },
+  {
+    cmd: "/session rename",
+    ic: "edit",
+    desc: "Rename current session",
+    category: "Session",
+    tags: ["rename", "title", "name"],
   },
   {
     cmd: "/session plan",
@@ -770,6 +779,13 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Manage forbidden file patterns",
     category: "System",
     tags: ["security", "forbidden"],
+  },
+  {
+    cmd: "/hooks",
+    ic: "cog",
+    desc: "View active hooks (PreToolUse, PostToolUse, etc.)",
+    category: "System",
+    tags: ["hooks", "claude", "lifecycle"],
   },
   { cmd: "/quit", ic: "quit", desc: "Exit SoulForge", category: "System", tags: ["exit", "close"] },
   { cmd: "/restart", ic: "ghost", desc: "Full restart", category: "System", tags: ["reboot"] },

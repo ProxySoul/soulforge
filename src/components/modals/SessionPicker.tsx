@@ -41,6 +41,8 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const { width: termCols, height: termRows } = useTerminalDimensions();
 
   const containerRows = termRows - 2;
@@ -77,6 +79,35 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
 
   const handleKeyboard = (evt: { name?: string; ctrl?: boolean; meta?: boolean }) => {
     if (!visible) return;
+
+    if (renameId) {
+      if (evt.name === "escape") {
+        setRenameId(null);
+        return;
+      }
+      if (evt.name === "return") {
+        const trimmed = renameValue.trim();
+        if (trimmed) {
+          manager.renameSession(renameId, trimmed);
+          onSystemMessage(`Renamed session to: ${trimmed}`);
+          refresh();
+        }
+        setRenameId(null);
+        return;
+      }
+      if (evt.name === "backspace" || evt.name === "delete") {
+        setRenameValue((prev) => prev.slice(0, -1));
+        return;
+      }
+      if (evt.name === "space") {
+        setRenameValue((prev) => `${prev} `);
+        return;
+      }
+      if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
+        setRenameValue((prev) => prev + evt.name);
+      }
+      return;
+    }
 
     if (confirmClear) {
       if (evt.name === "y") {
@@ -135,6 +166,15 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
         onSystemMessage(`Deleted session: ${session.title}`);
         refresh();
         setCursor((prev: number) => Math.min(prev, Math.max(0, filtered.length - 1)));
+      }
+      return;
+    }
+
+    if (evt.name === "r" && evt.ctrl) {
+      const session = filtered[cursor];
+      if (session) {
+        setRenameId(session.id);
+        setRenameValue(session.title);
       }
       return;
     }
@@ -221,6 +261,7 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
       footer={[
         { key: "\u2191\u2193", label: "navigate" },
         { key: "\u23CE", label: "restore" },
+        { key: "^R", label: "rename" },
         { key: "^D", label: "delete" },
         { key: "^X", label: "clear all" },
         { key: "esc", label: "close" },
@@ -310,6 +351,20 @@ export function SessionPicker({ visible, cwd, onClose, onRestore, onSystemMessag
         <PopupRow w={innerW} bg={t.error}>
           <text fg="#fff" attributes={TextAttributes.BOLD} bg={t.error}>
             Delete all {String(sessions.length)} sessions? (y/n)
+          </text>
+        </PopupRow>
+      )}
+
+      {renameId && (
+        <PopupRow w={innerW}>
+          <text fg={t.brand} bg={POPUP_BG}>
+            {"Rename: "}
+          </text>
+          <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
+            {renameValue}
+          </text>
+          <text fg={t.brandAlt} bg={POPUP_BG}>
+            {"\u258E"}
           </text>
         </PopupRow>
       )}

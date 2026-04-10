@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import readline from "node:readline";
+import { trackProcess } from "../../../process-tracker.js";
 import type { ProviderModelInfo } from "../types.js";
 
 export interface CodexLoginStatus {
@@ -142,6 +143,7 @@ export async function startCodexAppServerSession(): Promise<CodexAppServerClient
   const child = spawn("codex", ["app-server", "--listen", "stdio://"], {
     stdio: ["pipe", "pipe", "pipe"],
   });
+  trackProcess(child);
 
   if (!child.stdin || !child.stdout) {
     child.kill();

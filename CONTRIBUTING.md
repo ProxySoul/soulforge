@@ -226,7 +226,7 @@ See [docs/compound-tools.md](docs/compound-tools.md) for design principles and b
 
 ### How Neovim Works
 
-Neovim runs with `--embed -i NONE` and talks over msgpack-RPC pipes. The `NvimScreen` class processes `redraw` events into renderable screen lines. When the editor panel is focused, raw keystrokes are intercepted and forwarded via `nvim.api.input()`.
+Neovim runs in a real PTY (via `Bun.spawn` with `terminal`) and uses `--listen <socket>` for a separate RPC channel. The PTY output is rendered natively by `ghostty-terminal` (ghostty's Zig VT parser), which handles cursor shapes, escape sequences, and scroll regions. RPC over the Unix socket provides API access for file operations, cursor polling, and LSP integration. When the editor panel is focused, raw stdin bytes are forwarded directly to the PTY.
 
 ### How Providers Work
 

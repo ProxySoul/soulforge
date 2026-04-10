@@ -6,16 +6,18 @@ icon: "terminal"
 
 ## Overview
 
-SoulForge includes floating terminal panels powered by Ghostty's terminal emulator. Run commands, watch logs, or interact with REPLs — all without leaving the chat.
+SoulForge includes floating terminal panels powered by Ghostty's terminal emulator. Run commands, watch logs, or interact with REPLs — all without leaving the chat. Up to 5 terminals can run simultaneously.
 
-## Usage
+## Commands
 
 | Command | Action |
 |---------|--------|
 | `/terminals` | Open the terminal manager |
-| `Ctrl+T` | New tab (or terminal depending on context) |
-
-Terminals run as independent sessions alongside the chat. They persist across compaction and can be resized.
+| `/terminals new` | Spawn a new terminal |
+| `/terminals close` | Close a terminal |
+| `/terminals show` | Show the terminal panel |
+| `/terminals hide` | Hide the terminal panel |
+| `/terminals rename` | Rename a terminal |
 
 ## How it works
 
@@ -28,6 +30,12 @@ The floating terminal uses [Ghostty](https://ghostty.org/)'s Zig-based terminal 
 - Proper Unicode and emoji rendering
 
 The terminal state is managed independently from the chat — agent tool calls (`shell`) don't interfere with your terminal sessions.
+
+## Limits
+
+- **Maximum 5 terminals** can be open at once
+- Terminals persist across compaction and context resets
+- Each terminal runs as an independent PTY session
 
 ## Platform notes
 

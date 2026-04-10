@@ -2,7 +2,7 @@
 
 ## User Reference
 
-- **[Command Reference](commands-reference.md)** — All 86 slash commands organized by category
+- **[Command Reference](commands-reference.md)** — All 100 slash commands organized by category
 - **[Headless Mode](headless.md)** — Non-interactive CLI for CI/CD, scripting, and automation
 - **[Custom Providers](headless.md#custom-providers)** — Add any OpenAI-compatible API via config
 - **[Themes](themes.md)** — 24 builtin themes, custom themes, hot reload — pick your flavor or add yours
@@ -10,14 +10,15 @@
 - **[Steering](steering.md)** — Type while the agent works, messages inject mid-stream
 - **[Provider Options](provider-options.md)** — Thinking modes, effort, speed, context management
 - **[Copilot Provider](copilot-provider.md)** — Setup, models, cost, legal review for GitHub Copilot
+- **[MCP Servers](mcp.md)** — Model Context Protocol server integration
 
 ## Architecture
 
-- **[Architecture](architecture.md)** — System overview, data flow, component lifecycle
+- **[Architecture](architecture.md)** — System overview, 20 providers, agent tiers, data flow
 - **[Prompt System](prompt-system.md)** — Per-family prompts, Soul Map injection, mode overlays, cache strategy
 - **[Repo Map](repo-map.md)** — Graph intelligence (PageRank, cochange, blast radius, clone detection)
 - **[Agent Bus](agent-bus.md)** — Multi-agent coordination (shared cache, edit mutex, findings board)
-- **[Compound Tools](compound-tools.md)** — rename_symbol, move_symbol, refactor internals
+- **[Compound Tools](compound-tools.md)** — rename_symbol, move_symbol, refactor
 - **[Compaction](compaction.md)** — V1/V2 context management strategies
 - **[Cross-Tab Coordination](cross-tab-coordination.md)** — Advisory file claims, git blocking, contention handling
 

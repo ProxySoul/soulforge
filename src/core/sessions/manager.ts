@@ -12,6 +12,7 @@ import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { ChatMessage } from "../../types/index.js";
+import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 import { getIOClient } from "../workers/io-client.js";
 import { rebuildCoreMessages } from "./rebuild.js";
 import type { SessionMeta, TabMeta } from "./types.js";
@@ -27,13 +28,16 @@ export interface SessionListEntry {
 
 export class SessionManager {
   private dir: string;
+  private cwd: string;
 
   constructor(cwd: string) {
+    this.cwd = cwd;
     this.dir = join(cwd, ".soulforge", "sessions");
   }
 
   private ensureDir(): void {
     if (!existsSync(this.dir)) {
+      ensureSoulforgeDir(this.cwd);
       mkdirSync(this.dir, { recursive: true });
     }
   }
@@ -50,13 +54,20 @@ export class SessionManager {
     return total;
   }
 
-  async saveSession(meta: SessionMeta, tabMessages: Map<string, ChatMessage[]>): Promise<void> {
+  async saveSession(
+    meta: SessionMeta,
+    tabMessages: Map<string, ChatMessage[]>,
+    tabCoreMessages?: Map<string, import("ai").ModelMessage[]>,
+  ): Promise<void> {
     this.ensureDir();
     const sessionDir = join(this.dir, meta.id);
 
     try {
       const io = getIOClient();
-      await io.saveSession(sessionDir, meta, [...tabMessages.entries()]);
+      const coreEntries = tabCoreMessages
+        ? ([...tabCoreMessages.entries()] as [string, import("ai").ModelMessage[]][])
+        : undefined;
+      await io.saveSession(sessionDir, meta, [...tabMessages.entries()], coreEntries);
       return;
     } catch {
       // IO worker unavailable — fall back to local serialization
@@ -94,9 +105,25 @@ export class SessionManager {
     await writeFile(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
     await rename(jsonlTmp, jsonlPath);
     await rename(metaTmp, metaPath);
+
+    // Save core messages (API-facing, survives compaction)
+    if (tabCoreMessages) {
+      const coreData: Record<string, import("ai").ModelMessage[]> = {};
+      for (const [tabId, cores] of tabCoreMessages) {
+        coreData[tabId] = cores;
+      }
+      const corePath = join(sessionDir, "core.json");
+      const coreTmp = `${corePath}.${suffix}.tmp`;
+      await writeFile(coreTmp, JSON.stringify(coreData), { encoding: "utf-8", mode: 0o600 });
+      await rename(coreTmp, corePath);
+    }
   }
 
-  loadSession(id: string): { meta: SessionMeta; tabMessages: Map<string, ChatMessage[]> } | null {
+  loadSession(id: string): {
+    meta: SessionMeta;
+    tabMessages: Map<string, ChatMessage[]>;
+    tabCoreMessages?: Map<string, import("ai").ModelMessage[]>;
+  } | null {
     const sessionDir = join(this.dir, id);
     const metaPath = join(sessionDir, "meta.json");
     if (!existsSync(metaPath)) return null;
@@ -126,7 +153,25 @@ export class SessionManager {
         tabMessages.set(tab.id, allMessages.slice(startLine, endLine));
       }
 
-      return { meta, tabMessages };
+      // Load saved core messages (API-facing, survives compaction)
+      const corePath = join(sessionDir, "core.json");
+      let tabCoreMessages: Map<string, import("ai").ModelMessage[]> | undefined;
+      if (existsSync(corePath)) {
+        try {
+          const coreData = JSON.parse(readFileSync(corePath, "utf-8")) as Record<
+            string,
+            import("ai").ModelMessage[]
+          >;
+          tabCoreMessages = new Map();
+          for (const [tabId, cores] of Object.entries(coreData)) {
+            tabCoreMessages.set(tabId, cores);
+          }
+        } catch {
+          /* ignore corrupt core.json — will fall back to rebuild */
+        }
+      }
+
+      return { meta, tabMessages, tabCoreMessages };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logBackgroundError("session-load", `Failed to load session ${id}: ${msg}`);
@@ -134,9 +179,11 @@ export class SessionManager {
     }
   }
 
-  async loadSessionAsync(
-    id: string,
-  ): Promise<{ meta: SessionMeta; tabMessages: Map<string, ChatMessage[]> } | null> {
+  async loadSessionAsync(id: string): Promise<{
+    meta: SessionMeta;
+    tabMessages: Map<string, ChatMessage[]>;
+    tabCoreMessages?: Map<string, import("ai").ModelMessage[]>;
+  } | null> {
     const sessionDir = join(this.dir, id);
     try {
       const io = getIOClient();
@@ -146,7 +193,14 @@ export class SessionManager {
       for (const [tabId, msgs] of result.tabEntries) {
         tabMessages.set(tabId, msgs);
       }
-      return { meta: result.meta, tabMessages };
+      let tabCoreMessages: Map<string, import("ai").ModelMessage[]> | undefined;
+      if (result.coreEntries) {
+        tabCoreMessages = new Map();
+        for (const [tabId, cores] of result.coreEntries) {
+          tabCoreMessages.set(tabId, cores as import("ai").ModelMessage[]);
+        }
+      }
+      return { meta: result.meta, tabMessages, tabCoreMessages };
     } catch {
       return this.loadSession(id);
     }
@@ -160,7 +214,8 @@ export class SessionManager {
     const firstTab = data.meta.tabs[0];
     if (!firstTab) return null;
     const msgs = data.tabMessages.get(firstTab.id) ?? [];
-    return { messages: msgs, coreMessages: rebuildCoreMessages(msgs) };
+    const savedCore = data.tabCoreMessages?.get(firstTab.id);
+    return { messages: msgs, coreMessages: savedCore ?? rebuildCoreMessages(msgs) };
   }
 
   findByPrefix(prefix: string): string | null {
@@ -231,7 +286,11 @@ export class SessionManager {
    * Synchronous save — used only for emergency crash-recovery writes
    * (signal handlers, uncaughtException). Never call from normal async paths.
    */
-  saveSessionSync(meta: SessionMeta, tabMessages: Map<string, ChatMessage[]>): void {
+  saveSessionSync(
+    meta: SessionMeta,
+    tabMessages: Map<string, ChatMessage[]>,
+    tabCoreMessages?: Map<string, import("ai").ModelMessage[]>,
+  ): void {
     this.ensureDir();
     const sessionDir = join(this.dir, meta.id);
     if (!existsSync(sessionDir)) {
@@ -264,6 +323,17 @@ export class SessionManager {
     writeFileSync(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
     renameSync(jsonlTmp, jsonlPath);
     renameSync(metaTmp, metaPath);
+
+    if (tabCoreMessages) {
+      const coreData: Record<string, import("ai").ModelMessage[]> = {};
+      for (const [tabId, cores] of tabCoreMessages) {
+        coreData[tabId] = cores;
+      }
+      const corePath = join(sessionDir, "core.json");
+      const coreTmp = `${corePath}.${suffix}.tmp`;
+      writeFileSync(coreTmp, JSON.stringify(coreData), { encoding: "utf-8", mode: 0o600 });
+      renameSync(coreTmp, corePath);
+    }
   }
 
   deleteSession(id: string): boolean {
@@ -271,6 +341,23 @@ export class SessionManager {
     if (!existsSync(dir)) return false;
     rmSync(dir, { recursive: true });
     return true;
+  }
+
+  renameSession(id: string, newTitle: string): boolean {
+    const metaPath = join(this.dir, id, "meta.json");
+    if (!existsSync(metaPath)) return false;
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, "utf-8")) as SessionMeta;
+      meta.title = newTitle;
+      meta.customTitle = newTitle;
+      const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const tmp = `${metaPath}.${suffix}.tmp`;
+      writeFileSync(tmp, JSON.stringify(meta, null, 2), { encoding: "utf-8", mode: 0o600 });
+      renameSync(tmp, metaPath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   clearAllSessions(): number {

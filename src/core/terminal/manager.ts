@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { MAX_TERMINALS, useTerminalStore } from "../../stores/terminals.js";
 import { useUIStore } from "../../stores/ui.js";
+import { trackBunProcess } from "../process-tracker.js";
 
 interface TerminalSpawnResult {
   success: boolean;
@@ -91,6 +92,7 @@ export function spawnTerminal(cwd?: string, cols = 80, rows = 24): TerminalSpawn
   });
 
   handles.set(termId, handle);
+  trackBunProcess(proc);
 
   proc.exited.then(() => {
     handles.delete(termId);

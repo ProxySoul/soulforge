@@ -61,6 +61,7 @@ const PROVIDER_CONSTRAINTS: Record<string, ProviderConstraints> = {
   xai: OPENAI_FULL,
   vercel_gateway: GATEWAY_FULL,
   llmgateway: GATEWAY_FULL,
+  opencode: GATEWAY_FULL,
   openrouter: GATEWAY_FULL,
   bedrock: GATEWAY_FULL,
 };
@@ -415,6 +416,7 @@ export const EPHEMERAL_CACHE: ProviderOptions = {
   google: CACHE_EPHEMERAL,
   proxy: CACHE_EPHEMERAL,
   llmgateway: CACHE_EPHEMERAL,
+  opencode: CACHE_EPHEMERAL,
   openrouter: CACHE_EPHEMERAL,
   vercel_gateway: CACHE_EPHEMERAL,
 } as ProviderOptions;

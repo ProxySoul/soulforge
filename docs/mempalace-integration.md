@@ -174,12 +174,12 @@ The wake-up context includes critical facts, team info, and recent decisions fro
 
 Worth noting: SoulForge's compaction v2 extraction is entirely rule-based. No LLM calls are made to extract decisions, files, or failures from the conversation. The extractor runs inline at tool-call time using pattern matching:
 
-- `extractFromToolCall` tracks file reads/edits/creates from tool args
-- `extractFromToolResult` captures errors, search results, test output
-- `extractFromUserMessage` captures the task and follow-up requirements
-- `extractFromAssistantMessage` extracts substantive sentences (filters filler like "Let me check...")
+- File reads/edits/creates are tracked from tool arguments
+- Errors, search results, and test output are captured from tool results
+- The task and follow-up requirements are captured from user messages
+- Substantive sentences are extracted from assistant text (filler is filtered)
 
-An optional cheap LLM gap-fill pass runs only when the working state has fewer than 15 slots (early in a conversation). For most sessions, compaction is pure extraction with zero API cost.
+An optional cheap LLM gap-fill pass runs only when the extracted state is sparse (early in a conversation). For most sessions, compaction is pure extraction with zero API cost.
 
 This means the MemPalace integration adds zero token overhead. The structured data that flows into the palace was already being computed for compaction. MemPalace just persists it.
 

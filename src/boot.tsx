@@ -141,6 +141,17 @@ function hexToAnsi(hex: string): string {
   const n = parseInt(h, 16);
   return `\\x1b[38;2;${(n >> 16) & 0xff};${(n >> 8) & 0xff};${n & 0xff}m`;
 }
+// Ensure spinner subprocess is killed if boot crashes or is interrupted.
+// This runs BEFORE index.tsx's signal handlers are registered.
+function killSpinner(): void {
+  try {
+    spinnerProc?.kill();
+  } catch {}
+}
+process.on("exit", killSpinner);
+process.on("SIGINT", killSpinner);
+process.on("SIGTERM", killSpinner);
+
 const spinnerProc = Bun.spawn(
   [
     process.execPath,
@@ -210,6 +221,10 @@ function status(...msgs: string[]): void {
 function stopSpinner(): void {
   spinnerProc.stdin.write("EXIT\n");
   spinnerProc.stdin.end();
+  // Remove early-boot signal handlers — index.tsx takes over cleanup from here.
+  process.removeListener("exit", killSpinner);
+  process.removeListener("SIGINT", killSpinner);
+  process.removeListener("SIGTERM", killSpinner);
 }
 
 process.stdout.write("\x1b[?25l\x1b[2J\x1b[H");

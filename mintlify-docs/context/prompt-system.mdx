@@ -8,7 +8,7 @@ Each model family (Claude, OpenAI, Gemini) gets a tailored system prompt, with s
 
 ## Family detection
 
-`detectModelFamily(modelId)` determines which prompt to use:
+SoulForge detects the model family from the model ID and selects the appropriate prompt style:
 
 | Model ID Pattern | Family | Prompt style |
 |---|---|---|
@@ -21,7 +21,7 @@ Gateway providers (OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy) are detect
 
 ## Prompt assembly
 
-`buildSystemPrompt()` assembles the final prompt from these sections:
+The system prompt is assembled from these sections:
 
 <Steps>
   <Step title="Family base prompt">
@@ -58,13 +58,11 @@ Gateway providers (OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy) are detect
 
 ## Cache strategy
 
-The system prompt is split for Anthropic prompt caching efficiency:
+The system prompt is structured for Anthropic prompt caching efficiency:
 
-- **System prompt** (steps 1-10) --marked with `EPHEMERAL_CACHE`, stable across steps
-- **Soul Map** --injected as a user/assistant message pair (updates after edits without invalidating the cached system prompt)
-- **Skills** --injected as a separate user/assistant message pair
-
-The ~12k token system prompt + tool schemas are cached on the first turn and reused on subsequent turns.
+- **System prompt** (all sections above) — stable across steps, cached after the first turn
+- **Soul Map** — injected as a separate message pair (updates after edits without invalidating the cached system prompt)
+- **Skills** — injected as a separate message pair
 
 ## Mode overlays
 
@@ -108,32 +106,4 @@ This pattern (inspired by Aider's repo map) keeps the structural context visible
 
 ## Adding a new family
 
-1. Create `src/core/prompts/families/yourfamily.ts`:
-   ```typescript
-   import { SHARED_RULES } from "./shared-rules.js";
-   export const YOUR_PROMPT = `You are Forge -- ...
-   ${SHARED_RULES}`;
-   ```
-
-2. Add to `FAMILY_PROMPTS` in `builder.ts`
-
-3. Add detection in `provider-options.ts` `detectModelFamily()`
-
-## File layout
-
-```
-src/core/prompts/
-+-- builder.ts              # Assembles system prompt
-+-- index.ts                # Module entry
-+-- families/
-|   +-- shared-rules.ts     # Tool policy, conventions (shared)
-|   +-- claude.ts           # Claude family
-|   +-- openai.ts           # OpenAI family
-|   +-- google.ts           # Gemini family
-|   +-- default.ts          # Fallback
-+-- shared/
-|   +-- tool-guidance.ts    # Tool priority list
-|   +-- soul-map.ts         # Soul Map builder + directory tree
-+-- modes/
-    +-- index.ts            # Mode overlays
-```
+Create a new prompt file for your model family, add it to the family prompt registry, and add detection logic for the model ID pattern.

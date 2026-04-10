@@ -1,6 +1,6 @@
 {
   "name": "@proxysoul/soulforge",
-  "version": "2.9.5",
+  "version": "2.10.0",
   "description": "Graph-powered code intelligence — multi-agent coding with codebase-aware AI",
   "repository": {
     "type": "git",
@@ -71,6 +71,7 @@
     "@ai-sdk/mcp": "^1.0.35",
     "@ai-sdk/mistral": "^3.0.30",
     "@ai-sdk/openai": "3.0.52",
+    "@ai-sdk/openai-compatible": "^2.0.41",
     "@ai-sdk/xai": "3.0.82",
     "@anthropic-ai/sdk": "0.86.1",
     "@llmgateway/ai-sdk-provider": "3.5.0",

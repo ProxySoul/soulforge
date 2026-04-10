@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import { toErrorMessage } from "../../utils/errors.js";
+import { trackProcess } from "../process-tracker.js";
 import { getVendoredPath, installProxy, PROXY_VERSION } from "../setup/install.js";
 
 let proxyProcess: ChildProcess | null = null;
@@ -218,7 +219,7 @@ export async function ensureProxy(): Promise<{ ok: boolean; error?: string }> {
       detached: false,
       stdio: "ignore",
     });
-    proxyProcess.unref();
+    trackProcess(proxyProcess);
     proxyProcess.on("error", (err) => {
       logBackgroundError("CLIProxyAPI", err.message);
       setState("error", `Process error: ${err.message}`);
@@ -356,6 +357,7 @@ export function runProxyLogin(
   const proc = spawn(binary, ["-config", PROXY_CONFIG_PATH, flag], {
     stdio: ["ignore", "pipe", "pipe"],
   });
+  trackProcess(proc);
 
   const handleData = (data: Buffer) => {
     const text = data.toString().trim();

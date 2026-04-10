@@ -1,7 +1,6 @@
 import { decodePasteBytes, type PasteEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { ptyToJson, type TerminalData } from "ghostty-opentui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { icon } from "../../core/icons.js";
 import {
   getTerminalBuffer,
@@ -15,42 +14,6 @@ import { useUIStore } from "../../stores/ui.js";
 import { Overlay, POPUP_BG } from "./shared.js";
 
 const MAX_PANEL_WIDTH = 100;
-
-function TerminalLines({ data, rows, bg }: { data: TerminalData; rows: number; bg: string }) {
-  const viewStart = Math.max(0, data.lines.length - rows);
-  const viewLines = data.lines.slice(viewStart, viewStart + rows);
-
-  return (
-    <>
-      {viewLines.map((line, li) => (
-        <box key={`L${String(viewStart + li)}`} height={1}>
-          <text bg={bg}>
-            {line.spans.map((span, si) => (
-              <span
-                key={`s${String(si)}`}
-                fg={span.fg ?? undefined}
-                bg={span.bg ?? undefined}
-                attributes={
-                  (span.flags & 1 ? 1 : 0) | // bold
-                  (span.flags & 2 ? 4 : 0) | // italic
-                  (span.flags & 4 ? 2 : 0) // underline
-                }
-              >
-                {span.text}
-              </span>
-            ))}
-          </text>
-        </box>
-      ))}
-      {viewLines.length < rows &&
-        Array.from({ length: rows - viewLines.length }, (_, i) => (
-          <box key={`e${String(viewLines.length + i)}`} height={1}>
-            <text bg={bg}> </text>
-          </box>
-        ))}
-    </>
-  );
-}
 
 export function FloatingTerminal() {
   const t = useTheme();
@@ -80,11 +43,6 @@ export function FloatingTerminal() {
     if (!isOpen || !selectedId) return;
     resizeTerminal(selectedId, termCols, termRows);
   }, [isOpen, selectedId, termCols, termRows]);
-
-  const termData = useMemo<TerminalData | null>(() => {
-    if (ansiBuffer.byteLength === 0) return null;
-    return ptyToJson(ansiBuffer, { cols: termCols, rows: termRows });
-  }, [ansiBuffer, termCols, termRows]);
 
   // Forward clipboard paste into the terminal shell
   useEffect(() => {
@@ -214,8 +172,8 @@ export function FloatingTerminal() {
           </text>
         </box>
         <box height={termRows} flexDirection="column" backgroundColor={POPUP_BG}>
-          {termData ? (
-            <TerminalLines data={termData} rows={termRows} bg={POPUP_BG} />
+          {ansiBuffer.byteLength > 0 ? (
+            <ghostty-terminal ansi={ansiBuffer} showCursor cols={termCols} rows={termRows} />
           ) : (
             <box paddingX={2}>
               <text bg={POPUP_BG} fg={t.textDim}>

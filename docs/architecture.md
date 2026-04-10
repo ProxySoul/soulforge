@@ -35,7 +35,7 @@ User Input
                    ▼              ▼              ▼
             ┌───────────┐  ┌───────────┐  ┌───────────┐
             │   Tools   │  │Intelligence│  │  Neovim   │
-            │  36 tools │  │  Router    │  │ (msgpack) │
+            │  36+ tools │  │  Router    │  │ (msgpack) │
             └───────────┘  └─────┬─────┘  └───────────┘
                                  │
                       ┌──────────┼──────────┐
@@ -61,24 +61,22 @@ See [Repo Map](repo-map.md) for the full reference.
 
 ### Spark / Ember Architecture
 
-Subagents are classified into two tiers by `classifyTask()`:
+Subagents are classified into tiers:
 
-| Tier | Name | Roles | Model slot | Cache strategy | Purpose |
-|------|------|-------|------------|----------------|---------|
-| 0 | **Forge** | orchestrator | active model | full context | Main agent — plans, dispatches, responds |
-| 1 | **⚡ Spark** | explore, investigate | `taskRouter.spark` | Shares forge's system prompt + tool definitions for cache prefix hits | Read-only research, code analysis. Step limit: 28 (explore), 18 (code) |
-| 2 | **🔥 Ember** | code | `taskRouter.ember` | Fresh context, own model | File edits, refactoring, implementation |
-| — | **WebSearch** | web research | `taskRouter.webSearch` | — | Multi-step web research with scraping |
+| Agent | Purpose |
+|-------|---------|
+| **Forge** | Main orchestrator — plans, dispatches, responds |
+| **⚡ Spark** | Read-only research and code analysis. Shares the forge's cache for efficiency |
+| **🔥 Ember** | File edits, refactoring, implementation. Uses its own model and context |
+| **WebSearch** | Multi-step web research with scraping |
 
-Sparks share the forge's system prompt and tool definitions for cache prefix hits. Embers use their own model and context. Code agents are always embers. The dispatch schema's `tier` field allows override.
+Sparks share the forge's system prompt for cache efficiency. Embers use their own model and context. Code agents are always embers.
 
-Optional post-dispatch passes: de-sloppify (cleanup agent reviews edits in fresh context) and verify (checks correctness). Both configurable via task router.
+Optional post-dispatch passes: de-sloppify (cleanup agent reviews edits) and verify (checks correctness). Both configurable via `/agent-features`.
 
 ### AgentBus
 
-**File**: `src/core/agents/agent-bus.ts`
-
-In-process coordination layer for parallel subagents. Handles file caching (deduplicated reads across agents), tool result caching (persists across dispatches), edit coordination (serialized writes per file with ownership tracking), and real-time peer findings.
+In-process coordination layer for parallel subagents. Handles file caching (deduplicated reads across agents), tool result caching (persists across dispatches), edit coordination (serialized writes per file), and real-time peer findings.
 
 ### Agent Quality
 
@@ -92,8 +90,6 @@ All features can be toggled via `/agent-features` or `agentFeatures` in config.
 ---
 
 ## Intelligence Router
-
-**File**: `src/core/intelligence/router.ts`
 
 Routes code intelligence operations to the best available backend.
 
@@ -161,21 +157,36 @@ See [Compaction](compaction.md) for context management details.
 
 ### Providers
 
-**File**: `src/core/llm/providers/`
+20 built-in providers:
 
-| Provider | SDK | Notes |
-|----------|-----|-------|
-| **Anthropic** | `@ai-sdk/anthropic` | Claude models, prompt caching support |
-| **OpenAI** | `@ai-sdk/openai` | GPT-4o, o3, o4-mini |
-| **xAI** | `@ai-sdk/xai` | Grok models |
-| **Google** | `@ai-sdk/google` | Gemini models |
-| **Ollama** | Custom | Local models, no API key needed |
-| **AI Gateway** | Custom | Vercel AI Gateway — all providers through one key |
-| **Proxy** | `@ai-sdk/anthropic` (custom baseURL) | Local CLIProxyAPI relay for Claude web session auth |
+| Provider | Notes |
+|----------|-------|
+| **Anthropic** | Claude models, prompt caching support |
+| **OpenAI** | GPT-4o, o3, o4-mini |
+| **Google** | Gemini models |
+| **xAI** | Grok models |
+| **Groq** | Fast inference (Llama, Mixtral) |
+| **DeepSeek** | DeepSeek Chat/Coder |
+| **Mistral** | Mistral Large, Codestral |
+| **Bedrock** | AWS-hosted models via IAM |
+| **Fireworks** | Fast inference models |
+| **MiniMax** | MiniMax models |
+| **Codex** | ChatGPT/Codex subscription via OAuth |
+| **Copilot** | GitHub Copilot (unofficial, OAuth from IDE) |
+| **GitHub Models** | GPT-4o, Llama, DeepSeek, Mistral |
+| **OpenRouter** | 200+ models |
+| **OpenCode** | OpenCode models |
+| **LLM Gateway** | Multi-model gateway |
+| **Vercel AI Gateway** | Unified gateway |
+| **Proxy** | Local CLIProxyAPI relay |
+| **Ollama** | Local models, no API key |
+| **LM Studio** | Local models, no API key |
+
+Plus custom OpenAI-compatible providers via config.
 
 ### Task Router
 
-Maps task types to specific models. Slots: `spark`, `ember`, `webSearch`, `desloppify`, `verify`, `compact`, `semantic`, `default`. Resolution: slot → default → active model. Legacy fields (`coding`, `exploration`, `trivial`) are mapped to spark/ember on config load.
+Maps task types to specific models. Slots: `spark`, `ember`, `webSearch`, `desloppify`, `verify`, `compact`, `semantic`, `default`. Resolution: slot → default → active model.
 
 ---
 

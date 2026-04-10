@@ -14,6 +14,7 @@ import type {
   LanguageModelV2StreamPart,
   LanguageModelV2Usage,
 } from "@ai-sdk/provider";
+import { trackProcess } from "../../../process-tracker.js";
 
 export interface CodexRunnerCall {
   modelId: string;
@@ -326,6 +327,7 @@ async function runCodexProcess(
   abortSignal?: AbortSignal,
 ): Promise<CodexRunnerResult> {
   const child = spawn("codex", args, { signal: abortSignal });
+  trackProcess(child);
   let spawnError: unknown | null = null;
   child.once("error", (error) => {
     spawnError = error;

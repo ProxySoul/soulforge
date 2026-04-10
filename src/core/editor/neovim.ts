@@ -4,25 +4,49 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { attach } from "neovim";
 import type { NvimConfigMode } from "../../types/index.js";
-import { trackProcess } from "../process-tracker.js";
-import { NvimScreen } from "./screen.js";
+import { trackBunProcess, trackProcess } from "../process-tracker.js";
 
 export interface NvimInstance {
   api: ReturnType<typeof attach>;
-  process: ChildProcess;
-  screen: NvimScreen;
+  pty: {
+    proc: ReturnType<typeof Bun.spawn>;
+    write: (data: string) => void;
+    onData: (cb: (data: Uint8Array) => void) => () => void;
+    resize: (cols: number, rows: number) => void;
+  };
+  socketPath: string;
+}
+
+// Track active nvim PTY processes for emergency cleanup on app exit
+const _activePtyProcs = new Set<ReturnType<typeof Bun.spawn>>();
+const _activeSocketPaths = new Set<string>();
+
+/** Kill all tracked nvim PTY processes and clean up socket files. Called on app exit. */
+export function killAllNvimProcesses(): void {
+  for (const proc of _activePtyProcs) {
+    try {
+      proc.kill();
+    } catch {}
+  }
+  _activePtyProcs.clear();
+  for (const socketPath of _activeSocketPaths) {
+    try {
+      rmSync(socketPath, { force: true });
+    } catch {}
+  }
+  _activeSocketPaths.clear();
 }
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
 /**
- * Launch an embedded neovim instance with UI attached.
- * We attach as a UI client and receive redraw events to render
- * the screen in our TUI.
+ * Launch neovim in a real PTY with a separate RPC socket channel.
+ * The PTY handles all rendering (cursor shapes, escape sequences, scroll regions)
+ * via ghostty's VT parser. RPC over --listen socket provides API access.
  *
  * Flags:
- * - `--embed`: run as an embedded UI client (waits for nvim_ui_attach)
+ * - `--listen <socket>`: open RPC channel on a Unix socket
  * - `-i NONE`: skip ShaDa file (marks, registers, history — irrelevant for embedded use)
  */
 let _onFileWritten: ((absPath: string) => void) | null = null;
@@ -40,7 +64,8 @@ export async function launchNeovim(
   killBootstrap();
 
   let effectivePath = nvimPath;
-  const args = ["--embed", "-i", "NONE"];
+  const socketPath = `/tmp/sf-nvim-${process.pid}-${Date.now()}.sock`;
+  const args = ["-i", "NONE", "--listen", socketPath];
 
   const isBundled = import.meta.url.includes("$bunfs");
   const bundledInit = join(homedir(), ".soulforge", "init.lua");
@@ -69,30 +94,77 @@ export async function launchNeovim(
 
   const env = configMode === "user" ? process.env : { ...process.env, NVIM_APPNAME: "soulforge" };
 
-  const proc = spawn(effectivePath, args, {
+  // Buffer PTY output so late subscribers (React components mounting after
+  // neovim has already drawn its initial screen) can replay the full history.
+  const dataListeners = new Set<(data: Uint8Array) => void>();
+  const bufferedChunks: Uint8Array[] = [];
+  let bufferedBytes = 0;
+  const BUFFER_MAX = 64_000; // ~64KB — enough for a full screen redraw
+
+  const proc = Bun.spawn([effectivePath, ...args], {
     cwd: process.cwd(),
-    stdio: ["pipe", "pipe", "pipe"],
     env,
+    terminal: {
+      cols,
+      rows,
+      data(_term, data) {
+        const copy = new Uint8Array(data.byteLength);
+        copy.set(data);
+        // Buffer for late subscribers
+        bufferedChunks.push(copy);
+        bufferedBytes += data.byteLength;
+        while (bufferedBytes > BUFFER_MAX && bufferedChunks.length > 1) {
+          const dropped = bufferedChunks.shift();
+          if (dropped) bufferedBytes -= dropped.byteLength;
+        }
+        for (const cb of dataListeners) cb(copy);
+      },
+    },
   });
-  trackProcess(proc);
 
-  const api = attach({ proc });
-  const screen = new NvimScreen(rows, cols);
+  const pty = {
+    proc,
+    write(data: string) {
+      proc.terminal?.write(data);
+    },
+    onData(cb: (data: Uint8Array) => void): () => void {
+      // Replay buffered data so the subscriber sees the current screen state
+      for (const chunk of bufferedChunks) cb(chunk);
+      dataListeners.add(cb);
+      return () => dataListeners.delete(cb);
+    },
+    resize(c: number, r: number) {
+      proc.terminal?.resize(c, r);
+    },
+  };
 
-  // Subscribe to notifications BEFORE ui_attach so we don't miss events
+  // Wait for socket to appear (neovim creates it after startup)
+  const deadline = Date.now() + 3000;
+  while (!existsSync(socketPath)) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for neovim socket");
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const api = attach({ socket: socketPath });
+
+  // Listen for file-written notifications on the RPC channel
   api.on("notification", (method: string, args: unknown[]) => {
-    if (method === "redraw") {
-      screen.processEvents(args);
-    } else if (method === "soulforge:file_written" && _onFileWritten) {
+    if (method === "soulforge:file_written" && _onFileWritten) {
       const path = Array.isArray(args) ? args[0] : undefined;
       if (typeof path === "string" && path) _onFileWritten(path);
     }
   });
 
-  // Attach as a UI client — neovim will start sending redraw events
-  await api.request("nvim_ui_attach", [cols, rows, { ext_linegrid: true, rgb: true }]);
+  // Track for emergency cleanup
+  _activePtyProcs.add(proc);
+  _activeSocketPaths.add(socketPath);
+  trackBunProcess(proc);
+  proc.exited.then(() => {
+    _activePtyProcs.delete(proc);
+    _activeSocketPaths.delete(socketPath);
+  });
 
-  return { api, process: proc, screen };
+  return { api, pty, socketPath };
 }
 
 /**
@@ -216,11 +288,10 @@ export function bootstrapNeovimPlugins(nvimPath: string): void {
     {
       cwd: process.cwd(),
       stdio: "ignore",
-      detached: true,
       env: { ...process.env, NVIM_APPNAME: "soulforge" },
     },
   );
-  proc.unref();
+  trackProcess(proc);
   _bootstrapProc = proc;
   proc.on("exit", () => {
     _bootstrapProc = null;
@@ -232,14 +303,14 @@ export function bootstrapNeovimPlugins(nvimPath: string): void {
  */
 export async function shutdownNeovim(nvim: NvimInstance): Promise<void> {
   try {
-    await nvim.api.request("nvim_ui_detach", []);
-  } catch {
-    // May not have UI attached
-  }
-  try {
     await nvim.api.command("qall!");
   } catch {
     // May already be closed
   }
-  nvim.process.kill();
+  nvim.pty.proc.kill();
+  _activePtyProcs.delete(nvim.pty.proc);
+  _activeSocketPaths.delete(nvim.socketPath);
+  try {
+    rmSync(nvim.socketPath, { force: true });
+  } catch {}
 }

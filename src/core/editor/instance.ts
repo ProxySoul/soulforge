@@ -19,7 +19,7 @@ export function getNvimInstance(): NvimInstance | null {
 }
 
 export function getNvimPid(): number | null {
-  return instance?.process.pid ?? null;
+  return instance?.pty.proc.pid ?? null;
 }
 
 /** Register a callback to open a file in the editor. Called by React side on mount. */

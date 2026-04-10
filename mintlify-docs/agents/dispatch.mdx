@@ -1,155 +1,56 @@
 ---
 title: "Multi-agent dispatch"
-description: "Parallel agent coordination via AgentBus -- shared cache, edit mutex, findings, and staggered spawning."
+description: "Parallel agent coordination — shared cache, edit safety, findings, and staggered spawning."
 icon: "users"
 ---
 
 The AgentBus runs multiple AI agents in parallel without duplicate work, file conflicts, or lost findings.
 
-## Architecture
+## How it works
 
-```
-+----------+  +----------+  +----------+
-|  Explore |  |   Code   |  | WebSearch|
-|  Agent   |  |  Agent   |  |  Agent   |
-+----+-----+  +----+-----+  +----+-----+
-     |             |              |
-     +--------+----+--------------+
-              v
-     +----------------+
-     |    AgentBus    |
-     |                |
-     |  File Cache    |  <- shared reads, no duplicates
-     |  Tool Cache    |  <- LRU 200, cross-agent reuse
-     |  Edit Mutex    |  <- serialized writes per file
-     |  Findings      |  <- real-time peer communication
-     |  Generation    |  <- freshness tracking
-     +----------------+
-```
+When you dispatch multiple tasks, SoulForge spawns agents in parallel with a shared coordination layer:
 
-## File cache
+- **File reads are deduplicated** — the first agent to read a file caches it; others get the cached content instantly
+- **Tool results are shared** — read-only tool results (grep, glob, navigate, etc.) are cached across agents
+- **Edits are serialized** — concurrent edits to the same file are queued, not raced
+- **Findings propagate** — one agent's discovery is visible to other agents within a step or two
+- **Caches persist** — warm caches carry over between dispatches in the same session
 
-### Read deduplication
+## Edit safety
 
-When agent A reads `src/index.ts`, the content is cached. When agent B reads the same file:
-
-```
-Agent A: acquireFileRead("src/index.ts")
-  -> { cached: false, gen: 0 }  // A is first, starts reading
-
-Agent B: acquireFileRead("src/index.ts")
-  -> { cached: "waiting", content: Promise<string> }  // B waits for A
-
-Agent A finishes: releaseFileRead("src/index.ts", content)
-  -> B's Promise resolves with same content
-```
-
-One disk read serves both agents.
-
-### Generation counter
-
-Each cache entry has a `gen` counter, incremented on every edit. Agents can check whether content has been updated by another agent since their last read.
-
-### Invalidation
-
-`invalidateFile(path)`:
-1. Resolve any waiting agents with `null` (so they re-read from disk)
-2. Clear the cache entry
-3. Expire any tool result cache entries that reference this path
-
-## Tool result cache
-
-LRU cache with 200 entry limit. Keyed by `toolName:canonicalized-args`:
-
-```
-grep:handleSubmit:src/components:*.tsx
-read_code:AgentBus:src/core/agents/agent-bus.ts
-glob:**/*.test.ts:src/
-```
-
-Cached tools: `read_code`, `grep`, `glob`, `navigate`, `analyze`, `web_search`.
-
-### Cross-dispatch persistence
-
-```typescript
-// First dispatch:
-const bus1 = new AgentBus(sharedCache);  // cold start
-// ... agents run ...
-sharedCache = bus1.exportCaches();       // export warm cache
-
-// Second dispatch:
-const bus2 = new AgentBus(sharedCache);  // starts warm
-// Agent reads "src/index.ts" -> cache hit from previous dispatch
-```
-
-`exportCaches()` returns only completed file reads and the full tool result cache. Pending reads and edit state are not exported.
-
-## Edit mutex
-
-Concurrent edits to the same file are serialized via promise chaining:
-
-```
-Agent A: edit "src/index.ts" -> lock acquired, edit proceeds
-Agent B: edit "src/index.ts" -> queued behind A's Promise
-Agent A: edit complete -> B's edit proceeds
-```
-
-The first editor becomes the "owner". If a second agent edits the same file, it receives a warning. After all dispatches complete, the parent agent is told about conflicts.
+The first agent to edit a file becomes its "owner". If a second agent tries to edit the same file, it receives a warning. After all agents finish, the parent Forge agent is told about any conflicts.
 
 ## Findings
 
-Real-time peer communication without shared context windows.
+Agents share discoveries in real-time without sharing context windows. When one agent discovers something relevant (e.g. "auth uses JWT with refresh tokens"), other agents see it at their next step and can adjust their approach.
 
-<Steps>
-  <Step title="Report">
-    Agent calls `report_finding("auth pattern", "Uses JWT with refresh tokens stored in HttpOnly cookies")`
-  </Step>
-  <Step title="Store">
-    Finding appended to bus with `agentId`, `label`, `content`, `timestamp`. Deduplication via `findingKeys` set.
-  </Step>
-  <Step title="Track">
-    Each agent tracks `_lastSeenFindingIdx` -- its index into the findings array.
-  </Step>
-  <Step title="Drain">
-    On each step, `prepareStep()` calls `drainUnseenFindings(agentId)` -- returns findings since last drain.
-  </Step>
-  <Step title="Inject">
-    New findings injected into the system prompt as peer discovery messages.
-  </Step>
-</Steps>
-
-Findings propagate within one step (~100ms agent stagger + step processing time). One agent's discovery influences the next agent's tool calls within 1-2 steps.
-
-## Dispatch orchestration
-
-### Multi-agent dispatch
+## Dispatch flow
 
 ```
-Forge calls dispatch([
-  { task: "Find all auth middleware", agent: "explore" },
-  { task: "Add rate limiting to /api/users", agent: "code" }
-])
+Forge dispatches tasks
+    |
+    v
+Agents spawn with staggered starts
+    |
+    v
+Each agent runs independently with shared cache access
+    |
+    v
+Results aggregated and compressed
+    |
+    v
+Combined result returned to Forge
 ```
 
-1. Create AgentBus (import previous SharedCache if available)
-2. Register tasks on the bus
-3. Spawn agents with 100ms stagger (prevents thundering herd on file reads)
-4. Each agent runs independently with shared bus access
-5. Wait for all agents to complete (or hit timeout/budget)
-6. Aggregate results: each agent's structured output + bus findings
-7. Apply `toModelOutput()` compression
-8. Export caches for next dispatch
-9. Return combined result to Forge
+Single-task dispatches skip coordination overhead and return the result directly.
 
-### Single-agent optimization
+## Spark vs Ember
 
-If only one task is dispatched, the system skips bus coordination overhead and returns the result directly.
+| Agent | Role | When used |
+|-------|------|-----------|
+| **⚡ Spark** | Read-only research | Explore/investigate tasks. Shares the forge's cache for efficiency |
+| **🔥 Ember** | Code edits | Code tasks. Uses its own model and fresh context |
 
-### Result compression
-
-`toModelOutput()` compresses the dispatch result before the parent Forge sees it:
-- Collapse consecutive blank lines
-- Truncate individual lines (500 char limit, skip inside code blocks)
-- Strip verbose reasoning that doesn't add information
+The dispatch schema's `role` field controls which tier is used. Code agents are always embers.
 
 See also: [User steering](/agents/steering) for redirecting agents mid-execution.

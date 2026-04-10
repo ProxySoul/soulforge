@@ -278,6 +278,20 @@ export function formatResult(toolName: string, result?: string): string {
       return `${String(lines)} lines [cached]`;
     }
   } catch {}
+  // Read tool — show line count, not file content
+  if (toolName === "read") {
+    try {
+      const p = JSON.parse(result);
+      if (p.success && p.output) {
+        const lines = String(p.output).split("\n").filter(Boolean).length;
+        return `→ ${String(lines)} lines`;
+      }
+      if (p.error) {
+        const msg = String(p.error);
+        return msg.length > 30 ? `${msg.slice(0, 27)}...` : msg;
+      }
+    } catch {}
+  }
   // Soul tools — extract structured counts from output text
   if (toolName === "soul_impact" || toolName === "soul_analyze") {
     try {
@@ -416,9 +430,9 @@ export function formatResult(toolName: string, result?: string): string {
     const parsed: Record<string, unknown> = JSON.parse(result);
     if (parsed.output) {
       const out = String(parsed.output);
-      const lines = out.split("\n").length;
-      if (lines > 1) return `${String(lines)} lines`;
-      return out.length > 40 ? `${out.slice(0, 37)}...` : out;
+      // Use first line for multi-line output (e.g. edit results with post-edit diagnostics)
+      const firstLine = out.split("\n")[0] ?? out;
+      return firstLine.length > 40 ? `${firstLine.slice(0, 37)}...` : firstLine;
     }
     if (parsed.error) return String(parsed.error).slice(0, 50);
     if (parsed.branch !== undefined) {

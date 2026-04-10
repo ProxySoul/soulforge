@@ -3,11 +3,12 @@ import type { createRoot as CreateRoot } from "@opentui/react";
 import { startTransition, useCallback, useEffect, useState } from "react";
 import type { App as AppComponent } from "./components/App.js";
 import type { ContextManager } from "./core/context/manager.js";
+import { killAllNvimProcesses } from "./core/editor/neovim.js";
 import { icon } from "./core/icons.js";
 import { disposeIntelligenceRouter } from "./core/intelligence/index.js";
 import { deactivateCurrentProvider, type ProviderStatus } from "./core/llm/provider.js";
 import { disposeMCPManager } from "./core/mcp/index.js";
-import { killAllTracked } from "./core/process-tracker.js";
+import { killAllTracked, killProcessGroup } from "./core/process-tracker.js";
 import { getRestartSpec } from "./core/restart.js";
 import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
@@ -55,7 +56,14 @@ function runCleanup(): void {
     killAllTracked();
   } catch {}
   try {
+    killAllNvimProcesses();
+  } catch {}
+  try {
     disposeMCPManager();
+  } catch {}
+  // Nuclear fallback: kill entire process group to catch any orphaned grandchildren
+  try {
+    killProcessGroup();
   } catch {}
 }
 
@@ -359,6 +367,7 @@ export async function start(opts: StartOptions): Promise<void> {
     // Native .node addon can't be embedded in compiled binaries — graceful fallback
     try {
       const { GhosttyTerminalRenderable } = await import("ghostty-opentui/terminal-buffer");
+      // biome-ignore lint/suspicious/noExplicitAny: ghostty-opentui may resolve a different @opentui/core version
       extend({ "ghostty-terminal": GhosttyTerminalRenderable as any });
     } catch {}
   }

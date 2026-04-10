@@ -11,6 +11,7 @@
  *   - Signal handlers call `flushEmergencySession` before process.exit().
  */
 
+import type { ModelMessage } from "ai";
 import type { ChatMessage } from "../../types/index.js";
 import type { SessionManager } from "./manager.js";
 import type { SessionMeta } from "./types.js";
@@ -19,6 +20,7 @@ interface EmergencySnapshot {
   manager: SessionManager;
   meta: SessionMeta;
   tabMessages: Map<string, ChatMessage[]>;
+  tabCoreMessages?: Map<string, ModelMessage[]>;
 }
 
 let _snapshot: EmergencySnapshot | null = null;
@@ -28,6 +30,7 @@ export function updateEmergencySnapshot(
   manager: SessionManager,
   meta: SessionMeta,
   tabMessages: Map<string, ChatMessage[]>,
+  tabCoreMessages?: Map<string, ModelMessage[]>,
 ): void {
   // Deep-copy messages so mutations during streaming don't corrupt the snapshot
   const frozen = new Map<string, ChatMessage[]>();
@@ -37,7 +40,7 @@ export function updateEmergencySnapshot(
       msgs.map((m) => ({ ...m })),
     );
   }
-  _snapshot = { manager, meta: { ...meta }, tabMessages: frozen };
+  _snapshot = { manager, meta: { ...meta }, tabMessages: frozen, tabCoreMessages };
 }
 
 /**
@@ -48,7 +51,11 @@ export function updateEmergencySnapshot(
 export function flushEmergencySession(): boolean {
   if (!_snapshot) return false;
   try {
-    _snapshot.manager.saveSessionSync(_snapshot.meta, _snapshot.tabMessages);
+    _snapshot.manager.saveSessionSync(
+      _snapshot.meta,
+      _snapshot.tabMessages,
+      _snapshot.tabCoreMessages,
+    );
     return true;
   } catch {
     // Best-effort — never throw from a signal handler

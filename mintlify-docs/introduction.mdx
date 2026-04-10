@@ -7,21 +7,21 @@ icon: "terminal"
 <img src="/images/main-1.png" alt="SoulForge" />
 <img src="/images/main-2.png" alt="SoulForge" />
 
-Your real Neovim -- config, plugins, LSP -- embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 12 providers. Works over SSH.
+Your real Neovim — config, plugins, LSP — embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 20 providers. Works over SSH.
 
 ## How it compares
 
 | | SoulForge | Claude Code | Copilot CLI | Codex CLI | Aider |
 |---|---|---|---|---|---|
 | **Editor** | Embedded Neovim (your config) | No editor | No editor | No editor | No editor |
-| **Code graph** | SQLite graph -- PageRank, blast radius, cochange, clone detection, FTS5 | None (file reads + grep) | None | None (MCP plugins) | Tree-sitter repo map + PageRank |
-| **Code intelligence** | 4-tier fallback: LSP, ts-morph, tree-sitter, regex. Dual LSP. 12 operations. 33+ languages | LSP via plugin marketplace (rename via cclsp, no auto-install) | No agent LSP access | MCP-based LSP via plugins | Tree-sitter AST |
-| **Compound tools** | `rename_symbol`, `move_symbol`, `refactor` -- compiler-guaranteed, atomic | Rename via LSP | -- | -- | -- |
-| **Semantic context** | AST summaries for top 500 symbols, dispatch auto-enrichment | -- | -- | -- | Tree-sitter tag summaries |
-| **Multi-agent** | Parallel dispatch (8 agents, 3 concurrent, shared cache, edit ownership) | Subagents + Agent Teams | Subagents + Fleet | Multi-agent v2 + subagents | Single agent |
-| **Providers** | 13 (LLM Gateway, Anthropic, OpenAI, Google, xAI, Copilot, GitHub Models, Ollama, LM Studio, +4) + custom | Anthropic (API, Bedrock, Vertex) | Multi-model | OpenAI models | 100+ LLMs |
-| **Task routing** | Per-task model assignment (plan, code, explore, search, trivial, cleanup, compact) | Single model | Single model | Per-agent model | Single model |
-| **Context management** | 2-layer: per-step pruning + V1/V2 compaction | Auto-compaction | Context window management | Server-side compaction | -- |
+| **Code graph** | SQLite graph — PageRank, blast radius, cochange, clone detection, FTS5 | None (file reads + grep) | None | None (MCP plugins) | Tree-sitter repo map + PageRank |
+| **Code intelligence** | 4-tier fallback: LSP, ts-morph, tree-sitter, regex. Dual LSP. 33+ languages | LSP via plugin marketplace | No agent LSP access | MCP-based LSP via plugins | Tree-sitter AST |
+| **Compound tools** | `rename_symbol`, `move_symbol`, `refactor` — compiler-guaranteed, atomic | Rename via LSP | — | — | — |
+| **Multi-agent** | Parallel dispatch with shared cache and edit coordination | Subagents + Agent Teams | Subagents + Fleet | Multi-agent v2 + subagents | Single agent |
+| **Providers** | 20 built-in + custom OpenAI-compatible | Anthropic (API, Bedrock, Vertex) | Multi-model | OpenAI models | 100+ LLMs |
+| **Task routing** | Per-task model assignment (spark, ember, web search, verify, compact) | Single model | Single model | Per-agent model | Single model |
+| **Context management** | Per-step pruning + V1/V2 compaction | Auto-compaction | Context window management | Server-side compaction | — |
+| **Hooks** | 13 lifecycle events, Claude Code compatible | Hooks (PreToolUse, etc.) | — | — | — |
 | **License** | BSL 1.1 (source-available) | Proprietary | Proprietary | Apache 2.0 | Apache 2.0 |
 
 <Note>Competitor capabilities verified as of March 29, 2026.</Note>
@@ -55,7 +55,7 @@ Your real Neovim -- config, plugins, LSP -- embedded in an AI agent that underst
 </Card>
 
 <Card title="Context management" icon="layers">
-  Rolling tool-result pruning per step, plus V1/V2 compaction on threshold.
+  Smart context pruning per step, plus V1/V2 compaction strategies.
 </Card>
 
 <Card title="User steering" icon="compass">
@@ -70,8 +70,8 @@ Your real Neovim -- config, plugins, LSP -- embedded in an AI agent that underst
   Catppuccin, Dracula, Gruvbox, Nord, Tokyo Night, Rose Pine, and more. Create custom themes with hot reload.
 </Card>
 
-<Card title="13 providers" icon="plug">
-  LLM Gateway, Anthropic, OpenAI, Google, xAI, GitHub Copilot, GitHub Models, Ollama, LM Studio, OpenRouter, Vercel AI Gateway, Proxy, and custom OpenAI-compatible APIs.
+<Card title="20 providers" icon="plug">
+  Anthropic, OpenAI, Google, xAI, Groq, DeepSeek, Mistral, Bedrock, Fireworks, MiniMax, Codex, Copilot, GitHub Models, Ollama, LM Studio, OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy, and custom OpenAI-compatible APIs.
 </Card>
 
 <Card title="Per-model cost tracking" icon="chart-line">
@@ -90,57 +90,69 @@ Your real Neovim -- config, plugins, LSP -- embedded in an AI agent that underst
   Installable skills for domain-specific capabilities. Destructive actions individually prompted.
 </Card>
 
+<Card title="Lifecycle hooks" icon="webhook">
+  13 hook events (PreToolUse, PostToolUse, SessionStart, etc.). Claude Code compatible — drop in your existing hooks config.
+</Card>
+
 </CardGroup>
 
 ## Tool suite
 
-SoulForge ships 33 tools organized by capability:
+SoulForge ships 36+ tools organized by capability:
 
 ### Code intelligence
 
 | Tool | What it does |
 |------|-------------|
-| `read_code` | Extract function/class/type by name (LSP-powered) |
-| `navigate` | Definition, references, call hierarchy, implementations |
-| `analyze` | File diagnostics, unused symbols, complexity |
+| `read` | Read files — full, line ranges, or surgical symbol extraction by name |
+| `navigate` | Definition, references, call hierarchy, implementations, type hierarchy |
+| `analyze` | File diagnostics, unused symbols, type info, code actions |
 | `rename_symbol` | Compiler-guaranteed rename across all files |
 | `move_symbol` | Move to another file + update all importers |
-| `refactor` | Extract function/variable, organize imports |
+| `refactor` | Extract function/variable, organize imports, format |
 
 ### Codebase analysis (zero LLM cost)
 
 | Tool | What it does |
 |------|-------------|
-| `soul_grep` | Count-mode ripgrep with repo map intercept |
+| `soul_grep` | Token-efficient search with count mode and repo map intercept |
 | `soul_find` | Fuzzy file/symbol search, PageRank-ranked, signatures included |
-| `soul_analyze` | Identifier frequency, unused exports, file profiles, top files, packages, symbols by kind |
-| `soul_impact` | Dependency graph -- dependents, cochanges, blast radius |
+| `soul_analyze` | Identifier frequency, unused exports, file profiles, duplication, packages |
+| `soul_impact` | Dependency graph — dependents, cochanges, blast radius |
 
 ### Project management
 
 | Tool | What it does |
 |------|-------------|
 | `project` | Auto-detected lint, format, test, build, typecheck across 23 ecosystems |
-| `project(list)` | Discover monorepo packages with per-package capabilities |
-| `dispatch` | Parallel multi-agent execution (up to 8 agents, 3 concurrent) |
+| `dispatch` | Parallel multi-agent execution with shared cache |
 | `git` | Structured git operations with auto co-author tracking |
+| `editor` | 18 Neovim actions — read, edit, navigate, LSP, format, and more |
 
 ## LLM providers
 
 | Provider | Models | Setup |
 |----------|--------|-------|
-| **LLM Gateway** | Multi-model gateway (OpenAI, Claude, Gemini, DeepSeek) | `LLM_GATEWAY_API_KEY` |
-| **Anthropic** | Claude Opus 4.6, Sonnet 4, Haiku 3.5 | `ANTHROPIC_API_KEY` |
-| **OpenAI** | GPT-4.5, o3, o4-mini | `OPENAI_API_KEY` |
+| **Anthropic** | Claude Opus 4, Sonnet 4, Haiku 3.5 | `ANTHROPIC_API_KEY` |
+| **OpenAI** | GPT-4o, o3, o4-mini | `OPENAI_API_KEY` |
 | **Google** | Gemini 2.5 Pro/Flash | `GOOGLE_GENERATIVE_AI_API_KEY` |
 | **xAI** | Grok 3 | `XAI_API_KEY` |
-| **GitHub Copilot** | Claude, GPT-4o/5.4, Gemini, o-series | OAuth token from IDE ([setup](/docs/copilot-provider)) |
-| **GitHub Models** | GPT-4o, Llama, DeepSeek, Mistral | `GITHUB_MODELS_API_KEY` (PAT with `models:read`) |
+| **Groq** | Llama, Mixtral (fast inference) | `GROQ_API_KEY` |
+| **DeepSeek** | DeepSeek Chat/Coder | `DEEPSEEK_API_KEY` |
+| **Mistral** | Mistral Large, Codestral | `MISTRAL_API_KEY` |
+| **Bedrock** | AWS-hosted models | AWS IAM credentials |
+| **Fireworks** | Fast inference models | `FIREWORKS_API_KEY` |
+| **MiniMax** | MiniMax models | `MINIMAX_API_KEY` |
+| **Codex** | ChatGPT/Codex subscription models | OAuth via `/codex login` |
+| **GitHub Copilot** | Claude, GPT-4o/5.4, Gemini, o-series | OAuth token from IDE |
+| **GitHub Models** | GPT-4o, Llama, DeepSeek, Mistral | `GITHUB_MODELS_API_KEY` |
 | **Ollama** | Any local model | Auto-detected |
 | **LM Studio** | Any local model | Auto-detected |
 | **OpenRouter** | 200+ models | `OPENROUTER_API_KEY` |
-| **Vercel AI Gateway** | Unified gateway for 15+ providers | `AI_GATEWAY_API_KEY` |
-| **Proxy** | Local proxy with auto-lifecycle | `PROXY_API_KEY` |
+| **OpenCode** | OpenCode models | `OPENCODE_API_KEY` |
+| **LLM Gateway** | Multi-model gateway | `LLM_GATEWAY_API_KEY` |
+| **Vercel AI Gateway** | Unified gateway | `AI_GATEWAY_API_KEY` |
+| **Proxy** | Local proxy relay | `PROXY_API_KEY` |
 | **Custom** | Any OpenAI-compatible API | Any env var |
 
 <Note>

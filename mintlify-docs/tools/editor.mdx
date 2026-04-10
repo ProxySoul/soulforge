@@ -1,0 +1,133 @@
+---
+title: "Editor & Neovim"
+description: "Embedded Neovim with your config, plugins, and LSP — plus 18 editor tool actions for the AI agent."
+icon: "code"
+---
+
+SoulForge embeds a real Neovim instance — your config, your plugins, your LSP servers. The AI agent can read, edit, navigate, and inspect code through the same editor you use.
+
+## Overview
+
+The editor panel runs alongside the chat. Toggle it with `Ctrl+E` or `/editor`. The agent accesses it through the `editor` tool with 18 actions covering reading, editing, navigation, LSP operations, and terminal output.
+
+### Key shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+E` | Toggle editor panel |
+| `/editor` | Editor menu — toggle, open, settings, split |
+| `/editor open <file>` | Open a file in the editor |
+| `/editor settings` | Toggle editor/LSP integrations |
+| `/editor split` | Cycle editor/chat split ratio (40/50/60/70) |
+
+## Neovim configuration
+
+SoulForge supports three Neovim config modes, selectable via `/nvim-config`:
+
+| Mode | Behavior |
+|------|----------|
+| `default` | SoulForge's built-in config (LazyVim-based, Mason LSP auto-install) |
+| `user` | Your personal Neovim config (`~/.config/nvim`) |
+| `none` | Minimal config — no plugins, no LSP |
+
+<Note>
+On first launch with `default` mode, SoulForge bootstraps LazyVim plugins and installs LSP servers via Mason for all detected project languages. This is a one-time setup.
+</Note>
+
+## Editor tool actions
+
+The `editor` tool provides 18 actions for the AI agent. These require the editor panel to be open (`Ctrl+E`).
+
+### Reading & inspection
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `read` | `startLine?`, `endLine?`, `file?` | Read buffer content (optionally a specific line range or file) |
+| `cursor_context` | — | Get current file, cursor position, and visual selection |
+| `buffers` | — | List all open buffers |
+| `terminal_output` | `count?` | Read terminal output (default: last 100 lines) |
+
+### Editing
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `edit` | `startLine`, `endLine`, `replacement`, `file?` | Replace lines in the buffer |
+| `select` | `startLine`, `endLine` | Select a range of lines |
+| `yank` | `text?`, `register?` | Put text into a register (default: system clipboard) |
+| `highlight` | `startLine`, `endLine` | Highlight a range of lines |
+
+### Navigation
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `navigate` | `file?`, `line?`, `col?`, `search?` | Open a file, jump to a line, or search |
+| `goto_cursor` | `line`, `col?` | Move cursor to a specific position |
+
+### LSP operations
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `diagnostics` | — | Get errors and warnings for the current buffer |
+| `symbols` | — | List document symbols (functions, classes, variables) |
+| `hover` | `line`, `col` | Get type info and documentation at a position |
+| `references` | `line`, `col` | Find all references to the symbol at a position |
+| `definition` | `line`, `col`, `jump?` | Go to definition of the symbol at a position |
+| `actions` | `line`, `col?`, `apply?` | Get available code actions (quick fixes, refactorings) |
+| `rename` | `line`, `col`, `newName` | Rename a symbol across the workspace |
+| `format` | `startLine?`, `endLine?` | Format the buffer (or a range) via LSP |
+
+## Editor integrations
+
+Configure which LSP features the agent can access via `/editor settings`:
+
+| Integration | Default | Description |
+|-------------|---------|-------------|
+| LSP Diagnostics | on | Errors & warnings from LSP |
+| Document Symbols | on | Functions, classes, variables |
+| Hover / Type Info | on | Type info at cursor position |
+| Find References | on | All usages of a symbol |
+| Go to Definition | on | Jump to symbol definition |
+| Code Actions | on | Quick fixes & refactorings |
+| LSP Rename | on | Workspace-wide symbol rename |
+| LSP Status | on | Check attached LSP servers |
+| LSP Format | on | Format buffer via LSP |
+| Editor Context | on | File/cursor/selection in system prompt |
+| Sync on Edit | on | Jump to edited files (off = only refresh current buffer) |
+
+### Agent access modes
+
+Control when the agent can use the editor tool:
+
+| Mode | Behavior |
+|------|----------|
+| `Always` | Agent can always use the editor tool |
+| `Never` | Editor tool is disabled for the agent |
+| `When editor open` | Agent can only use it when the editor panel is visible |
+
+## Dual LSP backend
+
+The agent always has LSP access regardless of editor state:
+
+- **Neovim bridge** — When the editor is open, LSP requests route through Neovim's running servers via Lua RPC. Zero startup cost since servers are already warm.
+- **Standalone client** — When the editor is closed, SoulForge spawns LSP servers directly as child processes. Full protocol support.
+
+Both backends support: definitions, references, hover, diagnostics, rename, code actions, call/type hierarchy, and formatting.
+
+### Mason auto-install
+
+On first editor launch, SoulForge detects project languages and installs appropriate LSP servers via Mason. Servers are stored in `~/.local/share/soulforge/mason/bin/` and discovered automatically.
+
+## Vim hints
+
+Toggle Neovim keybinding hints in the UI with `/vim-hints`. When enabled, common Vim keybindings are shown in the editor footer.
+
+## Split ratios
+
+Cycle the editor/chat split with `/editor split`:
+
+| Ratio | Editor | Chat |
+|-------|--------|------|
+| 40% | 40% | 60% |
+| 50% | 50% | 50% |
+| 60% | 60% | 40% |
+| 70% | 70% | 30% |

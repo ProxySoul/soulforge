@@ -313,8 +313,10 @@ export function App({
   const editorSplitRef = useRef(60);
   const {
     ready: nvimReady,
-    screenLines,
-    defaultBg,
+    ptyWrite,
+    ptyOnData,
+    nvimCols,
+    nvimRows,
     modeName: nvimMode,
     fileName: editorFile,
     cursorLine,
@@ -322,15 +324,12 @@ export function App({
     visualSelection,
     clearSelection: clearNvimSelection,
     openFile: nvimOpen,
-    sendKeys,
-    sendMouse,
     error: nvimError,
   } = useNeovim(
     true,
     effectiveConfig.nvimPath,
     effectiveConfig.nvimConfig,
     closeEditor,
-    effectiveConfig.vimHints !== false,
     hasTabBarRef.current,
     editorSplitRef.current,
   );
@@ -393,8 +392,7 @@ export function App({
   }, []);
 
   useEditorInput({
-    sendKeys,
-    sendMouse,
+    ptyWrite,
     isEditorFocused: focusMode === "editor" && nvimReady,
     isEditorVisible: editorVisible,
     onFocusChat: focusChat,
@@ -660,17 +658,19 @@ export function App({
           );
           const snapshot = workspaceSnapshotRef.current?.();
           if (snapshot && hasUserMessages && activeChat) {
-            const { meta, tabMessages } = buildSessionMeta({
+            const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
               sessionId: activeChat.sessionId,
-              title: SessionManager.deriveTitle(activeChat.messages),
+              title: activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages),
+              customTitle: activeChat.customTitle,
               cwd,
               snapshot,
               currentTabMessages: activeChat.messages.filter(
                 (m: ChatMessage) => m.role !== "system" || m.showInChat,
               ),
+              currentTabCoreMessages: activeChat.coreMessages,
             });
-            updateEmergencySnapshot(sessionManager, meta, tabMessages);
-            await sessionManager.saveSession(meta, tabMessages);
+            updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+            await sessionManager.saveSession(meta, tabMessages, tabCoreMessages);
             setExitSessionId(meta.id);
             savedSessionIdRef.current = meta.id;
           }
@@ -716,11 +716,19 @@ export function App({
 
     const data = sessionManager.loadSession(fullId);
     if (data) {
-      tabMgr.restoreFromMeta(data.meta.tabs, data.meta.activeTabId, data.tabMessages);
+      tabMgr.restoreFromMeta(
+        data.meta.tabs,
+        data.meta.activeTabId,
+        data.tabMessages,
+        data.tabCoreMessages,
+      );
       setForgeModeHeader(data.meta.forgeMode);
       setExitSessionId(data.meta.id);
-      // Defer image restore so chat UI renders first — extractGifFrames uses execSync
+      // Restore custom title if user renamed this session
       setTimeout(() => {
+        if (data.meta.customTitle) {
+          tabMgr.getChat(data.meta.activeTabId)?.setCustomTitle(data.meta.customTitle);
+        }
         const allMessages = [...data.tabMessages.values()].flat();
         restoreSessionImages(allMessages, cwd)
           .then((restored) => {
@@ -817,17 +825,19 @@ export function App({
       const snapshot = workspaceSnapshotRef.current?.();
       if (snapshot) {
         try {
-          const { meta, tabMessages } = buildSessionMeta({
+          const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
             sessionId: activeChat.sessionId,
-            title: SessionManager.deriveTitle(activeChat.messages),
+            title: activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages),
+            customTitle: activeChat.customTitle,
             cwd,
             snapshot,
             currentTabMessages: activeChat.messages.filter(
               (m: ChatMessage) => m.role !== "system" || m.showInChat,
             ),
+            currentTabCoreMessages: activeChat.coreMessages,
           });
-          updateEmergencySnapshot(sessionManager, meta, tabMessages);
-          await sessionManager.saveSession(meta, tabMessages);
+          updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+          await sessionManager.saveSession(meta, tabMessages, tabCoreMessages);
         } catch (err) {
           logBackgroundError(
             "new-session",
@@ -1140,15 +1150,11 @@ export function App({
       <box flexDirection="row" flexGrow={1} flexShrink={1} minHeight={0}>
         <EditorPanel
           isOpen={editorOpen}
-          fileName={editorFile}
-          screenLines={screenLines}
-          defaultBg={defaultBg}
-          modeName={nvimMode}
+          ptyOnData={ptyOnData}
+          nvimCols={nvimCols}
+          nvimRows={nvimRows}
           focused={focusMode === "editor"}
-          cursorLine={cursorLine}
-          cursorCol={cursorCol}
           onClosed={handleEditorClosed}
-          showHints={effectiveConfig.vimHints !== false}
           error={nvimError}
           split={editorSplit}
         />
@@ -1253,9 +1259,22 @@ export function App({
         onRestore={(sessionId) => {
           const data = sessionManager.loadSession(sessionId);
           if (data) {
-            tabMgr.restoreFromMeta(data.meta.tabs, data.meta.activeTabId, data.tabMessages);
+            tabMgr.restoreFromMeta(
+              data.meta.tabs,
+              data.meta.activeTabId,
+              data.tabMessages,
+              data.tabCoreMessages,
+            );
             setForgeModeHeader(data.meta.forgeMode);
             setExitSessionId(data.meta.id);
+            // Restore custom title if user renamed this session
+            if (data.meta.customTitle) {
+              setTimeout(() => {
+                tabMgr
+                  .getChat(data.meta.activeTabId)
+                  ?.setCustomTitle(data.meta.customTitle ?? null);
+              }, 0);
+            }
             // Defer image restore so chat UI renders first
             setTimeout(() => {
               const allMessages = [...data.tabMessages.values()].flat();

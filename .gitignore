@@ -62,3 +62,6 @@ benchmarks/results-*.json
 audit_issue.json
 coverage/
 test_tmp/
+
+# Hook test output
+__hooks_test__/

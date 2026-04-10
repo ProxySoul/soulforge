@@ -1,20 +1,16 @@
 import { TextAttributes } from "@opentui/core";
+import type { GhosttyTerminalRenderable } from "ghostty-opentui/terminal-buffer";
 import { memo, useEffect, useRef, useState } from "react";
-import type { ScreenSegment } from "../../core/editor/screen.js";
 import { UI_ICONS } from "../../core/icons.js";
-import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
+import { useTheme } from "../../core/theme/index.js";
 
 interface Props {
   isOpen: boolean;
-  fileName: string | null;
-  screenLines: ScreenSegment[][];
-  defaultBg?: string;
-  modeName?: string;
+  ptyOnData: (cb: (data: Uint8Array) => void) => () => void;
+  nvimCols: number;
+  nvimRows: number;
   focused?: boolean;
-  cursorLine?: number;
-  cursorCol?: number;
   onClosed?: () => void;
-  showHints?: boolean;
   error?: string | null;
   split?: number;
 }
@@ -22,67 +18,45 @@ interface Props {
 type Direction = "opening" | "idle";
 const ANIMATION_FRAMES = ["  ░", " ░▒", "░▒▓", "▒▓█", "▓██", "███"];
 
-function getModeColors(t: ThemeTokens): Record<string, string> {
-  return {
-    normal: t.brand,
-    insert: t.success,
-    visual: t.warning,
-    "visual line": t.warning,
-    "visual block": t.warning,
-    replace: t.brandSecondary,
-    command: t.info,
-    cmdline_normal: t.info,
-    terminal: t.textSecondary,
-  };
-}
-
-function modeLabel(mode: string): string {
-  if (mode.startsWith("cmdline")) return "COMMAND";
-  return mode.toUpperCase().replace("_", " ");
-}
-
-const ScreenRow = memo(function ScreenRow({
-  segments,
-  bg,
+/** Renders neovim PTY output via ghostty-terminal in persistent mode. */
+const NvimTerminal = memo(function NvimTerminal({
+  ptyOnData,
+  cols,
+  rows,
 }: {
-  segments: ScreenSegment[];
-  bg: string | undefined;
+  ptyOnData: (cb: (data: Uint8Array) => void) => () => void;
+  cols: number;
+  rows: number;
 }) {
-  return (
-    <box flexDirection="row">
-      {segments.map((seg, j) => {
-        let attrs = 0;
-        if (seg.bold) attrs |= TextAttributes.BOLD;
-        if (seg.italic) attrs |= TextAttributes.ITALIC;
-        if (seg.underline) attrs |= TextAttributes.UNDERLINE;
-        if (seg.strikethrough) attrs |= TextAttributes.STRIKETHROUGH;
-        return (
-          <text
-            // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
-            key={j}
-            fg={seg.fg}
-            bg={seg.bg ?? bg}
-            attributes={attrs || undefined}
-          >
-            {seg.text}
-          </text>
-        );
-      })}
-    </box>
-  );
+  const termRef = useRef<GhosttyTerminalRenderable | null>(null);
+
+  useEffect(() => {
+    // Feed PTY data directly — ghostty's requestRender() is coalesced
+    // by opentui's render loop so multiple feeds per frame are fine.
+    return ptyOnData((data) => {
+      const term = termRef.current;
+      if (term) term.feed(data);
+    });
+  }, [ptyOnData]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) {
+      term.cols = cols;
+      term.rows = rows;
+    }
+  }, [cols, rows]);
+
+  return <ghostty-terminal ref={termRef} persistent showCursor cols={cols} rows={rows} />;
 });
 
 export const EditorPanel = memo(function EditorPanel({
   isOpen,
-  fileName,
-  screenLines,
-  defaultBg,
-  modeName = "normal",
+  ptyOnData,
+  nvimCols,
+  nvimRows,
   focused = false,
-  cursorLine,
-  cursorCol,
   onClosed,
-  showHints = true,
   error,
   split = 60,
 }: Props) {
@@ -182,14 +156,6 @@ export const EditorPanel = memo(function EditorPanel({
     );
   }
 
-  const displayName = fileName
-    ? fileName.startsWith(process.cwd())
-      ? fileName.slice(process.cwd().length + 1)
-      : (fileName.split("/").pop() ?? fileName)
-    : "no file";
-  const bg = defaultBg;
-  const modeColor = getModeColors(t)[modeName] ?? t.brand;
-
   return (
     <box
       flexDirection="column"
@@ -198,76 +164,8 @@ export const EditorPanel = memo(function EditorPanel({
       border={true}
       borderColor={borderColor}
     >
-      <box
-        flexDirection="row"
-        paddingX={1}
-        justifyContent="space-between"
-        flexShrink={0}
-        height={1}
-      >
-        <box flexDirection="row">
-          <text
-            bg={focused ? t.borderFocused : t.brand}
-            fg="white"
-            attributes={TextAttributes.BOLD}
-          >
-            {` ${UI_ICONS.editor} `}
-          </text>
-          <text fg={t.textSecondary}> {displayName}</text>
-        </box>
-        <text>
-          <span fg={modeColor}>{"\uE0B6"}</span>
-          <span bg={modeColor} fg="white" attributes={TextAttributes.BOLD}>
-            {` ${modeLabel(modeName)} `}
-          </span>
-          <span fg={modeColor}>{"\uE0B4"}</span>
-        </text>
-      </box>
-      <box paddingX={1} flexShrink={0} height={1}>
-        <text fg={t.textFaint} truncate>
-          {"─".repeat(200)}
-        </text>
-      </box>
-
       <box flexDirection="column" flexGrow={1} overflow="hidden">
-        {screenLines.length === 0 ? (
-          <box justifyContent="center" alignItems="center" flexGrow={1}>
-            <text fg={t.textFaint}>waiting for nvim...</text>
-          </box>
-        ) : (
-          screenLines.map((segments, row) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: stable screen rows
-            <ScreenRow key={row} segments={segments} bg={bg} />
-          ))
-        )}
-      </box>
-
-      <box paddingX={1} flexShrink={0} height={1}>
-        <text fg={t.textFaint} truncate>
-          {"─".repeat(200)}
-        </text>
-      </box>
-      {showHints && <VimHints mode={modeName} />}
-      <box
-        flexDirection="row"
-        paddingX={1}
-        justifyContent="space-between"
-        flexShrink={0}
-        height={1}
-      >
-        <text fg={t.textMuted} truncate>
-          {fileName ?? ""}
-        </text>
-        <box flexDirection="row" gap={2}>
-          {cursorLine != null && (
-            <text fg={t.textSecondary}>
-              {String(cursorLine)}:{String((cursorCol ?? 0) + 1)}
-            </text>
-          )}
-          <text fg={t.textMuted} attributes={TextAttributes.BOLD}>
-            nvim
-          </text>
-        </box>
+        <NvimTerminal ptyOnData={ptyOnData} cols={nvimCols} rows={nvimRows} />
       </box>
     </box>
   );
@@ -336,53 +234,5 @@ function NvimNotFoundSplash() {
         Restart SoulForge after installing.
       </text>
     </box>
-  );
-}
-
-function VimHints({ mode }: { mode: string }) {
-  const t = useTheme();
-  const isInsert = mode === "insert";
-  const isVisual = mode.startsWith("visual");
-
-  return (
-    <box flexDirection="column" paddingX={1} flexShrink={0}>
-      <box flexDirection="row" height={1} gap={2}>
-        <H k="i" l="insert" on={isInsert} />
-        <H k="Esc" l="normal" on={!isInsert && !isVisual} />
-        <H k=":w" l="save" />
-        <H k=":q" l="quit" />
-        <H k=":wq" l="save & quit" />
-        <H k="u" l="undo" />
-        <H k="^R" l="redo" />
-        <H k="/" l="search" />
-        <H k="n" l="next match" />
-      </box>
-      <box flexDirection="row" height={1} gap={2}>
-        <H k="dd" l="del line" />
-        <H k="yy" l="copy line" />
-        <H k="p" l="paste" />
-        <H k="o" l="line below" />
-        <H k="v" l="select" on={isVisual} />
-        <H k="gg" l="top" />
-        <H k="G" l="bottom" />
-        <H k="w" l="next word" />
-        <text fg={t.textFaint}>/vim-hints to hide</text>
-      </box>
-    </box>
-  );
-}
-
-function H({ k, l, on }: { k: string; l: string; on?: boolean }) {
-  const t = useTheme();
-  return (
-    <text>
-      <span
-        fg={on ? t.success : t.brandSecondary}
-        attributes={on ? TextAttributes.BOLD : undefined}
-      >
-        {k}
-      </span>
-      <span fg={t.textDim}> {l}</span>
-    </text>
   );
 }

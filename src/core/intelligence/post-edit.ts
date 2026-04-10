@@ -127,8 +127,10 @@ export function formatPostEditResult(result: PostEditResult): string | null {
     parts.push(`✓ ${String(result.resolved)} error(s) resolved`);
   }
 
+  const totalErrors = result.newErrors.length + result.crossFileErrors.length;
+
   if (result.newErrors.length > 0) {
-    parts.push(`⚠ ${String(result.newErrors.length)} new error(s):`);
+    parts.push(`❌ ERRORS INTRODUCED — ${String(result.newErrors.length)} new error(s):`);
     for (const e of result.newErrors.slice(0, 5)) {
       const code = e.code ? ` [${String(e.code)}]` : "";
       parts.push(`  L${String(e.line)}${code}: ${e.message}`);
@@ -142,7 +144,9 @@ export function formatPostEditResult(result: PostEditResult): string | null {
   }
 
   if (result.crossFileErrors.length > 0) {
-    parts.push(`⚠ ${String(result.crossFileErrors.length)} cross-file error(s):`);
+    parts.push(
+      `❌ CROSS-FILE ERRORS — ${String(result.crossFileErrors.length)} error(s) in other files:`,
+    );
     for (const e of result.crossFileErrors.slice(0, 3)) {
       const code = e.code ? ` [${String(e.code)}]` : "";
       const short = basename(e.file);
@@ -156,7 +160,11 @@ export function formatPostEditResult(result: PostEditResult): string | null {
     }
   }
 
-  if (result.newWarnings.length > 0 && result.newErrors.length === 0) {
+  if (totalErrors > 0) {
+    parts.push("⛔ FIX THESE ERRORS before continuing with other work.");
+  }
+
+  if (result.newWarnings.length > 0 && totalErrors === 0) {
     parts.push(`△ ${String(result.newWarnings.length)} new warning(s)`);
   }
 

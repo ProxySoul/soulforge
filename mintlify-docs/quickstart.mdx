@@ -64,10 +64,12 @@ icon: "rocket"
 | `Ctrl+G` | Git menu |
 | `Ctrl+K` | Command palette |
 | `Ctrl+S` | Skills browser |
+| `Ctrl+N` | New session |
 | `Ctrl+T` | New tab |
 | `Ctrl+W` | Close tab |
 | `Ctrl+D` | Cycle forge mode |
 | `Ctrl+X` | Abort generation |
+| `Tab` / `Shift+Tab` | Cycle between tabs |
 
 ## The interface
 
@@ -93,13 +95,14 @@ icon: "rocket"
 
 Use `/router` to assign different models to different tasks:
 
-| Slot | Model | Purpose |
-|------|-------|---------|
-| Planning | Opus | Architecture decisions |
-| Coding | Sonnet | File edits |
-| Exploration | Haiku | Read-only research |
-| Web Search | Haiku | Search queries |
-| Trivial | Haiku | Small tasks |
+| Slot | Purpose | Example model |
+|------|---------|---------------|
+| `spark` | Read-only research and exploration | Haiku |
+| `ember` | File edits and implementation | Sonnet |
+| `webSearch` | Web search queries | Haiku |
+| `desloppify` | Cleanup pass after code edits | Haiku |
+| `verify` | Adversarial review of edits | Haiku |
+| `compact` | Context compaction | Flash |
 
 ## Headless mode
 
@@ -125,5 +128,5 @@ See [Headless mode](/tools/headless) for the full reference.
 
 - [Architecture](/concepts/architecture) -- understand the system design
 - [Repo Map](/concepts/repo-map) -- how SoulForge understands your codebase
-- [Commands](/reference/commands) -- all 76 slash commands
+- [Commands](/reference/commands) -- all 100 slash commands
 - [Configuration](/reference/configuration) -- customize everything

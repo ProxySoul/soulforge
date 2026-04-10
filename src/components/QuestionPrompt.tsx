@@ -59,19 +59,21 @@ export function QuestionPrompt({ question, isActive, onAnswer }: Props) {
     }
 
     if (evt.name === "up" || evt.name === "left") {
+      if (totalOptions <= 1) return;
       setSelectedIdx((prev) => {
         const cur = prev === OTHER_IDX ? totalOptions - 1 : prev;
         const next = cur > 0 ? cur - 1 : totalOptions - 1;
-        return next === totalOptions - 1 ? OTHER_IDX : next;
+        return showOther && next === totalOptions - 1 ? OTHER_IDX : next;
       });
       evt.stopPropagation();
       return;
     }
     if (evt.name === "down" || evt.name === "right") {
+      if (totalOptions <= 1) return;
       setSelectedIdx((prev) => {
         const cur = prev === OTHER_IDX ? totalOptions - 1 : prev;
         const next = (cur + 1) % totalOptions;
-        return next === totalOptions - 1 ? OTHER_IDX : next;
+        return showOther && next === totalOptions - 1 ? OTHER_IDX : next;
       });
       evt.stopPropagation();
       return;
@@ -141,16 +143,18 @@ export function QuestionPrompt({ question, isActive, onAnswer }: Props) {
             <OptionRow key={opt.value} label={opt.label} isSelected={i === selectedIdx} t={t} />
           ))}
           {showOther && <OptionRow label="Other" isSelected={selectedIdx === OTHER_IDX} t={t} />}
-          <box paddingLeft={1}>
-            <PopupFooterHints
-              w={40}
-              hints={[
-                { key: "↑↓", label: "select" },
-                { key: "⏎", label: "confirm" },
-                ...(question.allowSkip ? [{ key: "esc", label: "skip" }] : []),
-              ]}
-            />
-          </box>
+          {(totalOptions > 1 || question.allowSkip) && (
+            <box paddingLeft={1}>
+              <PopupFooterHints
+                w={40}
+                hints={[
+                  ...(totalOptions > 1 ? [{ key: "↑↓", label: "select" }] : []),
+                  { key: "⏎", label: "confirm" },
+                  ...(question.allowSkip ? [{ key: "esc", label: "skip" }] : []),
+                ]}
+              />
+            </box>
+          )}
         </box>
       )}
     </box>

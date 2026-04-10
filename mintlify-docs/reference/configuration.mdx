@@ -277,6 +277,44 @@ Block files from AI access with `/privacy add <pattern>`:
 - **Global scope** -- patterns in `~/.soulforge/forbidden`
 - Built-in patterns cover `.env`, `.pem`, `credentials`, `private_key`, `id_rsa`, `.npmrc`, `.netrc`, `shadow`, `passwd`, and more
 
+## Hooks
+
+Lifecycle hooks run shell commands at key points in the agent lifecycle. Compatible with Claude Code's hook system.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "my-hook.sh",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Hooks are loaded from 5 config files (merged in order):
+
+1. `~/.claude/settings.json`
+2. `.claude/settings.json`
+3. `.claude/settings.local.json`
+4. `~/.soulforge/config.json`
+5. `.soulforge/config.json`
+
+13 events: `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionStart`, `SessionEnd`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Notification`.
+
+Use `/hooks` to view and toggle hooks at runtime.
+
+See [Hooks](/tools/hooks) for the full reference including protocol, examples, and Claude Code migration guide.
+
 ## API keys
 
 Keys are stored in the OS keychain (macOS Keychain, Linux secret-tool) via `--set-key`:
@@ -300,13 +338,24 @@ export GOOGLE_GENERATIVE_AI_API_KEY=...
 | OpenAI | `OPENAI_API_KEY` |
 | Google | `GOOGLE_GENERATIVE_AI_API_KEY` |
 | xAI | `XAI_API_KEY` |
+| Groq | `GROQ_API_KEY` |
+| DeepSeek | `DEEPSEEK_API_KEY` |
+| Mistral | `MISTRAL_API_KEY` |
+| Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_REGION` |
+| Fireworks | `FIREWORKS_API_KEY` |
+| MiniMax | `MINIMAX_API_KEY` |
+| Codex | OAuth via `/codex login` (ChatGPT subscription) |
+| Copilot | OAuth token from IDE (`~/.config/github-copilot/apps.json`) |
+| GitHub Models | `GITHUB_MODELS_API_KEY` (PAT with `models:read`) |
 | OpenRouter | `OPENROUTER_API_KEY` |
+| OpenCode | `OPENCODE_API_KEY` |
 | LLM Gateway | `LLM_GATEWAY_API_KEY` |
 | Vercel AI Gateway | `AI_GATEWAY_API_KEY` |
-| Ollama | *(none -- runs locally)* |
-| LM Studio | *(none -- runs locally)* |
+| Proxy | `PROXY_API_KEY` (or auto-managed) |
+| Ollama | *(none — runs locally)* |
+| LM Studio | *(none — runs locally)* |
 
-**Local provider overrides:** Ollama defaults to `localhost:11434` (override with `OLLAMA_HOST`). LM Studio defaults to `localhost:1234` (override with `LM_STUDIO_URL`, optional auth with `LM_API_TOKEN`).
+**Local provider overrides:** Ollama defaults to `localhost:11434` (override with `OLLAMA_HOST`). LM Studio defaults to `localhost:1234` (override with `LM_STUDIO_URL`, optional auth with `LM_API_TOKEN`). Bedrock uses AWS IAM credentials — set the three env vars above.
 
 ## Storage
 

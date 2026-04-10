@@ -9,25 +9,19 @@ export const EDITOR_COL_OFFSET = 1; // left border(1)
 
 // Fixed rows consumed by app chrome around the editor content area:
 // App: header(1) + footer(1)
-// Editor panel: border-top(1) + border-bottom(1) + title(1) + sep-top(1) + sep-bottom(1) + status(1)
-// Total = 8
-const BASE_FIXED_ROWS = 8;
-const HINTS_ROWS = 2;
+// Editor panel: border-top(1) + border-bottom(1)
+// Total = 4
+const BASE_FIXED_ROWS = 4;
 // TabBar when visible: marginTop(1) + bar(1) = 2 rows
 const TAB_BAR_ROWS = 2;
-
-function getEditorFixedRows(showHints: boolean): number {
-  return showHints ? BASE_FIXED_ROWS + HINTS_ROWS : BASE_FIXED_ROWS;
-}
 
 export function getEditorDimensions(
   termCols: number,
   termRows: number,
-  showHints: boolean,
   hasTabBar: boolean,
   splitPct = 60,
 ): { cols: number; rows: number } {
-  const fixedRows = getEditorFixedRows(showHints) + (hasTabBar ? TAB_BAR_ROWS : 0);
+  const fixedRows = BASE_FIXED_ROWS + (hasTabBar ? TAB_BAR_ROWS : 0);
   const ratio = splitPct / 100;
   return {
     cols: Math.max(20, Math.floor(termCols * ratio) - EDITOR_BORDER_WIDTH),
