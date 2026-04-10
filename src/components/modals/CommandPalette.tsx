@@ -5,6 +5,7 @@ import { CATEGORIES, type CommandDef, getCommandDefs } from "../../core/commands
 import { fuzzyMatch } from "../../core/history/fuzzy.js";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
+import { useMarqueeScroll } from "../../hooks/useMarqueeScroll.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import { POPUP_BG, POPUP_HL, Popup, PopupRow, PopupSeparator } from "../layout/shared.js";
 
@@ -205,6 +206,9 @@ function CommandRow({
   const descColor = isActive ? textSecondary : textMuted;
   const cmdText = def.cmd;
 
+  const descMaxWidth = Math.max(0, innerW - cmdText.length - 12);
+  const displayDesc = useMarqueeScroll(def.desc, descMaxWidth, isActive);
+
   return (
     <PopupRow bg={bg} w={innerW}>
       <text fg={isActive ? catColor : textFaint} bg={bg}>
@@ -223,9 +227,7 @@ function CommandRow({
       )}
       <text fg={descColor} bg={bg} truncate>
         {"  "}
-        {def.desc.length > innerW - cmdText.length - 12
-          ? `${def.desc.slice(0, innerW - cmdText.length - 15)}…`
-          : def.desc}
+        {displayDesc}
       </text>
     </PopupRow>
   );
