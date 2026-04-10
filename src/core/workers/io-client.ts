@@ -34,6 +34,7 @@ interface GitLogEntry {
 interface LoadSessionResult {
   meta: SessionMeta;
   tabEntries: [string, ChatMessage[]][];
+  coreEntries?: [string, unknown[]][];
 }
 
 export type ReadFileResult =
@@ -136,8 +137,9 @@ export class IOClient extends WorkerClient {
     sessionDir: string,
     meta: SessionMeta,
     tabEntries: [string, ChatMessage[]][],
+    coreEntries?: [string, import("ai").ModelMessage[]][],
   ): Promise<void> {
-    return this.call("saveSession", sessionDir, meta, tabEntries);
+    return this.call("saveSession", sessionDir, meta, tabEntries, coreEntries ?? null);
   }
 
   async loadSession(sessionDir: string): Promise<LoadSessionResult | null> {

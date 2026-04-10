@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { rebuildCoreMessages } from "../core/sessions/rebuild.js";
 import type { TabMeta } from "../core/sessions/types.js";
@@ -49,6 +50,7 @@ export interface UseTabsReturn {
     tabMetas: TabMeta[],
     activeId: string,
     tabMessages: Map<string, ChatMessage[]>,
+    tabCoreMessages?: Map<string, ModelMessage[]>,
   ) => void;
 }
 
@@ -260,7 +262,12 @@ export function useTabs(): UseTabsReturn {
   }, []);
 
   const restoreFromMeta = useCallback(
-    (tabMetas: TabMeta[], activeId: string, tabMessages: Map<string, ChatMessage[]>) => {
+    (
+      tabMetas: TabMeta[],
+      activeId: string,
+      tabMessages: Map<string, ChatMessage[]>,
+      tabCoreMessages?: Map<string, ModelMessage[]>,
+    ) => {
       if (tabMetas.length === 0) return;
 
       // Abort any in-flight chats before replacing tabs
@@ -293,7 +300,7 @@ export function useTabs(): UseTabsReturn {
           id: tm.id,
           label: tm.label,
           messages: msgs,
-          coreMessages: rebuildCoreMessages(msgs),
+          coreMessages: tabCoreMessages?.get(tm.id) ?? rebuildCoreMessages(msgs),
           activeModel: tm.activeModel,
           activePlan: null,
           sidebarPlan: null,

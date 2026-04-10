@@ -232,6 +232,8 @@ export interface ChatInstance {
   lastStepOutput: number;
   chatChars: number;
   sessionId: string;
+  customTitle: string | null;
+  setCustomTitle: (title: string | null) => void;
   planFile: string;
   planMode: boolean;
   planRequest: string | null;
@@ -523,6 +525,10 @@ export function useChat({
     initialState?.tokenUsage ?? { ...ZERO_USAGE },
   );
   const sessionIdRef = useRef<string>(initialState?.sessionId ?? crypto.randomUUID());
+  const customTitleRef = useRef<string | null>(null);
+  const setCustomTitle = useCallback((title: string | null) => {
+    customTitleRef.current = title;
+  }, []);
   const sharedCacheRef = useRef<SharedCacheRef>(
     (() => {
       const ref: SharedCacheRef = {
@@ -1422,15 +1428,17 @@ export function useChat({
           try {
             const snapshot = getWorkspaceSnapshot?.();
             if (!snapshot) return;
-            const { meta, tabMessages } = buildSessionMeta({
+            const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
               sessionId: sessionIdRef.current,
-              title: SessionManager.deriveTitle(allMsgs),
+              title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
+              customTitle: customTitleRef.current,
               cwd,
               snapshot,
               currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
+              currentTabCoreMessages: coreMessagesRef.current,
             });
-            updateEmergencySnapshot(sessionManager, meta, tabMessages);
-            sessionManager.saveSession(meta, tabMessages).catch(() => {});
+            updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+            sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
           } catch {
             // Don't let checkpoint failures interrupt the request
           }
@@ -2544,17 +2552,21 @@ export function useChat({
                     };
                     setMessages((prev) => {
                       const allMsgs = [...prev, partialMsg];
-                      const { meta, tabMessages } = buildSessionMeta({
+                      const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
                         sessionId: sessionIdRef.current,
-                        title: SessionManager.deriveTitle(allMsgs),
+                        title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
+                        customTitle: customTitleRef.current,
                         cwd,
                         snapshot,
                         currentTabMessages: allMsgs.filter(
                           (m) => m.role !== "system" || m.showInChat,
                         ),
+                        currentTabCoreMessages: coreMessagesRef.current,
                       });
-                      updateEmergencySnapshot(sessionManager, meta, tabMessages);
-                      sessionManager.saveSession(meta, tabMessages).catch(() => {});
+                      updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+                      sessionManager
+                        .saveSession(meta, tabMessages, tabCoreMessages)
+                        .catch(() => {});
                       return prev;
                     });
                   } catch {
@@ -2696,15 +2708,17 @@ export function useChat({
           queueMicrotask(() => {
             const snapshot = getWorkspaceSnapshot?.();
             if (snapshot) {
-              const { meta, tabMessages } = buildSessionMeta({
+              const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
                 sessionId: sessionIdRef.current,
-                title: SessionManager.deriveTitle(allMsgs),
+                title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
+                customTitle: customTitleRef.current,
                 cwd,
                 snapshot,
                 currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
+                currentTabCoreMessages: coreMessagesRef.current,
               });
-              updateEmergencySnapshot(sessionManager, meta, tabMessages);
-              sessionManager.saveSession(meta, tabMessages).catch(() => {});
+              updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+              sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
             }
           });
           return allMsgs;
@@ -3276,6 +3290,8 @@ export function useChat({
     lastStepOutput,
     chatChars,
     sessionId: sessionIdRef.current,
+    customTitle: customTitleRef.current,
+    setCustomTitle,
     planFile: planFileName(sessionIdRef.current),
     planMode: planModeRef.current,
     planRequest: planRequestRef.current,

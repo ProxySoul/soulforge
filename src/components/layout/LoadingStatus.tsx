@@ -87,8 +87,6 @@ function buildBusyLine(
     parts.push(fgStyle(tk.textFaint)(` ${formatElapsed(elapsedSec)}`));
   }
   parts.push(fgStyle(tk.textFaint)("  "));
-  parts.push(fgStyle(tk.error)("^X"));
-  parts.push(fgStyle(tk.textDim)(" to Stop"));
   return new StyledText(parts);
 }
 

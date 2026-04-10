@@ -13,7 +13,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 export const SHARED_RULES = `
 # Tool usage policy
 - Batch all independent tool calls in one parallel block — it's faster and cheaper.
-- Use multi_edit for multiple changes to the same file. Edits are applied immediately.
+- NEVER call edit_file multiple times on the same file — use multi_edit instead. Sequential edit_file calls cause line numbers to shift and subsequent edits to fail. multi_edit tracks line offsets internally and handles this correctly.
 - The user does not see full tool output — summarize results when relevant to your response.
 - The user is on a CLI — they cannot see images except through soul_vision. Call soul_vision whenever any tool returns an image path or URL.
 - Use absolute paths. Maintain your working directory — avoid cd in shell commands.
@@ -27,6 +27,10 @@ export const SHARED_RULES = `
 - When an approach fails, diagnose why before switching tactics — read the error, check your assumptions, try a focused fix.
 - Choose an approach and commit to it. If you've read a file and understand the change, make the edit. Revisit only when new information directly contradicts your reasoning — not out of uncertainty.
 - When referencing specific functions or code, include the pattern file_path:line_number so the user can navigate directly.
+
+# Tool results — read and act on them
+- Every tool result must be checked. If edit_file or multi_edit reports errors (❌), fix them immediately before doing anything else. Do not continue to the next edit or tool call with broken code.
+- If multi_edit fails (atomic rollback), re-read the file and retry ALL edits — do not skip or move on.
 
 # Verification and reporting
 - After implementation, run project (typecheck/lint/test) to verify the change works. Report completion only after verification passes.

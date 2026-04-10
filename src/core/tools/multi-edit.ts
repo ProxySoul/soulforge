@@ -120,17 +120,9 @@ export const multiEditTool = {
               continue;
             }
 
-            // oldString doesn't match range — FAIL instead of blindly applying.
-            // Applying by stale line numbers after formatting causes corruption.
-            const rangeSnippet = lines
-              .slice(start, end)
-              .map((l, idx) => `${String(start + idx + 1).padStart(4)} │ ${l}`)
-              .join("\n");
-            return {
-              success: false,
-              output: `Edit ${String(i + 1)}/${String(args.edits.length)} failed: oldString does not match lines ${String(edit.lineStart)}-${String((edit.lineStart ?? 0) + oldLineCount - 1)}. NO edits were applied (atomic rollback). Actual content at that range:\n${rangeSnippet}\nRe-read the file and retry ALL edits.`,
-              error: `edit ${String(i + 1)}: oldString mismatch at line range (0 edits applied)`,
-            };
+            // oldString doesn't match at the adjusted line range.
+            // Fall through to string-based matching — the content may still
+            // exist elsewhere in the evolved file (e.g. adjacent edits shifted it).
           }
           // Line range invalid — fall through to string-based matching
         }

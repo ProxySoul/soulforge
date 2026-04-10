@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CustomProviderConfig } from "../core/llm/providers/types.js";
+import { ensureSoulforgeDir } from "../core/utils/ensure-soulforge-dir.js";
 import type { AppConfig, MCPServerConfig } from "../types";
 
 function mergeProviders(
@@ -163,9 +164,8 @@ export function saveConfig(config: AppConfig): void {
 
 /** Save a partial config to <cwd>/.soulforge/config.json (deep-merge). */
 export function saveProjectConfig(cwd: string, patch: Partial<AppConfig>): void {
-  const dir = join(cwd, ".soulforge");
+  const dir = ensureSoulforgeDir(cwd);
   const file = join(dir, "config.json");
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   let existing: Partial<AppConfig> = {};
   try {

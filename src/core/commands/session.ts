@@ -182,6 +182,25 @@ function handleNew(_input: string, ctx: CommandContext): void {
   ctx.newSession();
 }
 
+async function handleRename(input: string, ctx: CommandContext): Promise<void> {
+  const arg = input
+    .trim()
+    .replace(/^\/(session\s+)?rename\s*/i, "")
+    .trim();
+  if (!arg) {
+    sysMsg(ctx, "Usage: /session rename <new title>");
+    return;
+  }
+  const { SessionManager } = await import("../sessions/manager.js");
+  const mgr = new SessionManager(ctx.cwd);
+  if (mgr.renameSession(ctx.chat.sessionId, arg)) {
+    ctx.chat.setCustomTitle(arg);
+    sysMsg(ctx, `Session renamed to: ${arg}`);
+  } else {
+    sysMsg(ctx, "Could not rename session (not saved yet?).");
+  }
+}
+
 export function register(map: Map<string, CommandHandler>): void {
   // Grouped commands
   map.set("/session", handleSessions);
@@ -190,6 +209,7 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/session continue", handleContinue);
   map.set("/session history", handleSessions);
   map.set("/session new", handleNew);
+  map.set("/session rename", handleRename);
   map.set("/session export", handleExport);
 
   // Legacy aliases (backward compat)
@@ -197,9 +217,11 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/compact", handleCompact);
   map.set("/sessions", handleSessions);
   map.set("/continue", handleContinue);
+  map.set("/rename", handleRename);
 }
 
 export function matchSessionPrefix(cmd: string): CommandHandler | null {
+  if (cmd === "/session rename" || cmd.startsWith("/session rename ")) return handleRename;
   if (cmd === "/session export" || cmd.startsWith("/session export ")) return handleExport;
   if (cmd === "/session plan" || cmd.startsWith("/session plan ")) return handlePlan;
   // Legacy aliases

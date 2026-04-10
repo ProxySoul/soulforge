@@ -2,9 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { setNvimInstance } from "../core/editor/instance.js";
 import { getEditorDimensions } from "../core/editor/layout.js";
 import {
-  getBufferName,
-  getCursorPosition,
-  getVisualSelection,
   launchNeovim,
   type NvimInstance,
   openFile as nvimOpenFile,
@@ -70,7 +67,6 @@ export function useNeovim(
   nvimPath?: string,
   nvimConfig?: NvimConfigMode,
   onExit?: () => void,
-  showHints = true,
   hasTabBar = true,
   splitPct = 60,
 ): UseNeovimReturn {
@@ -113,7 +109,7 @@ export function useNeovim(
 
     const termCols = process.stdout.columns ?? 120;
     const termRows = process.stdout.rows ?? 40;
-    const dims = getEditorDimensions(termCols, termRows, showHints, hasTabBar, splitPct);
+    const dims = getEditorDimensions(termCols, termRows, hasTabBar, splitPct);
 
     launchNeovim(nvimPath ?? "nvim", dims.cols, dims.rows, nvimConfig)
       .then((nvim) => {
@@ -156,7 +152,7 @@ export function useNeovim(
       .finally(() => {
         launchingRef.current = false;
       });
-  }, [active, nvimPath, nvimConfig, showHints, hasTabBar, splitPct, launchGeneration]);
+  }, [active, nvimPath, nvimConfig, hasTabBar, splitPct, launchGeneration]);
 
   // Resize neovim when terminal dimensions change
   useEffect(() => {
@@ -167,7 +163,7 @@ export function useNeovim(
       if (!nvim || !mountedRef.current) return;
       const tc = process.stdout.columns ?? 120;
       const tr = process.stdout.rows ?? 40;
-      const d = getEditorDimensions(tc, tr, showHints, hasTabBar, splitPct);
+      const d = getEditorDimensions(tc, tr, hasTabBar, splitPct);
       nvim.pty.resize(d.cols, d.rows);
       setNvimDims({ cols: d.cols, rows: d.rows });
     };
@@ -177,7 +173,7 @@ export function useNeovim(
     return () => {
       process.stdout.removeListener("resize", onResize);
     };
-  }, [ready, active, showHints, hasTabBar, splitPct]);
+  }, [ready, active, hasTabBar, splitPct]);
 
   // Poll buffer name, cursor position, and visual selection when ready
   useEffect(() => {
@@ -187,23 +183,70 @@ export function useNeovim(
       const nvim = nvimRef.current;
       if (!nvim || !mountedRef.current) return;
 
-      Promise.all([
-        getBufferName(nvim),
-        getCursorPosition(nvim),
-        getVisualSelection(nvim),
-        nvim.api.executeLua("return vim.api.nvim_get_mode().mode", []) as Promise<string>,
-      ])
-        .then(([name, cursor, selection, rawMode]) => {
+      // Single RPC call to get all editor state — avoids 4 separate round-trips
+      // that would serialize on neovim's single thread and compete with PTY I/O.
+      nvim.api
+        .executeLua(
+          `
+          local r = {}
+        r.name = vim.api.nvim_buf_get_name(0)
+          local pos = vim.api.nvim_win_get_cursor(0)
+          r.line = pos[1]
+          r.col = pos[2]
+          r.mode = vim.api.nvim_get_mode().mode
+          local m = vim.fn.mode()
+          if m == 'v' or m == 'V' or m == '\\22' then
+            local vs = vim.fn.getpos('v')
+          local ve = vim.fn.getpos('.')
+          local sr, sc = vs[2], vs[3]
+            local er, ec = ve[2], ve[3]
+            if sr > er or (sr == er and sc > ec) then
+              sr, sc, er, ec = er, ec, sr, sc
+            end
+            local lines = vim.api.nvim_buf_get_lines(0, sr - 1, er, false)
+          if #lines > 0 then
+            if m == 'V' then
+              r.sel = table.concat(lines, '\\n')
+            elseif #lines == 1 then
+              r.sel = lines[1]:sub(sc, ec)
+            else
+              lines[1] = lines[1]:sub(sc)
+              lines[#lines] = lines[#lines]:sub(1, ec)
+              r.sel = table.concat(lines, '\\n')
+            end
+          end
+        end
+        return r
+        `,
+          [],
+        )
+        .then((result: unknown) => {
           if (!mountedRef.current) return;
-          if (name) setFileName((prev) => (prev === name ? prev : name));
-          setCursorLine((prev) => (prev === cursor.line ? prev : cursor.line));
-          setCursorCol((prev) => (prev === cursor.col ? prev : cursor.col));
+          const r = result as {
+            name?: string;
+            line?: number;
+            col?: number;
+            mode?: string;
+            sel?: string;
+          };
+          if (r.name) {
+            const name = r.name;
+            setFileName((prev) => (prev === name ? prev : name));
+          }
+          if (r.line != null) {
+            const line = r.line;
+            setCursorLine((prev) => (prev === line ? prev : line));
+          }
+          if (r.col != null) {
+            const col = r.col;
+            setCursorCol((prev) => (prev === col ? prev : col));
+          }
           setVisualSelection((prev) => {
-            if (selection) return selection;
+            if (r.sel) return r.sel;
             return prev;
           });
-          if (typeof rawMode === "string") {
-            const mapped = mapNvimMode(rawMode);
+          if (typeof r.mode === "string") {
+            const mapped = mapNvimMode(r.mode);
             setModeName((prev) => (prev === mapped ? prev : mapped));
           }
         })

@@ -198,6 +198,13 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["new", "fresh", "reset"],
   },
   {
+    cmd: "/session rename",
+    ic: "edit",
+    desc: "Rename current session",
+    category: "Session",
+    tags: ["rename", "title", "name"],
+  },
+  {
     cmd: "/session plan",
     ic: "plan",
     desc: "Toggle plan mode (research & plan only)",

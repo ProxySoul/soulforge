@@ -833,7 +833,7 @@ export const InputBox = memo(function InputBox({
                 textColor={t.textPrimary}
               />
               {showBusy && !showAutocomplete ? (
-                <text fg={t.textMuted} flexShrink={0}>
+                <text fg={t.error} attributes={TextAttributes.BOLD} flexShrink={0}>
                   {" ^X stop"}
                 </text>
               ) : ghost ? (

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 
 /**
  * Forbidden file guard — prevents the LLM from reading or editing sensitive files.
@@ -153,8 +154,7 @@ export function addProjectPattern(cwd: string, pattern: string): void {
   const existing = loadPatternsFromFile(filePath);
   if (!existing.includes(pattern)) {
     existing.push(pattern);
-    const { mkdirSync } = require("node:fs") as typeof import("node:fs");
-    mkdirSync(join(cwd, ".soulforge"), { recursive: true });
+    ensureSoulforgeDir(cwd);
     writeFileSync(filePath, JSON.stringify({ patterns: existing }, null, 2));
     projectPatterns = existing;
   }

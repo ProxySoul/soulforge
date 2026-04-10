@@ -331,7 +331,8 @@ describe("multi_edit tool: mismatch behavior", () => {
 			],
 		});
 		expect(result.success).toBe(false);
-		expect(result.output).toContain("oldString does not match");
+		expect(result.output).toContain("old_string not found");
+		expect(result.output).toContain("atomic rollback");
 	}, 30_000);
 
 	it("succeeds when all edits match exactly", async () => {

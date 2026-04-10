@@ -109,7 +109,12 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
   },
 
   // ── Session Persistence ────────────────────────────────────────────
-  saveSession: async (sessionDir: unknown, meta: unknown, tabEntries: unknown) => {
+  saveSession: async (
+    sessionDir: unknown,
+    meta: unknown,
+    tabEntries: unknown,
+    coreEntries: unknown,
+  ) => {
     const dir = sessionDir as string;
     const sessionMeta = meta as import("../sessions/types.js").SessionMeta;
     const entries = tabEntries as [string, unknown[]][];
@@ -141,6 +146,18 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
     await writeFile(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
     await rename(jsonlTmp, jsonlPath);
     await rename(metaTmp, metaPath);
+
+    const cores = coreEntries as [string, unknown[]][] | null;
+    if (cores && cores.length > 0) {
+      const coreData: Record<string, unknown[]> = {};
+      for (const [tabId, msgs] of cores) {
+        coreData[tabId] = msgs;
+      }
+      const corePath = join(dir, "core.json");
+      const coreTmp = `${corePath}.${suffix}.tmp`;
+      await writeFile(coreTmp, JSON.stringify(coreData), { encoding: "utf-8", mode: 0o600 });
+      await rename(coreTmp, corePath);
+    }
   },
 
   loadSession: async (sessionDir: unknown) => {
@@ -172,7 +189,18 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
       tabEntries.push([tab.id, allMessages.slice(startLine, endLine)]);
     }
 
-    return { meta, tabEntries };
+    const corePath = join(dir, "core.json");
+    let coreEntries: [string, unknown[]][] | undefined;
+    if (existsSync(corePath)) {
+      try {
+        const coreData = JSON.parse(readFileSync(corePath, "utf-8")) as Record<string, unknown[]>;
+        coreEntries = Object.entries(coreData);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return { meta, tabEntries, coreEntries };
   },
 
   // ── Session Listing ───────────────────────────────────────────────

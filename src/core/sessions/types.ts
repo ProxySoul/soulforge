@@ -23,6 +23,8 @@ export interface TabMeta {
 export interface SessionMeta {
   id: string;
   title: string;
+  /** User-set title that overrides the auto-derived one. */
+  customTitle?: string;
   cwd: string;
   startedAt: number;
   updatedAt: number;
