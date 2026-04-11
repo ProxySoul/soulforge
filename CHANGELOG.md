@@ -2,6 +2,47 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.10.0] — 2026-04-10
+
+### Bug Fixes
+
+- **multi-edit**: fall through to string match on line-range mismatch
+- **post-edit**: make error reporting more prominent to force immediate fixes
+- forward execution context in hook tool wrapper
+- remove redundant ^X stop hint from loading status
+- remove non-null assertions in useNeovim poll handler
+- remove microtask batching — feed PTY data directly
+- edit wrong inline count
+- cast ghostty-opentui renderable to avoid duplicate @opentui/core type mismatch
+### Documentation
+
+- **prompts**: add tool result error-checking rules to shared prompt
+- unify and update all documentation to reflect codebase
+- strengthen multi_edit rule — explain why sequential edit_file fails
+### Features
+
+- **sessions**: persist core messages directly instead of rebuilding from chat history
+- add /hooks command with per-event toggle
+- add disableAllHooks, once:true, and if conditional to hooks
+- wire remaining hook events across agent lifecycle
+- add Claude Code-compatible hooks system
+- add OpenCode Zen provider + fix reasoning_content stripping in custom providers
+- auto-add .soulforge to .gitignore in git repos
+- session rename — /session rename, ^R in picker, persistent custom titles
+- replace NvimScreen grid renderer with native PTY + ghostty rendering
+### Miscellaneous
+
+- fix import ordering (biome auto-format)
+### Performance
+
+- consolidate 4 RPC polls into single executeLua call
+- batch PTY data chunks per microtask to prevent torn frames
+### Refactor
+
+- strip redundant editor chrome — neovim statusline is enough
+### Testing
+
+- add hook test configs for .claude and .soulforge
 ## [2.9.5] — 2026-04-08
 
 ### Miscellaneous

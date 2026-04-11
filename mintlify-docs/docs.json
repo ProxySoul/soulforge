@@ -63,7 +63,9 @@
               "tools/mcp",
               "tools/headless",
               "tools/themes",
-              "tools/terminals"
+              "tools/terminals",
+              "tools/editor",
+              "tools/hooks"
             ]
           },
           {

@@ -1,9 +1,9 @@
 import type { ProviderDefinition, ProviderModelInfo } from "../types.js";
-import { performCodexBrowserLogin, requestCodexAuth, runCodexBrowserLogin } from "./auth.js";
 import {
   assertCodexReady,
   fetchCodexModelsFromAppServer,
   getCodexLoginStatus,
+  logoutCodex,
   parseCodexLoginStatus,
   parseCodexModelListResult,
 } from "./client.js";
@@ -36,7 +36,10 @@ export const codex: ProviderDefinition = {
   noAuthLabel: "login required — Enter to authenticate",
   authErrorLabel: "login/session error",
   badge: "non-streaming",
-  onRequestAuth: requestCodexAuth,
+  onRequestAuth: async () => {
+    const { requestCodexAuth } = await import("./auth.js");
+    await requestCodexAuth();
+  },
   createModel(modelId: string) {
     assertCodexReady();
     return createCodexLanguageModel(modelId);
@@ -57,11 +60,10 @@ export const codex: ProviderDefinition = {
 export {
   buildCodexSchema,
   createCodexLanguageModel,
+  getCodexLoginStatus,
+  logoutCodex,
   parseCodexLoginStatus,
   parseCodexModelListResult,
   parseCodexResponse,
-  performCodexBrowserLogin,
-  requestCodexAuth,
-  runCodexBrowserLogin,
   serializeCodexPrompt,
 };

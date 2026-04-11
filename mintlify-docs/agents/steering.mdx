@@ -1,6 +1,6 @@
 ---
 title: "User steering"
-description: "Type messages while the agent is running -- they queue up and inject into the next agent step."
+description: "Type messages while the agent is running — they queue up and inject into the next agent step."
 icon: "compass"
 ---
 
@@ -8,36 +8,15 @@ User steering lets you redirect the agent mid-execution without aborting. Messag
 
 ## How it works
 
-```
-User types while loading
-        |
-        v
-  messageQueue (state)
-  messageQueueRef (ref)
-        |
-        v  prepareStep calls drainSteering()
-  flushBeforeSteering():
-    - Commits current assistant progress to messages
-    - Appends steering messages after it
-    - Resets accumulators (fullText, segments, tool calls)
-        |
-        v
-  Combined text injected into AI messages as:
-  { role: "user", content: "IMPORTANT -- ..." }
-        |
-        v
-  Agent processes in next step (fresh accumulators)
-```
-
 <Steps>
   <Step title="Queue">
-    User types a message while the agent is busy (loading indicator visible). Message is queued (up to 5 messages, shown in UI with "queued" label). The 6th message is rejected -- the queue does not silently drop messages.
+    User types a message while the agent is busy (loading indicator visible). Message is queued (up to 5 messages, shown in UI with "queued" label).
   </Step>
   <Step title="Drain">
-    At the next `prepareStep` call (between agent steps), `drainSteering()` drains all queued messages at once.
+    At the next step boundary, all queued messages are drained at once.
   </Step>
   <Step title="Flush">
-    Current assistant progress is committed as a completed message, steering messages are appended, and accumulators are reset.
+    Current assistant progress is committed, steering messages are appended.
   </Step>
   <Step title="Inject">
     Combined steering text is injected as a user message into the AI conversation.
@@ -51,8 +30,7 @@ User types while loading
 
 | Guard | Purpose |
 |-------|---------|
-| **Abort gate** | `steeringAbortedRef` prevents drainSteering from firing after Ctrl+X |
-| **Ref sync** | `messageQueueRef.current = []` set directly in abort handler |
+| **Abort gate** | Steering is blocked after Ctrl+X to prevent stale messages |
 | **Queue cap** | Maximum 5 queued messages (6th rejected, not dropped) |
 | **Post-completion drain** | After stream ends, remaining queue auto-submitted as the next message |
 | **Plan-aware** | Queue survives across plan revision/execution continuations |

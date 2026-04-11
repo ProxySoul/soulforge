@@ -42,23 +42,17 @@ See also: [Code intelligence](/concepts/intelligence) for the LSP and tree-sitte
 rename_symbol({ symbol: "AgentBus", newName: "CoordinationBus" })
 ```
 
-What happens internally:
+What happens:
 
 <Steps>
   <Step title="Locate">
-    LSP workspace symbol search for the name.
-  </Step>
-  <Step title="Filter">
-    `isFile()` validation (rejects nested properties like `User.id`), prefer exported symbols.
-  </Step>
-  <Step title="Fallback">
-    If LSP can't find it: grep fallback across the codebase.
+    Finds the symbol automatically via LSP workspace search, with grep fallback.
   </Step>
   <Step title="Rename">
-    LSP `textDocument/rename` with all workspace edits applied.
+    LSP workspace-wide rename across all files.
   </Step>
   <Step title="Verify">
-    Grep verification: confirm no remaining references to old name.
+    Confirms no remaining references to the old name.
   </Step>
   <Step title="Report">
     Files changed, references updated, any remaining occurrences.
@@ -73,7 +67,7 @@ No `file` parameter needed. The tool locates the symbol itself via workspace sea
 move_symbol({ symbol: "parseConfig", from: "src/utils.ts", to: "src/config/parser.ts" })
 ```
 
-What happens internally:
+What happens:
 
 <Steps>
   <Step title="Extract">
@@ -117,22 +111,24 @@ project({ action: "run", script: "dev" })
 
 Auto-detects toolchain by probing for config files, maps actions to the correct commands, applies user overrides, and executes. See [Project Tool](/tools/project) for the full reference.
 
-### `read_code`
+### `read`
 
 ```typescript
-read_code({ symbol: "AgentBus", file: "src/core/agents/agent-bus.ts" })
+read({ files: [
+  { path: "src/index.ts" },
+  { path: "src/utils.ts", ranges: [{ start: 10, end: 50 }] },
+  { path: "src/agent.ts", target: "class", name: "AgentBus" }
+]})
 ```
 
-Extracts just one symbol's source code instead of dumping the entire file. A 500-line file might have a 30-line class definition --`read_code` returns only those 30 lines.
-
-Falls through: tree-sitter extraction, regex extraction, full file with line range.
+Reads multiple files in parallel. Each can be a full read, a line range, or a surgical symbol extraction by name.
 
 ### `navigate`
 
 ```typescript
-navigate({ action: "definition", symbol: "acquireFileRead" })
-navigate({ action: "references", symbol: "AgentBus" })
-navigate({ action: "call_hierarchy", symbol: "buildTools", direction: "incoming" })
+navigate({ action: "definition", symbol: "parseConfig" })
+navigate({ action: "references", symbol: "useChat" })
+navigate({ action: "call_hierarchy", symbol: "buildTools" })
 ```
 
 LSP-backed navigation. Returns locations with surrounding context lines.
@@ -146,7 +142,7 @@ Single representative run on `rename_symbol` (renaming an exported class across 
 | Agent steps | 19 | 3 | 84% fewer |
 | Token cost | $0.228 | $0.036 | 84% cheaper |
 
-The improvements come from three changes applied together:
-1. Grep fallback in `locateSymbol` --tool finds the symbol itself
-2. Confident output --no "verify" suggestions that trigger verification spirals
-3. Toolchain in context --`Toolchain: bun` prevents wrong-runner retries
+The improvements come from:
+1. The tool finds the symbol itself — no manual file lookup needed
+2. Confident output — no "verify" suggestions that trigger verification spirals
+3. Toolchain in context — prevents wrong-runner retries

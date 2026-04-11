@@ -1,6 +1,7 @@
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { AppConfig, ContextManagementConfig } from "../../types/index.js";
 import { getModelContextWindow } from "./models.js";
+import { getProvider } from "./providers/index.js";
 
 interface ModelCapabilities {
   provider: "anthropic" | "openai" | "google" | "other";
@@ -61,6 +62,8 @@ const PROVIDER_CONSTRAINTS: Record<string, ProviderConstraints> = {
   xai: OPENAI_FULL,
   vercel_gateway: GATEWAY_FULL,
   llmgateway: GATEWAY_FULL,
+  opencode_zen: GATEWAY_FULL,
+  opencode_go: GATEWAY_FULL,
   openrouter: GATEWAY_FULL,
   bedrock: GATEWAY_FULL,
 };
@@ -415,6 +418,8 @@ export const EPHEMERAL_CACHE: ProviderOptions = {
   google: CACHE_EPHEMERAL,
   proxy: CACHE_EPHEMERAL,
   llmgateway: CACHE_EPHEMERAL,
+  opencode_zen: CACHE_EPHEMERAL,
+  opencode_go: CACHE_EPHEMERAL,
   openrouter: CACHE_EPHEMERAL,
   vercel_gateway: CACHE_EPHEMERAL,
 } as ProviderOptions;
@@ -542,6 +547,32 @@ export async function buildProviderOptions(
     const result = buildOpenAIOptions(caps, config);
     if (Object.keys(result.opts).length > 0) {
       providerOptions.openai = result.opts;
+    }
+  }
+
+  // Custom provider reasoning params — injected for any custom provider
+  // that declares a reasoning config. The actual body injection is handled
+  // by the custom provider's fetch wrapper, but we also surface the params
+  // here for logging, degradation, and future extensibility.
+  const { provider } = parseModelId(modelId);
+  const customProvider = provider ? getProvider(provider) : null;
+  if (customProvider?.custom && customProvider.customReasoning) {
+    const r = customProvider.customReasoning;
+    const customOpts: Record<string, unknown> = {};
+    if (r.effort) {
+      customOpts.effort = r.effort;
+    }
+    if (r.enabled !== undefined) {
+      customOpts.enabled = r.enabled;
+    }
+    if (r.budget !== undefined) {
+      customOpts.budget = r.budget;
+    }
+    if (r.extraParams) {
+      customOpts.extraParams = r.extraParams;
+    }
+    if (Object.keys(customOpts).length > 0) {
+      providerOptions.custom = customOpts;
     }
   }
 

@@ -1,154 +1,66 @@
 ---
 title: "Repo map"
-description: "Graph-ranked, context-adaptive, semantically-enriched codebase index with PageRank, cochange analysis, and blast radius estimation."
+description: "Graph-ranked, context-adaptive codebase index with PageRank, cochange analysis, and blast radius."
 icon: "diagram-project"
 ---
 
-The repo map replaces flat file tree listings with a graph-ranked, context-adaptive view. Read the [full story](https://proxysoul.com/blog/soulforge) for the motivation behind this approach.
+The repo map replaces flat file tree listings with a graph-ranked, context-adaptive view of your codebase. Read the [full story](https://proxysoul.com/blog/soulforge) for the motivation behind this approach.
 
 ## How it works
 
 ### 1. Index phase (startup)
 
-Walk the file tree (respecting `.gitignore`, max depth 10). For each source file:
+Walk the file tree (respecting `.gitignore`). For each source file:
 
 1. Parse with tree-sitter to extract symbols (functions, classes, interfaces, types, enums) and their signatures
 2. Extract import statements and identifier references
-3. Build cross-file edges: if file A references a symbol exported by file B, create an edge A to B
-4. Store everything in SQLite (in-memory for speed, on-disk for persistence)
+3. Build cross-file edges: if file A references a symbol exported by file B, create an edge A → B
+4. Store everything in SQLite
 
-Indexing is incremental -- files are re-indexed only when their mtime changes.
+Indexing is incremental — files are re-indexed only when they change.
 
 ### 2. Graph phase
 
-Run PageRank (20 iterations, damping factor 0.85) over the file-to-file edge graph. Files imported by many other files score higher. The algorithm uses a personalization vector that can be biased toward specific files.
+Run PageRank over the file-to-file edge graph. Files imported by many other files score higher. The algorithm uses a personalization vector that can be biased toward files relevant to the current conversation.
 
 ### 3. Co-change phase
 
-Parse `git log --name-only` for the last 300 commits. For each commit that touches 2-20 files, record all pairwise file combinations. Commits with >20 files are filtered as noise (refactors, mass renames).
-
-This captures implicit coupling that the import graph misses -- files that are always edited together even without direct imports.
+Analyze recent git history to find files that are frequently edited together. This captures implicit coupling that the import graph misses — files that always change in lockstep even without direct imports.
 
 ### 4. Ranking phase (per-turn)
 
-**PageRank with personalized restart vector:**
-- Edited files: 5x base weight
-- Mentioned files (tool reads, grep hits): 3x base weight
-- Active editor file: 2x base weight
-- Co-change partners of context files: proportional to co-change count (capped at 2x)
+Each turn, the ranking is personalized based on conversation context:
 
-**Post-hoc signals** (things PageRank can't capture):
-- FTS match on conversation terms: +0.5 score
-- Graph neighbor of any context file: +1.0 score
-- Co-change partner of any context file: +min(count/5, 3.0) score
+- **Edited files** get the highest boost
+- **Mentioned files** (tool reads, grep hits) get a moderate boost
+- **Active editor file** gets a small boost
+- **Co-change partners** of context files are boosted proportionally
+
+Additional signals like full-text search matches on conversation terms and graph proximity further refine the ranking.
 
 ### 5. Rendering phase
 
-Binary search to maximize the number of file blocks that fit within the token budget. Each block shows:
+The ranked files are rendered into the system prompt within a token budget that scales with conversation length — more map at the start when the AI needs orientation, less as context is established.
+
+Each file block shows exported symbols with signatures, blast radius (how many files depend on it), and optional semantic summaries:
 
 ```
-src/core/agents/agent-bus.ts [R:12]
-  +AgentBus -- Shared coordination bus for parallel subagent communication
-  +acquireFileRead -- Lock-free file read with cache and waiter pattern
-  +SharedCache -- Pre-seeded cache for warm agent starts
-   FileCacheEntry
+src/core/agents/agent-bus.ts (→12)
+  +AgentBus — Shared coordination bus for parallel subagent communication
+  +SharedCache
 ```
 
 - `+` = exported symbol
-- `[R:12]` = blast radius (12 files import this one)
+- `(→12)` = blast radius (12 files depend on this one)
 - `[NEW]` = file appeared since last render
-- Descriptions are semantic summaries from the LLM
 
 ### 6. Semantic summaries
 
-After the initial scan, top symbols (by PageRank) are batched to a fast LLM:
-
-```
-Prompt: "One-line summary of what this symbol does."
-Input: { name: "AgentBus", kind: "class", signature: "class AgentBus { ... }" }
-Output: "Shared coordination bus for parallel subagent communication"
-```
-
-Summaries are cached in SQLite keyed by `(symbol_id, file_mtime)`. When a file is edited, its mtime changes and summaries are regenerated.
-
-## Budget dynamics
-
-The repo map's token budget scales inversely with conversation length:
-
-| State | Budget | Rationale |
-|-------|--------|-----------|
-| Start of conversation | 2,500 tokens | AI needs maximum orientation |
-| Mid conversation (~50K tokens) | ~2,000 tokens | Context established, less map needed |
-| Late conversation (~100K+ tokens) | 1,500 tokens | Save space for actual work |
+Top symbols (by PageRank) get one-line LLM-generated descriptions, cached by file modification time. When a file is edited, summaries are regenerated. Configurable via `semanticSummaries` in config (`"ast"`, `"llm"`, or `"off"`).
 
 ## Real-time updates
 
-```
-Tool calls edit_file / write_file
-    |
-emitFileEdited(absPath)
-    |
-ContextManager.onFileChanged(absPath)
-    |
-RepoMap.onFileChanged(absPath)
-    |
-Mark file dirty -> debounced re-index (500ms)
-    |
-Re-extract symbols + edges -> recompute PageRank
-    |
-Clear repo map render cache
-    |
-Next system prompt gets updated ranking
-```
-
-`emitFileRead(absPath)` feeds into `trackMentionedFile()`, which boosts the file in the next PageRank personalization without re-indexing.
-
-## Schema
-
-```sql
-CREATE TABLE files (
-  id INTEGER PRIMARY KEY,
-  path TEXT UNIQUE NOT NULL,
-  mtime_ms REAL NOT NULL,
-  language TEXT NOT NULL,
-  line_count INTEGER NOT NULL DEFAULT 0,
-  symbol_count INTEGER NOT NULL DEFAULT 0,
-  pagerank REAL NOT NULL DEFAULT 0
-);
-
-CREATE TABLE symbols (
-  id INTEGER PRIMARY KEY,
-  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  line INTEGER NOT NULL,
-  signature TEXT,
-  is_exported INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE edges (
-  source_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  target_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  weight REAL NOT NULL DEFAULT 1.0,
-  PRIMARY KEY (source_file_id, target_file_id)
-);
-
-CREATE TABLE cochanges (
-  file_id_a INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  file_id_b INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  count INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (file_id_a, file_id_b)
-);
-
-CREATE TABLE semantic_summaries (
-  symbol_id INTEGER PRIMARY KEY REFERENCES symbols(id) ON DELETE CASCADE,
-  summary TEXT NOT NULL,
-  file_mtime REAL NOT NULL
-);
-
--- FTS5 for conversation-term matching
-CREATE VIRTUAL TABLE symbols_fts USING fts5(name, content=symbols, content_rowid=id);
-```
+When the agent edits a file, the repo map re-indexes it automatically. The next system prompt gets updated rankings reflecting the change. File reads also influence the personalization — reading a file boosts it and its neighbors in the next ranking.
 
 ## Comparison
 
@@ -156,44 +68,31 @@ CREATE VIRTUAL TABLE symbols_fts USING fts5(name, content=symbols, content_rowid
 |---------|-----------|-------|-------------|
 | Index method | tree-sitter AST | tree-sitter AST | None |
 | Ranking | PageRank + personalization | Graph ranking | N/A |
-| Context adaptation | Per-turn personalization vector | Dynamic sizing | N/A |
-| Git co-change | Yes (300 commits) | No | No |
-| Semantic summaries | LLM-generated, cached by mtime | No | No |
-| FTS on symbols | Yes (SQLite FTS5) | No | No |
-| Real-time updates | Debounced re-index on edit | Per-turn rescan | N/A |
-| Blast radius tags | Yes ([R:N]) | No | No |
-| Clone detection | AST shape hash + MinHash | No | No |
-| Dead code detection | Unused exports (dead vs unnecessary) | No | No |
+| Context adaptation | Per-turn personalization | Dynamic sizing | N/A |
+| Git co-change | Yes | No | No |
+| Semantic summaries | LLM-generated, cached | No | No |
+| Full-text search | Yes | No | No |
+| Real-time updates | On edit | Per-turn rescan | N/A |
+| Blast radius tags | Yes | No | No |
+| Clone detection | Yes | No | No |
+| Dead code detection | Unused exports | No | No |
 
 See also: [Code intelligence](/concepts/intelligence) for the LSP and tree-sitter fallback chain that powers symbol extraction.
 
 ## Language support
 
-Convention-based visibility detection for 30 languages:
+Convention-based visibility detection for 30+ languages:
 
 | Convention | Languages | Rule |
 |---|---|---|
 | Name-based | Go | Capitalized = public |
 | Name-based | Python, Dart | No `_` prefix = public |
-| Name-based | Elisp | No `--` prefix = public |
 | Keyword-based | Rust, Zig | `pub` keyword |
 | Keyword-based | Java, Kotlin, Swift, C#, Scala | Not `private` = public |
-| Keyword-based | PHP | Not `private`/`protected` = public |
 | Keyword-based | Elixir | `def` (not `defp`) = public |
-| Keyword-based | Solidity | `public`/`external` or contract/event/struct |
-| File-based | C, C++, Objective-C | Header file (`.h`/`.hpp`/`.hh`) = public |
-| Default public | Ruby, Lua, Bash, OCaml, ReScript, TLA+ | All top-level symbols treated as public |
+| File-based | C, C++, Objective-C | Header file = public |
+| Default public | Ruby, Lua, Bash, OCaml | All top-level symbols treated as public |
 
-Identifier extraction covers three naming families:
-- **camelCase + PascalCase**: TypeScript, JavaScript, Go, Rust, Java, Kotlin, Swift, C#, Dart, Scala, Objective-C, Solidity
-- **snake_case + PascalCase**: Python, Ruby, Elixir, PHP, C, C++, Zig, Lua, Bash, OCaml, ReScript
-- **Hyphenated**: Elisp
+### Monorepo support
 
-### Monorepo support (partial)
-
-The repo map indexes files within the working directory. In monorepo setups:
-
-- PageRank, blast radius, and dependency edges only span files within `cwd`
-- Cross-package imports resolve as external dependencies, not internal edges
-- Co-change analysis works across the full git history regardless of package boundaries
-- The `project` tool handles workspace discovery separately via `project(action: "list")`
+The repo map indexes files within the working directory. In monorepo setups, cross-package imports resolve as external dependencies. Co-change analysis works across the full git history regardless of package boundaries. The `project` tool handles workspace discovery separately via `project(action: "list")`.

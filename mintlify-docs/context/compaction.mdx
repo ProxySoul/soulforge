@@ -10,7 +10,7 @@ SoulForge supports two compaction strategies for managing long conversations. Wh
 
 <Tabs>
   <Tab title="V2 -- Incremental extraction (default)">
-    Maintains a `WorkingStateManager` that extracts structured state **as the conversation happens**, not in a batch at compaction time.
+    Extracts structured state **as the conversation happens**, not in a batch at compaction time.
 
     **Extracted deterministically (zero LLM cost):**
     - **Files** -- tracked from read/edit/write tool calls with action details
@@ -24,7 +24,7 @@ SoulForge supports two compaction strategies for managing long conversations. Wh
 
     **On compaction:**
     1. Serializes the pre-built structured state into markdown
-    2. Optionally runs a cheap LLM **gap-fill** pass (2048 tokens max) that only outputs what's missing
+    2. Optionally runs a cheap LLM **gap-fill** pass that only outputs what's missing
     3. Same message replacement as V1
 
     **Cost**: Rule-based extraction during conversation (free). Gap-fill ~2k tokens vs V1's 8k.
@@ -33,11 +33,11 @@ SoulForge supports two compaction strategies for managing long conversations. Wh
     The original approach. When compaction triggers:
 
     1. Splits messages: last N kept verbatim, everything older goes to the summarizer
-    2. Formats older messages (6k chars/msg, 8k for tool results)
+    2. Formats older messages for the summarizer
     3. Sends to an LLM with a structured prompt requesting: Environment, Files Touched, Tool Results, Key Decisions, Work Completed, Errors, Current State
     4. Replaces older messages with the summary
 
-    **Cost**: One LLM call processing potentially 100k+ chars, outputting up to 8192 tokens.
+    **Cost**: One LLM call processing the older messages.
   </Tab>
 </Tabs>
 
@@ -69,7 +69,7 @@ All fields are optional. Omitting `compaction` or `strategy` defaults to V2.
 
 ### Live toggle
 
-Use `/compaction` to switch strategies. The change takes effect immediately -- switching to V2 starts extraction on the next message, switching to V1 drops the working state entirely.
+Use `/compact settings` to switch strategies. The change takes effect immediately — switching to V2 starts extraction on the next message, switching to V1 drops the working state.
 
 ### Dedicated model
 
@@ -85,19 +85,16 @@ Both strategies use the task router's `compact` slot:
 
 For V2, only the gap-fill pass uses this model. For V1, the full summarization uses it.
 
-## Data flow (V2)
+## How V2 works
 
-```
-User message ------------------> extractFromUserMessage()  --> WSM.task
-Tool call (read/edit/shell) ----> extractFromToolCall()     --> WSM.files, WSM.toolResults
-Tool result (success/error) ----> extractFromToolResult()   --> WSM.toolResults, WSM.failures
-Assistant text -----------------> extractFromAssistantMessage() -> WSM.decisions, WSM.discoveries
-                                                                    |
-Context > threshold --> buildV2Summary() --> serialize WSM          |
-                              |               + optional gap-fill <-+
-                              v
-                    [summary msg] + [ack msg] + [N recent msgs]
-```
+V2 extracts structured state from every message as the conversation progresses:
+
+- **User messages** → task description, requirements
+- **Tool calls** → files touched, tool results
+- **Tool results** → successes, failures
+- **Assistant text** → decisions, discoveries
+
+When compaction triggers, this pre-built state is serialized into a structured summary. If the state is rich enough, no LLM call is needed at all.
 
 ## Real-world example
 
@@ -118,7 +115,7 @@ Context > threshold --> buildV2Summary() --> serialize WSM          |
 |---|---|
 | Core messages | **5** |
 | Prompt tokens | **7,539** |
-| Gap-fill tokens | **0** (WSM had 15+ slots, skipped) |
+| Gap-fill tokens | **0** (state was rich enough, skipped) |
 | Context utilization | **4%** |
 
 34 messages to 5. The compaction cost **zero tokens** -- no LLM call at all.
@@ -152,7 +149,7 @@ Context > threshold --> buildV2Summary() --> serialize WSM          |
 
 ### Gap-fill threshold
 
-When 15 or more slots are populated across all categories (task, plan, files, decisions, failures, discoveries, environment, toolResults, userRequirements, assistantNotes), the LLM gap-fill is skipped entirely. Sessions with fewer tool calls trigger the 2K-token gap-fill to capture reasoning from prose.
+When the extracted state is rich enough across all categories (task, files, decisions, failures, discoveries, tool results), the LLM gap-fill is skipped entirely. Sessions with fewer tool calls trigger a small gap-fill pass to capture reasoning from prose.
 
 ### V1 comparison
 
@@ -170,18 +167,8 @@ The same compaction with V1 would have:
 
 ## Visual indicators
 
-- **ContextBar**: Shows `v2:N` (slot count) when V2 is active
-- **ContextBar**: Shows compacting spinner during active compaction
-- **InputBox**: Shows "Compacting context..." status during compaction
-- **System message**: Reports strategy used and before/after context percentages
+- Context bar shows compaction strategy and slot count when V2 is active
+- Compacting spinner during active compaction
+- System message reports strategy used and before/after context percentages
 
-## Architecture
 
-```
-src/core/compaction/
-+-- types.ts           -- WorkingState, CompactionConfig, slot types
-+-- working-state.ts   -- WorkingStateManager class
-+-- extractor.ts       -- Rule-based extractors for tool calls and messages
-+-- summarize.ts       -- buildV2Summary() with optional LLM gap-fill
-+-- index.ts           -- barrel exports
-```

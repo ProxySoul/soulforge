@@ -101,6 +101,34 @@ export function getCodexLoginStatus(): CodexLoginStatus {
   }
 }
 
+export interface CodexLogoutResult {
+  ok: boolean;
+  message: string;
+}
+
+export function logoutCodex(): CodexLogoutResult {
+  try {
+    const result = spawnSync("codex", ["logout"], {
+      timeout: 15_000,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    if (result.error) {
+      return { ok: false, message: result.error.message };
+    }
+
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    if (result.status === 0) {
+      return { ok: true, message: output || "Logged out of Codex." };
+    }
+
+    return { ok: false, message: output || "Failed to log out of Codex." };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function assertCodexReady(): void {
   const status = getCodexLoginStatus();
   if (!status.installed) {

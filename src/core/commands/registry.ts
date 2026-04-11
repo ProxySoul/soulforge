@@ -4,6 +4,7 @@ import { matchConfigPrefix, register as registerConfig } from "./config.js";
 import { matchContextPrefix, register as registerContext } from "./context.js";
 import { register as registerDebug } from "./debug.js";
 import { matchGitPrefix, register as registerGit } from "./git.js";
+import { register as registerHooks } from "./hooks.js";
 import { matchNavPrefix, register as registerNavigation } from "./navigation.js";
 import { register as registerProxy } from "./proxy.js";
 import { matchSecurityPrefix, register as registerSecurity } from "./security.js";
@@ -25,6 +26,7 @@ registerStorage(commandMap);
 registerSecurity(commandMap);
 registerClaims(commandMap);
 registerCodex(commandMap);
+registerHooks(commandMap);
 
 const prefixMatchers = [
   matchContextPrefix,
@@ -284,11 +286,39 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["api", "auth"],
   },
   {
+    cmd: "/codex",
+    ic: "model",
+    desc: "Show Codex login status",
+    category: "Models",
+    tags: ["codex", "auth", "status", "account"],
+  },
+  {
     cmd: "/codex login",
-    ic: "openai",
+    ic: "model",
     desc: "Log in to Codex with your ChatGPT subscription",
     category: "Models",
     tags: ["codex", "auth", "oauth", "browser", "chatgpt"],
+  },
+  {
+    cmd: "/codex logout",
+    ic: "model",
+    desc: "Log out of the current Codex account",
+    category: "Models",
+    tags: ["codex", "auth", "logout", "account"],
+  },
+  {
+    cmd: "/codex switch",
+    ic: "model",
+    desc: "Switch to a different Codex account",
+    category: "Models",
+    tags: ["codex", "auth", "switch", "account"],
+  },
+  {
+    cmd: "/codex status",
+    ic: "model",
+    desc: "Show Codex login status",
+    category: "Models",
+    tags: ["codex", "auth", "status", "account"],
   },
   {
     cmd: "/model-scope",
@@ -749,6 +779,13 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Manage forbidden file patterns",
     category: "System",
     tags: ["security", "forbidden"],
+  },
+  {
+    cmd: "/hooks",
+    ic: "cog",
+    desc: "View active hooks (PreToolUse, PostToolUse, etc.)",
+    category: "System",
+    tags: ["hooks", "claude", "lifecycle"],
   },
   { cmd: "/quit", ic: "quit", desc: "Exit SoulForge", category: "System", tags: ["exit", "close"] },
   { cmd: "/restart", ic: "ghost", desc: "Full restart", category: "System", tags: ["reboot"] },

@@ -37,39 +37,9 @@ When `edit_file` fails with `old_string not found` AND the file is claimed by an
 | `/claim release-all` | Release all claims from current tab |
 | `/claim force <path>` | Steal a file claim from another tab |
 
-## Architecture
+## How claims work
 
-```
-WorkspaceCoordinator (singleton)
-├── claims: Map<path, FileClaim>        — who owns what
-├── activeAgents: Map<tabId, count>     — dispatch agent tracking
-├── closedTabs: Set<tabId>              — ghost claim prevention
-├── idleTimers: Map<tabId, timer>       — auto-release on idle
-├── agentStartedAt: Map<tabId, ts>      — leaked agent sweep
-└── listeners: Set<callback>            — event subscribers (UI sync)
-```
-
-### Events
-
-All claim state changes emit batched events via `queueMicrotask`:
-- `claim` — file claimed by a tab
-- `release` — file released (including force-claim releasing the old owner)
-- `conflict` — tab tried to claim a file owned by another tab
-
-The tab bar listens to these events and updates the claim count indicator. Only re-renders when the count actually changes (deduped).
-
-### Tool Integration
-
-Every file-modifying tool calls `checkAndClaim` before execution (advisory warning) or `claimAfterCompoundEdit` after execution (post-hoc claim):
-
-- `edit_file`, `multi_edit` — `checkAndClaim` before edit
-- `rename_symbol`, `move_symbol`, `rename_file`, `refactor` — `checkAndClaim` before + `claimAfterCompoundEdit` after
-- `shell` (sed, cp, mv, tee, >) — `claimAfterCompoundEdit` after
-- `test_scaffold` — `claimAfterCompoundEdit` after
-
-### System Prompt
-
-The `prepareStep` hook injects fresh cross-tab claim state on every agent step. This is NOT in the initial system prompt (which would go stale) — it's live on every step.
+Every file-modifying tool automatically claims the file for the active tab. The claim lifecycle, git blocking, and contention handling are described above.
 
 ## Design Decisions
 
@@ -77,4 +47,4 @@ The `prepareStep` hook injects fresh cross-tab claim state on every agent step. 
 
 **Git is the exception.** Git operations during active dispatch are hard-blocked because committing mid-dispatch produces garbage (partial edits). This is the only hard gate.
 
-**Claims are transient.** Auto-released on idle (5s), on abort, on tab close. The stale sweep (5 min) is the safety net. Nothing persists forever.
+**Claims are transient.** Auto-released on idle, on abort, on tab close. Nothing persists forever.

@@ -29,6 +29,7 @@ import {
 import type { ContextManager } from "../core/context/manager.js";
 import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
+import { hasToolHooks, runHooks } from "../core/hooks/index.js";
 import {
   getModelContextInfo,
   getModelContextInfoSync,
@@ -761,6 +762,9 @@ export function useChat({
       setIsCompacting(true);
       if (visibleRef.current) useStatusBarStore.getState().setCompacting(true);
 
+      // ── PreCompact hook ──
+      runHooks({ event: "PreCompact", sessionId: sessionIdRef.current, cwd }).catch(() => {});
+
       const compactAbort = new AbortController();
       compactAbortRef.current = compactAbort;
       const startTime = Date.now();
@@ -1152,6 +1156,8 @@ export function useChat({
           summaryLength: summary.length,
           summarySnippet: summary.slice(0, 2000),
         });
+        // ── PostCompact hook ──
+        runHooks({ event: "PostCompact", sessionId: sessionIdRef.current, cwd }).catch(() => {});
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logBackgroundError("compact", msg);
@@ -1414,6 +1420,28 @@ export function useChat({
         return;
       }
 
+      // ── UserPromptSubmit hook ──
+      if (hasToolHooks(cwd)) {
+        const hookResult = await runHooks({
+          event: "UserPromptSubmit",
+          toolInput: { prompt: input },
+          sessionId: sessionIdRef.current,
+          cwd,
+        });
+        if (hookResult.blocked) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content: `[Hook blocked] ${hookResult.reason ?? "Prompt blocked by hook"}`,
+              timestamp: Date.now(),
+            },
+          ]);
+          return;
+        }
+      }
+
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -1589,7 +1617,22 @@ export function useChat({
 
       const unsubMultiAgent = onMultiAgentEvent((event) => {
         if (!isOurDispatch(event.parentToolCallId)) return;
+        // ── SubagentStart / SubagentStop hooks ──
+        if (event.type === "agent-start" && event.agentId) {
+          runHooks({
+            event: "SubagentStart",
+            toolInput: { agent_id: event.agentId, agent_type: event.role },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
+        }
         if (event.type === "agent-done" && event.agentId) {
+          runHooks({
+            event: "SubagentStop",
+            toolInput: { agent_id: event.agentId, agent_type: event.role },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
           completedResultChars.set(event.agentId, event.resultChars ?? 0);
           updateSubagentChars();
           toolCallsDirty.current = true;
@@ -2459,10 +2502,23 @@ export function useChat({
             case "tool-error": {
               markToolEnd();
               toolCallsDirty.current = true;
+              let errorMsg: string;
+              if (typeof part.error === "string") {
+                errorMsg = part.error;
+              } else if (typeof part.error === "object" && part.error !== null) {
+                const e = part.error;
+                if ("errorCode" in e && typeof e.errorCode === "string") errorMsg = e.errorCode;
+                else if ("error_code" in e && typeof e.error_code === "string")
+                  errorMsg = e.error_code;
+                else if ("message" in e && typeof e.message === "string") errorMsg = e.message;
+                else errorMsg = JSON.stringify(e);
+              } else {
+                errorMsg = String(part.error);
+              }
               const tc = tcBuf.find((c) => c.id === part.toolCallId);
               if (tc) {
                 tc.state = "error";
-                tc.error = String(part.error);
+                tc.error = errorMsg;
                 tc.progressText = undefined;
               }
               const errorArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
@@ -2470,13 +2526,11 @@ export function useChat({
                 id: part.toolCallId,
                 name: part.toolName,
                 args: errorArgs,
-                result: { success: false, output: "", error: String(part.error) },
+                result: { success: false, output: "", error: errorMsg },
               });
               if (workingStateRef.current) {
                 extractFromToolCall(workingStateRef.current, part.toolName, errorArgs);
-                workingStateRef.current.addFailure(
-                  `${part.toolName}: ${String(part.error).slice(0, 200)}`,
-                );
+                workingStateRef.current.addFailure(`${part.toolName}: ${errorMsg.slice(0, 200)}`);
                 syncV2Slots();
               }
               flushStreamState();
@@ -2861,6 +2915,15 @@ export function useChat({
         }
 
         const rawMsg = err instanceof Error ? err.message : String(err);
+        // ── StopFailure hook ──
+        if (!isAbort) {
+          runHooks({
+            event: "StopFailure",
+            toolInput: { error: rawMsg },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
+        }
         const isTransientStream = /overloaded|529|429|rate.?limit|too many requests|503|502/i.test(
           rawMsg,
         );
@@ -2985,6 +3048,15 @@ export function useChat({
         if (visibleRef.current) useStatusBarStore.getState().setSubagentChars(0);
         if (abortController.signal.aborted) getWorkspaceCoordinator().releaseAll(tabId);
         if (!stallRetryPendingRef.current) setIsLoading(false);
+        // ── Stop hook ── (fires when agent finishes responding)
+        if (!stallRetryPendingRef.current) {
+          runHooks({
+            event: "Stop",
+            toolInput: { stop_hook_active: true },
+            sessionId: sessionIdRef.current,
+            cwd,
+          }).catch(() => {});
+        }
         abortRef.current = null;
         planExecutionRef.current = false;
         setPendingQuestion(null);

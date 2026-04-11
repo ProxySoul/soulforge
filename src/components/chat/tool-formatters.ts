@@ -278,6 +278,20 @@ export function formatResult(toolName: string, result?: string): string {
       return `${String(lines)} lines [cached]`;
     }
   } catch {}
+  // Read tool — show line count, not file content
+  if (toolName === "read") {
+    try {
+      const p = JSON.parse(result);
+      if (p.success && p.output) {
+        const lines = String(p.output).split("\n").filter(Boolean).length;
+        return `→ ${String(lines)} lines`;
+      }
+      if (p.error) {
+        const msg = String(p.error);
+        return msg.length > 30 ? `${msg.slice(0, 27)}...` : msg;
+      }
+    } catch {}
+  }
   // Soul tools — extract structured counts from output text
   if (toolName === "soul_impact" || toolName === "soul_analyze") {
     try {

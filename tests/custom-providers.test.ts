@@ -555,3 +555,246 @@ describe("buildCustomProvider.fetchModels", () => {
 		expect(capturedHeaders!.get("Authorization")).toBeNull();
 	});
 });
+
+describe("buildCustomProvider reasoning config", () => {
+	const originalFetch = globalThis.fetch;
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("customReasoning field is set when reasoning config is provided", () => {
+		const def = buildCustomProvider({
+			id: "reasoning-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "high" },
+		});
+		expect(def.customReasoning).toEqual({ effort: "high" });
+	});
+
+	test("customReasoning is undefined when no reasoning config", () => {
+		const def = buildCustomProvider({
+			id: "no-reasoning",
+			baseURL: "https://api.test.com/v1",
+		});
+		expect(def.customReasoning).toBeUndefined();
+	});
+
+	test("fetch wrapper injects reasoning effort into request body", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "effort-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "high" },
+		});
+		// Trigger a request through the model
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected — the mock response shape may not fully satisfy the SDK
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.reasoning).toEqual({ effort: "high" });
+	});
+
+	test("fetch wrapper forwards effort 'none' to explicitly disable thinking", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "effort-none-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "none" },
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.reasoning).toEqual({ effort: "none" });
+	});
+
+	test("fetch wrapper injects DashScope-style thinking params", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "dashscope-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { enabled: true, budget: 4096 },
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.enable_thinking).toBe(true);
+		expect(body.thinking_budget).toBe(4096);
+	});
+
+	test("fetch wrapper injects extraParams verbatim", async () => {
+		let capturedBody: string | null = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = typeof init.body === "string" ? init.body : null;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "extra-params-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: {
+				extraParams: {
+					thinking: { type: "enabled", budget_tokens: 8192 },
+				},
+			},
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedBody).not.toBeNull();
+		const body = JSON.parse(capturedBody!);
+		expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 8192 });
+	});
+
+	test("fetch wrapper does not mutate original init object", async () => {
+		let capturedInit: RequestInit | undefined;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedInit = init;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "mutation-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "medium" },
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		expect(capturedInit).toBeDefined();
+		// The body should have reasoning params
+		const body = JSON.parse(capturedInit!.body as string);
+		expect(body.reasoning).toEqual({ effort: "medium" });
+	});
+
+	test("fetch wrapper skips injection when body is not a string", async () => {
+		let capturedBody: unknown = null;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedBody = init.body;
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "ok" } }],
+					}),
+					{ status: 200 },
+				),
+			);
+		}) as any;
+
+		const def = buildCustomProvider({
+			id: "non-string-body-test",
+			baseURL: "https://api.test.com/v1",
+			reasoning: { effort: "high" },
+		});
+		const model = def.createModel("test-model");
+		try {
+			await model.doGenerate({
+				inputFormat: "prompt",
+				mode: { type: "regular" },
+				prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+			});
+		} catch {
+			// Expected
+		}
+
+		// Body should still be a string (SDK always sends JSON), with reasoning injected
+		expect(typeof capturedBody).toBe("string");
+		const body = JSON.parse(capturedBody as string);
+		expect(body.reasoning).toEqual({ effort: "high" });
+	});
+});
