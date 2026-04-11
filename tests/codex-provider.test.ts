@@ -1,11 +1,11 @@
 import type { LanguageModelV2CallOptions } from "@ai-sdk/provider";
 import { describe, expect, test } from "bun:test";
 import { getAllProviders, getProvider } from "../src/core/llm/providers/index.js";
+import { performCodexBrowserLogin } from "../src/core/llm/providers/codex/auth.js";
 import {
   buildCodexSchema,
   codex,
   createCodexLanguageModel,
-  performCodexBrowserLogin,
   parseCodexLoginStatus,
   parseCodexModelListResult,
   parseCodexResponse,
@@ -23,7 +23,7 @@ const BASE_OPTIONS: LanguageModelV2CallOptions = {
 describe("codex provider", () => {
   test("is registered as a builtin provider", () => {
     expect(getProvider("codex")).toBeDefined();
-    expect(getAllProviders().filter((provider) => !provider.custom)).toHaveLength(19);
+    expect(getAllProviders().filter((provider) => !provider.custom)).toHaveLength(21);
   });
 
   test("has provider metadata, fallback models, and shared auth hook", () => {

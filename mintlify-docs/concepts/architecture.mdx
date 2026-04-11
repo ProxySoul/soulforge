@@ -6,119 +6,83 @@ icon: "sitemap"
 
 ## System overview
 
-33 tools, three agent tiers, and an in-process coordination bus.
+36+ tools, three agent tiers, 20 LLM providers, and an in-process coordination bus.
 
 ```
 User Input
     |
     v
-+---------+     +--------------+     +---------------+
-| InputBox |---->|   useChat    |---->|  Forge Agent   |
-| (OpenTUI)|     |  (AI SDK)    |     | (orchestrator) |
-+---------+     +--------------+     +-------+-------+
-                                             | dispatch
-                              +--------------+--------------+
-                              v              v              v
-                        +----------+  +----------+  +----------+
-                        |  Explore  |  |   Code   |  |WebSearch |
-                        | subagent  |  | subagent |  | subagent |
-                        +-----+----+  +----+-----+  +----+-----+
-                              |            |              |
-                              +------+-----+--------------+
-                                     v
-                              +--------------+
-                              |   AgentBus   |
-                              | file cache   |
-                              | tool cache   |
-                              | findings     |
-                              | edit mutex   |
-                              +--------------+
-                                     |
-                    +----------------+----------------+
-                    v                v                v
-             +-----------+   +-----------+   +-----------+
-             |   Tools   |   |Intelligence|   |  Neovim   |
-             |  33 tools |   |  Router    |   | (msgpack) |
-             +-----------+   +-----+-----+   +-----------+
-                                   |
-                        +----------+----------+
-                        v          v          v
-                      LSP    tree-sitter    regex
++---------+     +---------+     +---------------+
+|  Input  |---->|  Chat   |---->|  Forge Agent   |
+|  (TUI)  |     | (AI SDK)|     | (orchestrator) |
++---------+     +---------+     +-------+-------+
+                                        | dispatch
+                         +--------------+--------------+
+                         v              v              v
+                   +----------+  +----------+  +----------+
+                   | Spark    |  |  Ember   |  |WebSearch |
+                   | explore  |  |   code   |  | subagent |
+                   +-----+----+  +----+-----+  +----+-----+
+                         |            |              |
+                         +------+-----+--------------+
+                                v
+                         +--------------+
+                         |   AgentBus   |
+                         | shared cache |
+                         | edit mutex   |
+                         | findings     |
+                         +--------------+
+                                |
+                  +-------------+-------------+
+                  v             v             v
+           +-----------+ +-----------+ +-----------+
+           |   Tools   | |Intelligence| |  Neovim   |
+           +-----------+ +-----------+ +-----------+
+                               |
+                    +----------+----------+
+                    v          v          v
+                  LSP    tree-sitter    regex
 ```
 
 ## Three-tier agent architecture
 
-| Tier | Agent | Step limit | Token limit | Purpose |
-|------|-------|-----------|-------------|---------|
-| 1 | **Forge** | 500 | Full context | Main orchestrator --plans, dispatches, responds |
-| 2 | **Code** | 25 | 150K | File edits, refactoring, implementation |
-| 2 | **Explore** | 15 | 80K | Read-only research, code analysis |
-| 2 | **WebSearch** | -- | -- | Multi-step web research with scraping |
+| Agent | Purpose |
+|-------|---------|
+| **Forge** | Main orchestrator — plans, dispatches, responds to the user |
+| **⚡ Spark** | Read-only research and code analysis. Shares the forge's cache for efficiency |
+| **🔥 Ember** | File edits, refactoring, implementation. Uses its own model and context |
+| **WebSearch** | Multi-step web research with scraping and synthesis |
 
 ## AgentBus
 
-In-process coordination layer for parallel subagents.
+Coordination layer for parallel subagents:
 
-**File Cache** --First reader caches the content; concurrent readers get the same Promise. Generation counter prevents stale overwrites after concurrent edits.
-
-**Tool Result Cache** --LRU, max 200 entries. Keyed by `toolName:canonicalized-args`. Covers: `read_code`, `grep`, `glob`, `navigate`, `analyze`, `web_search`. Persists across dispatches via `exportCaches()`.
-
-**Edit Mutex** --Promise-chaining serializes edits to the same file. First editor becomes owner; second gets a warning.
-
-**Findings** --Agents call `report_finding(label, content)` to post to the bus. Each step, `prepareStep()` drains unseen findings and injects them as peer discovery messages.
+- **File cache** — first reader caches the content; concurrent readers share it. Edits invalidate the cache.
+- **Tool result cache** — read-only tool results are cached across agents and dispatches.
+- **Edit mutex** — concurrent edits to the same file are serialized. First editor owns the file; second gets a warning.
+- **Findings** — agents share discoveries in real-time. One agent's finding influences the next agent within a step or two.
 
 ## Step lifecycle
 
-Each agent step passes through `prepareStep()`:
+Each agent step goes through preparation that handles context management:
 
-```
-Step 0: toolChoice = "required" (force immediate tool use)
-     |
-Each step: capture path map -> sanitize inputs -> inject peer findings -> check budget
-     |
-Step 1+: semantic pruning (stale reads, canceled plans, old edit args)
-     |
-Step 3+: age-based tool result summarization (rolling window)
-  - read_file/read_code: "[pruned] 245 lines -- exports: Foo, Bar"
-  - grep: "[pruned] 42 matches"  |  glob: "[pruned] 25 files"
-  - edit_file/write_file/create_file: always preserved
-     |
-Trim threshold (50K explore, 80K code): inject context recovery
-     |
-Budget warning (60K explore, 120K code): inject "wrap up soon"
-     |
-Force-done (70K explore, 135K code): activeTools = ["done"]
-     |
-Hard stop (80K explore, 150K code): abort
-```
+- **Peer findings** — new discoveries from other agents are injected
+- **Semantic pruning** — stale reads and old tool results are summarized to save context
+- **Budget management** — agents are guided to wrap up as they approach their context budget
+- **Edit preservation** — file edits are always kept in full, never pruned
 
 ## Result pipeline
 
-```
-Subagent finishes
-    |
-extractDoneResult() -- look for structured done() call
-    |  found                    |  not found
-formatDoneResult()      buildFallbackResult()
-(structured summary)    (extract from tool results, 2K/tool, 8K total)
-    |                          |
-bus.setResult(text)
-    |
-Multi-agent: aggregate all results + findings
-Single-agent: return directly
-    |
-toModelOutput() -- compact for parent context
-```
+When subagents finish, their results are aggregated and compressed before the parent Forge agent sees them. Multi-agent dispatches combine all results and findings into a single summary.
 
-## Agent quality pipeline
+## Agent quality
 
-**Schema Enforcement** --The dispatch schema requires a `targetFiles` array on every task. Pre-dispatch validation rejects tasks without real file paths before any subagent runs.
+- **Schema enforcement** — dispatch tasks require target file paths, validated before any agent runs
+- **Tier routing** — tasks are classified and routed to the appropriate model tier (spark for read-only, ember for edits)
+- **De-sloppify pass** — optional cleanup agent reviews code edits in fresh context to catch sloppy patterns
+- **Verify pass** — optional adversarial review checks correctness after code agents finish
 
-**Complexity-Tier Routing** --`detectTaskTier()` classifies tasks as `trivial` or `standard`. Trivial tasks route to the `trivialModel` when configured.
-
-**De-Sloppify Pass** --After code agents finish, a cleanup agent runs in fresh context to remove sloppy patterns: tests of language features, redundant type checks, console.log, commented-out code, over-defensive error handling.
-
-**Done Tool Contracts** --Explore and code done tools demand pasteable code, not prose. If the parent has to re-read files, the done call failed.
+All features can be toggled via `/agent-features` or `agentFeatures` in config.
 
 ## Intelligence router
 
@@ -128,47 +92,22 @@ Routes code intelligence operations to the best available backend.
 |---------|------|-------------|
 | **LSP** | 1 | definitions, references, rename, diagnostics, code actions, call hierarchy, type info, formatting |
 | **ts-morph** | 2 | TypeScript/JavaScript --AST definitions, references, rename, extract, unused detection |
-| **tree-sitter** | 2 | 30 languages --symbol extraction, imports/exports, scopes, outlines |
+| **tree-sitter** | 2 | 33+ languages --symbol extraction, imports/exports, scopes, outlines |
 | **regex** | 3 | Universal fallback --symbol search, simple definitions, import patterns |
 
 For each operation, the router tries backends in tier order. If tier 1 returns null or throws, tier 2 is tried, then tier 3.
 
 ### LSP integration
 
-Dual-backend architecture --the agent always has LSP access regardless of editor state:
+Dual-backend architecture — the agent always has LSP access regardless of editor state:
 
-- **Neovim bridge**: When the editor is open, routes LSP requests through Neovim's running servers via Lua RPC. Zero startup cost.
-- **Standalone client**: When the editor is closed, spawns LSP servers directly as child processes with JSON-RPC over stdin/stdout.
-- **Multi-language warmup**: On boot, `detectAllLanguages()` scans project config files and spawns standalone LSP servers for all detected languages in parallel.
-- Server discovery: PATH, `~/.soulforge/lsp-servers/`, `~/.local/share/soulforge/mason/bin/`
+- **Neovim bridge**: When the editor is open, routes LSP requests through Neovim's running servers. Zero startup cost.
+- **Standalone client**: When the editor is closed, spawns LSP servers directly. Full protocol support.
+- **Multi-language warmup**: On boot, detects project languages and spawns LSP servers for all of them in parallel.
 
-## Web search system
+## Web search
 
-```
-web_search tool call
-    |
-    +-- webSearchModel configured?
-    |       |
-    |       +-- YES -> spawn ToolLoopAgent (up to 15 steps, 120s)
-    |       |         +-- web_search tool -> Brave API -> DDG fallback
-    |       |         +-- fetch_page tool -> Jina -> Readability -> fallback
-    |       |         +-- synthesize structured summary
-    |       |
-    |       +-- NO -> direct webSearchScraper -> Brave -> DDG
-    |
-    +-- return result (cached 5 min)
-```
-
-| Search Backend | Trigger | Notes |
-|---------|---------|-------|
-| **Brave Search API** | `BRAVE_API_KEY` set | Structured results with snippets |
-| **DuckDuckGo HTML** | Brave unavailable | Scrapes `html.duckduckgo.com`, no API key |
-
-| Page Fetch Backend | Trigger | Notes |
-|---------|---------|-------|
-| **Jina Reader** | Always tried first | Returns clean markdown |
-| **Readability** | Jina fails | `@mozilla/readability` + `linkedom` |
-| **Fallback strip** | Readability fails | Regex HTML to text |
+Web search supports Brave Search API (with `BRAVE_API_KEY`) and DuckDuckGo as fallback. When a web search model is configured via the task router, the `web_search` tool spawns a multi-step agent that can run multiple queries, follow URLs, and synthesize a structured summary with citations. Results are cached.
 
 ## Context manager
 
@@ -187,55 +126,6 @@ See also: [Multi-agent dispatch](/agents/dispatch) for AgentBus coordination det
 
 ## UI layer
 
-**Framework**: OpenTUI (React reconciler for terminal UIs).
+Built on OpenTUI (React reconciler for terminal UIs) with Zustand for state management. Lock-in mode (`/lock-in`) hides agent narration and shows only tool activity + final answer.
 
-| Store | Purpose |
-|-------|---------|
-| `stores/ui.ts` | Modal state, active panels, layout flags |
-| `stores/errors.ts` | Background error log |
-| `stores/repomap.ts` | Scan progress, stats, semantic summary status |
-| `stores/statusbar.ts` | Memory usage, polling |
 
-| Component | Purpose |
-|-----------|---------|
-| `App.tsx` | Root --wires all state, keybindings, modals |
-| `InputBox.tsx` | Multiline input with paste collapse, fuzzy history, command autocomplete |
-| `MessageList.tsx` | Chat messages with markdown, syntax highlighting, tool call progress |
-| `ContextBar.tsx` | Live context usage with green/gray dot indicator |
-| `EditorPanel.tsx` | Embedded Neovim with screen rendering |
-| `CommandPicker.tsx` | Slash command palette |
-| `ToolCallDisplay.tsx` | Real-time tool execution visualization |
-
-## File layout
-
-```
-src/
-+-- boot.tsx                    # Entry point
-+-- index.tsx                   # App initialization
-+-- components/                 # OpenTUI components
-+-- hooks/                      # React hooks (useChat, useNeovim, useTabs...)
-+-- stores/                     # Zustand stores
-+-- types/                      # Shared type definitions
-+-- config/                     # Config loading/saving
-+-- core/
-    +-- agents/                 # Forge, Code, Explore, WebSearch agents
-    |   +-- agent-bus.ts        # Shared coordination bus
-    |   +-- subagent-tools.ts   # Dispatch orchestration
-    |   +-- step-utils.ts       # Per-step injection logic
-    |   +-- stream-options.ts   # Streaming configuration builder
-    +-- context/
-    |   +-- manager.ts          # System prompt assembly
-    +-- editor/                 # Neovim integration
-    +-- intelligence/
-    |   +-- repo-map.ts         # PageRank codebase index
-    |   +-- router.ts           # Multi-backend operation router
-    |   +-- post-edit.ts        # Diagnostic diffing after edits
-    |   +-- backends/           # LSP, tree-sitter, regex
-    +-- llm/                    # Provider config, model registry
-    +-- memory/                 # Persistent memory (SQLite)
-    +-- modes/                  # Forge personas
-    +-- security/               # Forbidden file patterns
-    +-- sessions/               # Session persistence + rebuild
-    +-- setup/                  # Prerequisite checks
-    +-- tools/                  # All 33 tools
-```

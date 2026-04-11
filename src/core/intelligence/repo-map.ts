@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { execSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, statSync } from "node:fs";
 import { stat as statAsync } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve } from "node:path";
+import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 import {
   computeFragmentHashes,
   computeMinHash,
@@ -114,8 +115,7 @@ export class RepoMap {
 
   constructor(cwd: string) {
     this.cwd = cwd;
-    const dbDir = join(cwd, ".soulforge");
-    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+    const dbDir = ensureSoulforgeDir(cwd);
 
     const dbPath = join(dbDir, "repomap.db");
     this.db = new Database(dbPath);

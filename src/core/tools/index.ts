@@ -9,6 +9,7 @@ import {
   prependWarning,
 } from "../coordination/tool-wrapper.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
+import { hasToolHooks, runHooks } from "../hooks/index.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
   describeDestructiveCommand,
@@ -397,7 +398,7 @@ export function buildTools(
     return { blocked: true, result: { success: false, output: msg, error: msg } };
   }
 
-  return {
+  const tools = {
     read: tool({
       ...TEXT_OUTPUT,
       providerOptions: progProviderOpts,
@@ -1811,6 +1812,81 @@ export function buildTools(
         })()
       : {}),
   };
+
+  // ── Hook wrapping ──────────────────────────────────────────────────
+  // When PreToolUse/PostToolUse hooks are configured, wrap each tool's
+  // execute to run hooks before/after. Zero overhead when no hooks exist.
+  //
+  // Uses Object.create + defineProperty to preserve the AI SDK tool
+  // object's prototype chain and non-enumerable properties (frozen/sealed
+  // objects, internal SDK metadata). Only the execute property is shadowed.
+  if (hasToolHooks(effectiveCwd)) {
+    for (const [toolName, toolDef] of Object.entries(tools)) {
+      const def = toolDef as {
+        execute?: (args: Record<string, unknown>, ctx?: unknown) => Promise<unknown>;
+      };
+      if (typeof def.execute !== "function") continue;
+      const originalExecute = def.execute;
+      // Shadow execute on a prototype-linked clone — all other properties
+      // (description, inputSchema, providerOptions, toModelOutput) are
+      // inherited from the original via the prototype chain.
+      const proxy = Object.create(def) as typeof def;
+      Object.defineProperty(proxy, "execute", {
+        value: async (args: Record<string, unknown>, execContext?: unknown) => {
+          // PreToolUse — lazily reads config so mid-session changes apply
+          const preResult = await runHooks({
+            event: "PreToolUse",
+            toolName,
+            toolInput: args,
+            cwd: effectiveCwd,
+          });
+          if (preResult.blocked) {
+            const reason = preResult.reason ?? "Blocked by hook";
+            return { success: false, output: `[Hook blocked] ${reason}`, error: reason };
+          }
+          const effectiveInput = preResult.updatedInput
+            ? { ...args, ...preResult.updatedInput }
+            : args;
+          let result: unknown;
+          try {
+            result = await originalExecute(effectiveInput, execContext);
+          } catch (err) {
+            // PostToolUseFailure — tool threw an exception
+            runHooks({
+              event: "PostToolUseFailure",
+              toolName,
+              toolInput: effectiveInput,
+              cwd: effectiveCwd,
+            }).catch(() => {});
+            throw err;
+          }
+          // PostToolUse — fire-and-forget, never blocks the agent
+          runHooks({
+            event: "PostToolUse",
+            toolName,
+            toolInput: effectiveInput,
+            toolResponse: result,
+            cwd: effectiveCwd,
+          }).catch(() => {});
+          // Return new object with context appended — never mutate the original
+          if (preResult.additionalContext && result && typeof result === "object") {
+            const r = result as Record<string, unknown>;
+            return {
+              ...r,
+              output: `${String(r.output ?? "")}\n[Hook context: ${preResult.additionalContext}]`,
+            };
+          }
+          return result;
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+      (tools as Record<string, unknown>)[toolName] = proxy;
+    }
+  }
+
+  return tools;
 }
 
 /** Read-only tools for explore subagent */

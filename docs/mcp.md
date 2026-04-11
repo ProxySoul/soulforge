@@ -62,7 +62,7 @@ MCP tools are namespaced as `mcp__<server>__<tool>`. A server named "github" wit
 
 ## TUI management
 
-Open with Ctrl+M or `/mcp` command.
+Open with `/mcp` or `Ctrl+K` → search "mcp".
 
 | Shortcut | Action |
 |---|---|

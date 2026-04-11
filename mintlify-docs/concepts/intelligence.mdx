@@ -41,24 +41,15 @@ The agent always has LSP access regardless of editor state:
 
 ### Neovim bridge
 
-When the editor is open, routes LSP requests through Neovim's running LSP servers via Lua RPC. Zero startup cost since servers are already warm.
+When the editor is open, routes LSP requests through Neovim's running LSP servers. Zero startup cost since servers are already warm.
 
 ### Standalone client
 
-When the editor is closed, spawns LSP servers directly as child processes with JSON-RPC over stdin/stdout. Full protocol support: definitions, references, hover, diagnostics, rename, code actions, call/type hierarchy, formatting.
+When the editor is closed, spawns LSP servers directly. Full protocol support.
 
 ### Multi-language warmup
 
-On boot, `detectAllLanguages()` scans project config files and spawns standalone LSP servers for all detected languages in parallel --not just the primary language. Standalone servers stay warm as hot standby even when Neovim is open.
-
-### Server discovery
-
-Servers are found in this order:
-1. System PATH
-2. `~/.soulforge/lsp-servers/`
-3. `~/.local/share/soulforge/mason/bin/`
-
-Mason servers are auto-installed via LazyVim's mason-tool-installer on first editor launch.
+On boot, SoulForge detects project languages and spawns standalone LSP servers for all of them in parallel. Standalone servers stay warm as hot standby even when Neovim is open.
 
 ## LSP operations
 
@@ -99,22 +90,6 @@ The repo map uses convention-based rules to determine which symbols are "public"
 | File-based | C, C++, Objective-C | Header file = public |
 | Default public | Ruby, Lua, Bash, OCaml | All top-level symbols public |
 
-## Definition keyword patterns
+## Regex fallback
 
-The `navigate` tool uses `DEFINITION_KEYWORDS` covering 14 language families to build regex patterns when LSP is unavailable. `buildDefinitionPattern(symbol)` generates language-appropriate regex that finds function/class/type definitions across:
-
-- JavaScript/TypeScript: `function`, `class`, `const`, `let`, `type`, `interface`, `enum`
-- Python: `def`, `class`, `async def`
-- Rust: `fn`, `struct`, `enum`, `trait`, `impl`, `type`, `mod`
-- Go: `func`, `type`, `var`, `const`
-- And 10 more language families
-
-## Identifier extraction
-
-Three naming families for cross-file reference detection:
-
-- **camelCase + PascalCase**: TypeScript, JavaScript, Go, Rust, Java, Kotlin, Swift, C#, Dart, Scala
-- **snake_case + PascalCase**: Python, Ruby, Elixir, PHP, C, C++, Zig, Lua, Bash, OCaml
-- **Hyphenated**: Elisp
-
-`IDENTIFIER_KEYWORDS` filters ~190 reserved words across all supported languages to prevent noise in the reference graph.
+When LSP is unavailable, the `navigate` tool falls back to language-aware regex patterns covering 14 language families to find function/class/type definitions.
