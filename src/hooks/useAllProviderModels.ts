@@ -122,21 +122,24 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       setAvailability(map);
     }
 
-    // If everything is cached, no need to fetch
-    if (!anyStale) return;
-
     let dead = false;
 
-    if (!cachedStatuses) {
-      // No boot-time cache — fetch fresh availability
-      checkProviders()
-        .then((statuses) => {
-          if (dead) return;
-          const map = new Map<string, boolean>();
-          for (const s of statuses) map.set(s.id, s.available);
-          setAvailability(map);
-        })
-        .catch(() => undefined);
+    // Refresh availability in the background even when cache exists.
+    // This keeps local providers (e.g. Ollama/LM Studio) from staying stale.
+    checkProviders()
+      .then((statuses) => {
+        if (dead) return;
+        const map = new Map<string, boolean>();
+        for (const s of statuses) map.set(s.id, s.available);
+        setAvailability(map);
+      })
+      .catch(() => undefined);
+
+    // If everything is cached, no need to fetch models
+    if (!anyStale) {
+      return () => {
+        dead = true;
+      };
     }
 
     // Only fetch providers that aren't cached yet
