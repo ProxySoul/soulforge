@@ -180,7 +180,33 @@ function HeaderRow({
   );
 }
 
-function CommandRow({
+interface CommandRowProps {
+  def: CommandDef;
+  isActive: boolean;
+  catColor: string;
+  innerW: number;
+  matchIndices: number[] | undefined;
+  textSecondary: string;
+  textMuted: string;
+  textFaint: string;
+  textPrimary: string;
+}
+
+function getDescMaxWidth(innerW: number, cmdText: string): number {
+  return Math.max(0, innerW - cmdText.length - 14);
+}
+
+function truncateDesc(desc: string, descMaxWidth: number): string {
+  if (descMaxWidth <= 0) {
+    return "";
+  }
+  if (desc.length > descMaxWidth) {
+    return `${desc.slice(0, descMaxWidth - 1)}…`;
+  }
+  return desc;
+}
+
+function RowLayout({
   def,
   isActive,
   catColor,
@@ -190,6 +216,7 @@ function CommandRow({
   textMuted,
   textFaint,
   textPrimary,
+  displayDesc,
 }: {
   def: CommandDef;
   isActive: boolean;
@@ -200,14 +227,12 @@ function CommandRow({
   textMuted: string;
   textFaint: string;
   textPrimary: string;
+  displayDesc: string;
 }) {
   const bg = isActive ? POPUP_HL : POPUP_BG;
   const cmdColor = isActive ? catColor : textSecondary;
   const descColor = isActive ? textSecondary : textMuted;
   const cmdText = def.cmd;
-
-  const descMaxWidth = Math.max(0, innerW - cmdText.length - 14);
-  const displayDesc = useMarqueeScroll(def.desc, descMaxWidth, isActive);
 
   return (
     <PopupRow bg={bg} w={innerW}>
@@ -231,6 +256,27 @@ function CommandRow({
       </text>
     </PopupRow>
   );
+}
+
+function ActiveCommandRow(props: CommandRowProps) {
+  const descMaxWidth = getDescMaxWidth(props.innerW, props.def.cmd);
+  const displayDesc = useMarqueeScroll(props.def.desc, descMaxWidth, true);
+
+  return <RowLayout {...props} displayDesc={displayDesc} />;
+}
+
+function InactiveCommandRow(props: CommandRowProps) {
+  const descMaxWidth = getDescMaxWidth(props.innerW, props.def.cmd);
+  const displayDesc = truncateDesc(props.def.desc, descMaxWidth);
+
+  return <RowLayout {...props} displayDesc={displayDesc} />;
+}
+
+function CommandRow(props: CommandRowProps) {
+  if (props.isActive) {
+    return <ActiveCommandRow {...props} />;
+  }
+  return <InactiveCommandRow {...props} />;
 }
 
 interface Props {
