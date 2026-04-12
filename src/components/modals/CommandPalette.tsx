@@ -5,6 +5,7 @@ import { CATEGORIES, type CommandDef, getCommandDefs } from "../../core/commands
 import { fuzzyMatch } from "../../core/history/fuzzy.js";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
+import { useMarqueeScroll } from "../../hooks/useMarqueeScroll.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import { POPUP_BG, POPUP_HL, Popup, PopupRow, PopupSeparator } from "../layout/shared.js";
 
@@ -179,7 +180,33 @@ function HeaderRow({
   );
 }
 
-function CommandRow({
+interface CommandRowProps {
+  def: CommandDef;
+  isActive: boolean;
+  catColor: string;
+  innerW: number;
+  matchIndices: number[] | undefined;
+  textSecondary: string;
+  textMuted: string;
+  textFaint: string;
+  textPrimary: string;
+}
+
+function getDescMaxWidth(innerW: number, cmdText: string): number {
+  return Math.max(0, innerW - cmdText.length - 14);
+}
+
+function truncateDesc(desc: string, descMaxWidth: number): string {
+  if (descMaxWidth <= 0) {
+    return "";
+  }
+  if (desc.length > descMaxWidth) {
+    return `${desc.slice(0, descMaxWidth - 1)}…`;
+  }
+  return desc;
+}
+
+function RowLayout({
   def,
   isActive,
   catColor,
@@ -189,6 +216,7 @@ function CommandRow({
   textMuted,
   textFaint,
   textPrimary,
+  displayDesc,
 }: {
   def: CommandDef;
   isActive: boolean;
@@ -199,6 +227,7 @@ function CommandRow({
   textMuted: string;
   textFaint: string;
   textPrimary: string;
+  displayDesc: string;
 }) {
   const bg = isActive ? POPUP_HL : POPUP_BG;
   const cmdColor = isActive ? catColor : textSecondary;
@@ -223,12 +252,31 @@ function CommandRow({
       )}
       <text fg={descColor} bg={bg} truncate>
         {"  "}
-        {def.desc.length > innerW - cmdText.length - 12
-          ? `${def.desc.slice(0, innerW - cmdText.length - 15)}…`
-          : def.desc}
+        {displayDesc}
       </text>
     </PopupRow>
   );
+}
+
+function ActiveCommandRow(props: CommandRowProps) {
+  const descMaxWidth = getDescMaxWidth(props.innerW, props.def.cmd);
+  const displayDesc = useMarqueeScroll(props.def.desc, descMaxWidth, true);
+
+  return <RowLayout {...props} displayDesc={displayDesc} />;
+}
+
+function InactiveCommandRow(props: CommandRowProps) {
+  const descMaxWidth = getDescMaxWidth(props.innerW, props.def.cmd);
+  const displayDesc = truncateDesc(props.def.desc, descMaxWidth);
+
+  return <RowLayout {...props} displayDesc={displayDesc} />;
+}
+
+function CommandRow(props: CommandRowProps) {
+  if (props.isActive) {
+    return <ActiveCommandRow {...props} />;
+  }
+  return <InactiveCommandRow {...props} />;
 }
 
 interface Props {
