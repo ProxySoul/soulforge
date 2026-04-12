@@ -342,6 +342,8 @@ export interface AppConfig {
   onboardingComplete?: boolean;
   /** MCP servers to connect to. Each entry spawns a subprocess (stdio) or connects via HTTP+SSE. */
   mcpServers?: MCPServerConfig[];
+  /** Auto-retry on stream stalls. Default: false (disabled). Toggle via /watchdog. */
+  watchdog?: boolean;
 }
 
 export interface MCPServerConfig {

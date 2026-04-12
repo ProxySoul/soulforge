@@ -824,6 +824,13 @@ const COMMAND_DEFS: CommandDef[] = [
     category: "System",
     tags: ["onboarding", "setup", "welcome"],
   },
+  {
+    cmd: "/watchdog",
+    ic: "dog",
+    desc: "Toggle stream stall watchdog (auto-retry on hangs)",
+    category: "System",
+    tags: ["stall", "retry", "timeout"],
+  },
 ];
 
 export function getCommandDefs(): CommandDef[] {

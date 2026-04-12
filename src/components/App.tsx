@@ -947,6 +947,7 @@ export function App({
         setShowReasoning: uiState.setShowReasoning,
         lockIn: uiState.lockIn,
         setLockIn: uiState.setLockIn,
+        watchdog: effectiveConfig.watchdog === true,
         openSetup: () => uiState.openModal("setup"),
         openEditorSettings: () => uiState.openModal("editorSettings"),
         openRouterSettings: () => {

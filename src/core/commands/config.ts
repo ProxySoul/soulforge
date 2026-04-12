@@ -286,6 +286,19 @@ const handleVerbose = createTogglePicker({
   messageTemplate: (v, s) => `Verbose mode ${v === "on" ? "on" : "off"} (${s})`,
 });
 
+const handleWatchdog = createTogglePicker({
+  configKey: "watchdog",
+  title: "Stream Stall Watchdog",
+  iconName: "dog",
+  onValue: "on",
+  offValue: "off",
+  onLabel: "On",
+  offLabel: "Off",
+  onDescription: "auto-retry when stream stalls (connection hangs)",
+  offDescription: "no automatic stall detection or retry",
+  messageTemplate: (v, s) => `Watchdog ${v === "on" ? "enabled" : "disabled"} (${s})`,
+});
+
 function handleLockIn(_input: string, ctx: CommandContext): void {
   const next = !ctx.lockIn;
   ctx.setLockIn(next);
@@ -856,6 +869,7 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/settings", handleSettingsHub);
   map.set("/lock-in", handleLockIn);
   map.set("/theme", handleTheme);
+  map.set("/watchdog", handleWatchdog);
 }
 
 export function matchConfigPrefix(cmd: string): CommandHandler | null {

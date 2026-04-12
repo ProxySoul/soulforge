@@ -435,6 +435,8 @@ export function useChat({
   }, []);
   const [sidebarPlan, setSidebarPlan] = useState<Plan | null>(initialState?.sidebarPlan ?? null);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  const pendingQuestionRef = useRef(pendingQuestion);
+  pendingQuestionRef.current = pendingQuestion;
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const messageQueueRef = useRef<QueuedMessage[]>([]);
   messageQueueRef.current = messageQueue;
@@ -589,6 +591,8 @@ export function useChat({
 
   // Plan mode
   const [pendingPlanReview, setPendingPlanReview] = useState<PendingPlanReview | null>(null);
+  const pendingPlanReviewRef = useRef(pendingPlanReview);
+  pendingPlanReviewRef.current = pendingPlanReview;
   const planPostActionRef = useRef<{
     action: "execute" | "clear_execute" | "cancel" | "revise";
     planContent: string | null;
@@ -2166,79 +2170,86 @@ export function useChat({
         // ticks should force-resolve the stream if the abort didn't propagate.
         let stallAbortedAt = 0;
         const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
-        stallWatchdog = setInterval(() => {
-          // If we already aborted but the for-await loop is stuck on a dead
-          // connection that didn't honor the AbortSignal, force-resolve it.
-          if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
-            // Force the stream iterator to end by calling return() on the SAME
-            // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
-            // call would create a fresh reader and fail on the locked stream.
-            try {
-              streamIterator?.return?.();
-            } catch {}
-            // Clear ourselves — nothing more we can do
-            if (stallWatchdog) {
-              clearInterval(stallWatchdog);
-              stallWatchdog = null;
+        if (effectiveConfig.watchdog)
+          stallWatchdog = setInterval(() => {
+            // If we already aborted but the for-await loop is stuck on a dead
+            // connection that didn't honor the AbortSignal, force-resolve it.
+            if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
+              // Force the stream iterator to end by calling return() on the SAME
+              // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
+              // call would create a fresh reader and fail on the locked stream.
+              try {
+                streamIterator?.return?.();
+              } catch {}
+              // Clear ourselves — nothing more we can do
+              if (stallWatchdog) {
+                clearInterval(stallWatchdog);
+                stallWatchdog = null;
+              }
+              return;
             }
-            return;
-          }
-          if (abortController.signal.aborted) return;
-          // While tools run, only fire if tool itself is stuck (15min max)
-          if (toolsInFlight > 0) {
-            if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
-          } else {
-            // Between steps (SDK making a new API call) or before first chunk:
-            // use the generous first-chunk timeout since the provider may be
-            // processing a large context or queueing the request.
-            const threshold =
-              !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
-            if (Date.now() - lastActivityTs <= threshold) return;
-          }
-          // Capture the actual threshold that fired for the user-facing message
-          const firedThresholdMs =
-            toolsInFlight > 0
-              ? STALL_TOOL_MAX_MS
-              : !gotFirstContent || betweenSteps
-                ? STALL_FIRST_CHUNK_MS
-                : STALL_CHUNK_MS;
-          stallTriggered = true;
-          stallRetryCountRef.current++;
-          const count = stallRetryCountRef.current;
-          if (count <= STALL_MAX_RETRIES) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: `Connection stalled — no activity for ${String(Math.round(firedThresholdMs / 1000))}s. Auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})…`,
-                timestamp: Date.now(),
-                showInChat: true,
-              },
-            ]);
-            logBackgroundError(
-              "stream-stall",
-              `No stream activity — auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})`,
-            );
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: `Connection stalled ${String(STALL_MAX_RETRIES)} times — giving up. You can resend your message to try again.`,
-                timestamp: Date.now(),
-                showInChat: true,
-              },
-            ]);
-            logBackgroundError(
-              "stream-stall",
-              `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
-            );
-          }
-          stallAbortedAt = Date.now();
-          abortController.abort();
-        }, 10_000);
+            if (abortController.signal.aborted) return;
+            // Pause while a user prompt is active (web access, plan review, ask_user, etc.)
+            if (pendingQuestionRef.current || pendingPlanReviewRef.current) {
+              lastActivityTs = Date.now();
+              lastToolActivityTs = Date.now();
+              return;
+            }
+            // While tools run, only fire if tool itself is stuck (15min max)
+            if (toolsInFlight > 0) {
+              if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
+            } else {
+              // Between steps (SDK making a new API call) or before first chunk:
+              // use the generous first-chunk timeout since the provider may be
+              // processing a large context or queueing the request.
+              const threshold =
+                !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
+              if (Date.now() - lastActivityTs <= threshold) return;
+            }
+            // Capture the actual threshold that fired for the user-facing message
+            const firedThresholdMs =
+              toolsInFlight > 0
+                ? STALL_TOOL_MAX_MS
+                : !gotFirstContent || betweenSteps
+                  ? STALL_FIRST_CHUNK_MS
+                  : STALL_CHUNK_MS;
+            stallTriggered = true;
+            stallRetryCountRef.current++;
+            const count = stallRetryCountRef.current;
+            if (count <= STALL_MAX_RETRIES) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Connection stalled — no activity for ${String(Math.round(firedThresholdMs / 1000))}s. Auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})…`,
+                  timestamp: Date.now(),
+                  showInChat: true,
+                },
+              ]);
+              logBackgroundError(
+                "stream-stall",
+                `No stream activity — auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})`,
+              );
+            } else {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Connection stalled ${String(STALL_MAX_RETRIES)} times — giving up. You can resend your message to try again.`,
+                  timestamp: Date.now(),
+                  showInChat: true,
+                },
+              ]);
+              logBackgroundError(
+                "stream-stall",
+                `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
+              );
+            }
+            stallAbortedAt = Date.now();
+            abortController.abort();
+          }, 10_000);
 
         let streamEventCount = 0;
         let yieldBeforeNext = false;
@@ -3220,11 +3231,8 @@ export function useChat({
   );
   handleSubmitRef.current = handleSubmit;
 
-  const pendingQuestionRef = useRef(pendingQuestion);
-  pendingQuestionRef.current = pendingQuestion;
-
-  const pendingPlanReviewRef = useRef(pendingPlanReview);
-  pendingPlanReviewRef.current = pendingPlanReview;
+  // pendingQuestionRef / pendingPlanReviewRef are declared near their state (lines ~438, ~594)
+  // so the stall watchdog inside handleSubmit can access them.
 
   const abort = useCallback(() => {
     if (compactAbortRef.current) {

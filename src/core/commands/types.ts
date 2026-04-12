@@ -47,6 +47,7 @@ export interface CommandContext {
   setShowReasoning: (v: boolean) => void;
   lockIn: boolean;
   setLockIn: (v: boolean) => void;
+  watchdog: boolean;
   openSetup: () => void;
   openEditorSettings: () => void;
   openRouterSettings: () => void;
