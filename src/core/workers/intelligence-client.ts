@@ -494,6 +494,7 @@ export class IntelligenceClient extends WorkerClient {
     Array<{
       name: string;
       line: number;
+      similarity: number;
       clones: Array<{ name: string; path: string; line: number }>;
     }>
   > {
