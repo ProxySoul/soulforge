@@ -4078,11 +4078,20 @@ export class RepoMap {
     if (!fileRow) return [];
 
     // Use minhash token similarity instead of exact shape hash — much higher signal
-    const sigs = this.db
+    const rawSigs = this.db
       .query<{ name: string; line: number; end_line: number; minhash: Buffer }, [number]>(
         "SELECT name, line, end_line, minhash FROM token_signatures WHERE file_id = ?",
       )
       .all(fileRow.id);
+
+    // Deduplicate by name+line (reindex can leave stale rows)
+    const seen = new Set<string>();
+    const sigs = rawSigs.filter((s) => {
+      const key = `${s.name}:${String(s.line)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     if (sigs.length === 0) return [];
 
@@ -4105,9 +4114,7 @@ export class RepoMap {
            JOIN files f ON f.id = ts.file_id
          LEFT JOIN symbols s ON s.file_id = ts.file_id AND s.name = ts.name AND s.line = ts.line
          WHERE ts.file_id != ?
-           AND ${RepoMap.notTestFile()}
-         ORDER BY f.pagerank DESC
-         LIMIT 500`,
+           AND ${RepoMap.notTestFile()}`,
       )
       .all(fileRow.id);
 
