@@ -194,10 +194,9 @@ function ChangelogSection({
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onRestart: () => void;
 }
 
-export function UpdateModal({ visible, onClose, onRestart }: Props) {
+export function UpdateModal({ visible, onClose }: Props) {
   const t = useTheme();
   const { width: termCols, height: termRows } = useTerminalDimensions();
   const {
@@ -280,11 +279,7 @@ export function UpdateModal({ visible, onClose, onRestart }: Props) {
     if (phase === "upgrading") return;
 
     if (phase === "success") {
-      if (evt.name === "y" || evt.name === "return") {
-        onRestart();
-        return;
-      }
-      if (evt.name === "n" || evt.name === "escape") {
+      if (evt.name === "escape" || evt.name === "return") {
         setPhase("info");
         onClose();
         return;
@@ -354,7 +349,7 @@ export function UpdateModal({ visible, onClose, onRestart }: Props) {
   const vCurrent = tick < 6 ? garble(`v${current}`) : `v${current}`;
   const vLatest = tick < 7 ? garble(`v${latest ?? current}`) : `v${latest ?? current}`;
 
-  // ── Success: restart prompt ──────────────────────────────────────
+  // ── Success: ask user to restart manually ─────────────────────────
   if (phase === "success") {
     return (
       <Overlay>
@@ -389,22 +384,15 @@ export function UpdateModal({ visible, onClose, onRestart }: Props) {
             </text>
           </PopupRow>
           <PopupRow w={iw}>
-            <text bg={bg} fg={t.textMuted}>
-              {"  "}Restart to wield the new blade?
+            <text bg={bg} fg={t.brandAlt}>
+              {"  "}Please close and restart SoulForge to use the new version.
             </text>
           </PopupRow>
           <Gap w={iw} bg={bg} />
           <Hr w={iw} bg={bg} fg={t.textFaint} />
           <PopupRow w={iw}>
             <text bg={bg} truncate>
-              <span fg={t.success} attributes={BOLD}>
-                {" "}
-                {arrowIc} {"<Y>"}
-              </span>
-              <span fg={t.textMuted}> restart now</span>
-              <span fg={t.textFaint}>{"    "}</span>
-              <span fg={t.textFaint}>{"<N>"}</span>
-              <span fg={t.textMuted}> later</span>
+              <span fg={t.textFaint}> {"<Esc>"} close</span>
             </text>
           </PopupRow>
         </box>

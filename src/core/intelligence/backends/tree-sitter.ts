@@ -1212,7 +1212,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
     };
   }
 
-  private static readonly MIN_HASH_LINES = 5;
+  private static readonly MIN_HASH_LINES = 12;
 
   private static readonly HASHABLE_KEYWORDS = [
     "function",

@@ -226,7 +226,7 @@ export class ContextManager {
           semanticTask = this.repoMap
             .detectPersistedSemanticMode()
             .then((persisted) =>
-              this.setSemanticSummaries(persisted === "off" ? "synthetic" : persisted),
+              this.setSemanticSummaries(persisted === "off" ? "ast" : persisted),
             );
         }
         await Promise.all([semanticTask, this.warmRepoMapCache()]);

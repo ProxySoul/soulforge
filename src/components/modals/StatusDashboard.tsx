@@ -19,25 +19,13 @@ import {
   isModelLocal,
   type TokenUsage,
   useStatusBarStore,
+  ZERO_USAGE,
 } from "../../stores/statusbar.js";
 import { useWorkerStore } from "../../stores/workers.js";
 import { POPUP_BG, Popup, PopupRow } from "../layout/shared.js";
 
 const CHROME_ROWS = 6;
 const TABS = ["Context", "System"] as const;
-const ZERO_TU: TokenUsage = {
-  prompt: 0,
-  completion: 0,
-  total: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  subagentInput: 0,
-  subagentOutput: 0,
-  lastStepInput: 0,
-  lastStepOutput: 0,
-  lastStepCacheRead: 0,
-  modelBreakdown: {},
-};
 type Tab = (typeof TABS)[number];
 
 function fmtTokens(n: number): string {
@@ -249,14 +237,14 @@ export function StatusDashboard({
   const getTabUsage = useCallback(
     (tabId: string): TokenUsage => {
       if (tabId === tabMgr.activeTabId) return tu;
-      return tabMgr.getChat(tabId)?.tokenUsage ?? ZERO_TU;
+      return tabMgr.getChat(tabId)?.tokenUsage ?? ZERO_USAGE;
     },
     [tu, tabMgr],
   );
 
   const scopedUsage = useMemo((): TokenUsage => {
     if (!isAllScope) return getTabUsage(scopeTabId);
-    const agg = { ...ZERO_TU, modelBreakdown: {} as TokenUsage["modelBreakdown"] };
+    const agg = { ...ZERO_USAGE, modelBreakdown: {} as TokenUsage["modelBreakdown"] };
     for (const tabEntry of allTabs) {
       const u = getTabUsage(tabEntry.id);
       agg.prompt += u.prompt;

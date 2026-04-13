@@ -10,6 +10,7 @@ import type {
   ImageAttachment,
   InteractiveCallbacks,
 } from "../../types/index.js";
+import { compressImageForApi } from "../../utils/image-compress.js";
 import type { ContextManager } from "../context/manager.js";
 import {
   detectModelFamily,
@@ -83,7 +84,7 @@ function buildForgePrepareStep(
   const previousInjects: Array<{ cleanInsertAt: number; message: ModelMessage }> = [];
 
   type StepEntry = { providerMetadata?: Record<string, unknown> };
-  return ({
+  return async ({
     stepNumber,
     messages,
     steps,
@@ -92,7 +93,7 @@ function buildForgePrepareStep(
     messages: ModelMessage[];
     steps: StepEntry[];
     // biome-ignore lint/suspicious/noExplicitAny: PrepareStepFunction generic is invariant
-  }): any => {
+  }): Promise<any> => {
     let steeringImages: ImageAttachment[] | undefined;
     // Doppelganger: snapshot the current conversation for spark mirror mode.
     // Sparks receive this prefix so the API sees an identical cache-hit prefix.
@@ -248,10 +249,12 @@ function buildForgePrepareStep(
         > = [{ type: "text" as const, text: tailParts.join("\n\n") }];
         if (steeringImages) {
           for (const img of steeringImages) {
+            const raw = Buffer.from(img.base64, "base64");
+            const { data, mediaType } = await compressImageForApi(raw, img.mediaType);
             contentParts.push({
               type: "image" as const,
-              image: Buffer.from(img.base64, "base64"),
-              mediaType: img.mediaType,
+              image: data,
+              mediaType,
             });
           }
         }

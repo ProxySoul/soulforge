@@ -87,6 +87,18 @@ type SummaryGenerator = (
 ) => Promise<Array<{ name: string; summary: string }>>;
 
 export class RepoMap {
+  /** SQL WHERE fragment: true when path column is a test file. */
+  private static testFileMatch(alias = "f"): string {
+    const a = alias;
+    return `(${a}.path LIKE 'tests/%' OR ${a}.path LIKE 'test/%' OR ${a}.path LIKE 'spec/%' OR ${a}.path LIKE 'src/test/%' OR ${a}.path LIKE '%.test.%' OR ${a}.path LIKE '%.spec.%' OR ${a}.path LIKE '%_test.%' OR ${a}.path LIKE '%_spec.%' OR ${a}.path LIKE '%/test_%' OR ${a}.path LIKE '%/__tests__/%')`;
+  }
+
+  /** SQL WHERE fragment: true when path column is NOT a test file. */
+  private static notTestFile(alias = "f"): string {
+    const a = alias;
+    return `${a}.path NOT LIKE 'tests/%' AND ${a}.path NOT LIKE 'test/%' AND ${a}.path NOT LIKE 'spec/%' AND ${a}.path NOT LIKE 'src/test/%' AND ${a}.path NOT LIKE '%.test.%' AND ${a}.path NOT LIKE '%.spec.%' AND ${a}.path NOT LIKE '%_test.%' AND ${a}.path NOT LIKE '%_spec.%' AND ${a}.path NOT LIKE '%/test_%' AND ${a}.path NOT LIKE '%/__tests__/%'`;
+  }
+
   private db: Database;
   private cwd: string;
   private scanPromise: Promise<void> | null = null;
@@ -1672,11 +1684,8 @@ export class RepoMap {
     const testFiles = this.db
       .query<{ id: number; path: string }, []>(
         `SELECT f.id, f.path FROM files f
-         WHERE (f.path LIKE '%.test.%' OR f.path LIKE '%.spec.%'
-           OR f.path LIKE '%_test.%' OR f.path LIKE '%_spec.%'
-           OR f.path LIKE 'tests/%' OR f.path LIKE 'test/%'
-           OR f.path LIKE '%/__tests__/%')
-         AND NOT EXISTS (SELECT 1 FROM edges WHERE source_file_id = f.id)`,
+         WHERE ${RepoMap.testFileMatch()}
+           AND NOT EXISTS (SELECT 1 FROM edges WHERE source_file_id = f.id)`,
       )
       .all();
 
@@ -3623,7 +3632,7 @@ export class RepoMap {
                WHERE s2.name = s.name AND s2.is_exported = 1
              ) = 1)
            )
-           AND (rf.path LIKE 'tests/%' OR rf.path LIKE '%.test.%' OR rf.path LIKE '%.spec.%' OR rf.path LIKE '%/__tests__/%')
+           AND ${RepoMap.testFileMatch("rf")}
          )
          AND NOT EXISTS (
            SELECT 1 FROM refs r
@@ -3636,7 +3645,7 @@ export class RepoMap {
                WHERE s2.name = s.name AND s2.is_exported = 1
              ) = 1)
            )
-           AND rf.path NOT LIKE 'tests/%' AND rf.path NOT LIKE '%.test.%' AND rf.path NOT LIKE '%.spec.%' AND rf.path NOT LIKE '%/__tests__/%'
+           AND ${RepoMap.notTestFile("rf")}
          )
          ORDER BY f.path`,
       )
@@ -3836,7 +3845,7 @@ export class RepoMap {
   }
 
   getNearDuplicates(
-    threshold = 0.7,
+    threshold = 0.8,
     limit = 20,
   ): Array<{
     similarity: number;
@@ -3862,6 +3871,7 @@ export class RepoMap {
          FROM token_signatures ts
          JOIN files f ON f.id = ts.file_id
          LEFT JOIN symbols s ON s.file_id = ts.file_id AND s.name = ts.name AND s.line = ts.line
+         WHERE ${RepoMap.notTestFile()}
          ORDER BY f.pagerank DESC
          LIMIT 500`,
       )
@@ -3977,8 +3987,9 @@ export class RepoMap {
            FROM token_fragments tf
            JOIN files f ON f.id = tf.file_id
            WHERE tf.hash = ?
+               AND ${RepoMap.notTestFile()}
            ORDER BY f.path, tf.line
-           LIMIT 20`,
+             LIMIT 20`,
         )
         .all(cluster.hash);
 
@@ -4007,15 +4018,17 @@ export class RepoMap {
         { shape_hash: string; kind: string; node_count: number; cnt: number },
         [number, number]
       >(
-        `SELECT shape_hash, kind, node_count, COUNT(*) as cnt
-         FROM shape_hashes
-         WHERE node_count >= ?
-         GROUP BY shape_hash
+        `SELECT sh.shape_hash, sh.kind, sh.node_count, COUNT(*) as cnt
+         FROM shape_hashes sh
+         JOIN files f ON f.id = sh.file_id
+         WHERE sh.node_count >= ?
+             AND ${RepoMap.notTestFile()}
+         GROUP BY sh.shape_hash
          HAVING cnt > 1
-         ORDER BY node_count * cnt DESC
-         LIMIT ?`,
+           ORDER BY sh.node_count * cnt DESC
+           LIMIT ?`,
       )
-      .all(10, limit);
+      .all(20, limit);
 
     const results: Array<{
       shapeHash: string;
@@ -4054,6 +4067,7 @@ export class RepoMap {
   getFileDuplicates(relPath: string): Array<{
     name: string;
     line: number;
+    similarity: number;
     clones: Array<{ name: string; path: string; line: number }>;
   }> {
     if (!this.ready) return [];
@@ -4063,34 +4077,128 @@ export class RepoMap {
       .get(relPath);
     if (!fileRow) return [];
 
-    const hashes = this.db
-      .query<{ name: string; line: number; shape_hash: string }, [number]>(
-        "SELECT name, line, shape_hash FROM shape_hashes WHERE file_id = ?",
+    // Use minhash token similarity instead of exact shape hash — much higher signal
+    const rawSigs = this.db
+      .query<{ name: string; line: number; end_line: number; minhash: Buffer }, [number]>(
+        "SELECT name, line, end_line, minhash FROM token_signatures WHERE file_id = ?",
       )
       .all(fileRow.id);
+
+    // Deduplicate by name+line (reindex can leave stale rows)
+    const seen = new Set<string>();
+    const sigs = rawSigs.filter((s) => {
+      const key = `${s.name}:${String(s.line)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (sigs.length === 0) return [];
+
+    // Get candidate matches from other non-test files
+    const candidates = this.db
+      .query<
+        {
+          name: string;
+          path: string;
+          line: number;
+          end_line: number;
+          minhash: Buffer;
+          sig: string | null;
+          file_id: number;
+        },
+        [number]
+      >(
+        `SELECT ts.name, f.path, ts.line, ts.end_line, ts.minhash, s.signature as sig, ts.file_id
+           FROM token_signatures ts
+           JOIN files f ON f.id = ts.file_id
+         LEFT JOIN symbols s ON s.file_id = ts.file_id AND s.name = ts.name AND s.line = ts.line
+         WHERE ts.file_id != ?
+           AND ${RepoMap.notTestFile()}`,
+      )
+      .all(fileRow.id);
+
+    const toSig = (buf: Buffer): Uint32Array => {
+      if (buf.byteOffset % 4 === 0) {
+        return new Uint32Array(buf.buffer, buf.byteOffset, 128);
+      }
+      const copy = new Uint32Array(128);
+      new Uint8Array(copy.buffer).set(new Uint8Array(buf.buffer, buf.byteOffset, 512));
+      return copy;
+    };
 
     const results: Array<{
       name: string;
       line: number;
+      similarity: number;
       clones: Array<{ name: string; path: string; line: number }>;
     }> = [];
 
-    for (const h of hashes) {
-      const clones = this.db
-        .query<{ name: string; path: string; line: number }, [string, number]>(
-          `SELECT sh.name, f.path, sh.line
-           FROM shape_hashes sh
-           JOIN files f ON f.id = sh.file_id
-           WHERE sh.shape_hash = ? AND sh.file_id != ?
-           ORDER BY f.pagerank DESC`,
-        )
-        .all(h.shape_hash, fileRow.id);
+    for (const s of sigs) {
+      const sigA = toSig(s.minhash);
+      const clones: Array<{ name: string; path: string; line: number }> = [];
+      let bestSim = 0;
+
+      for (const c of candidates) {
+        // Skip parent-contains-child within same file
+        if (c.path === relPath) {
+          if (s.line <= c.line && s.end_line >= c.end_line) continue;
+          if (c.line <= s.line && c.end_line >= s.end_line) continue;
+        }
+
+        const sigB = toSig(c.minhash);
+        let matches = 0;
+        for (let i = 0; i < 128; i++) {
+          if (sigA[i] === sigB[i]) matches++;
+        }
+        const sim = matches / 128;
+
+        if (sim < 0.8 || sim >= 1.0) continue;
+
+        // Signature similarity gate — different signatures = different intent
+        if (sim < 0.95 && c.sig) {
+          // Get this file's symbol signature
+          const aSig = this.db
+            .query<{ signature: string | null }, [number, string, number]>(
+              "SELECT signature FROM symbols WHERE file_id = ? AND name = ? AND line = ? LIMIT 1",
+            )
+            .get(fileRow.id, s.name, s.line);
+          if (aSig?.signature) {
+            const tokA = new Set(
+              aSig.signature
+                .toLowerCase()
+                .split(/[\s,(){}:;|&=<>]+/)
+                .filter(Boolean),
+            );
+            const tokB = new Set(
+              c.sig
+                .toLowerCase()
+                .split(/[\s,(){}:;|&=<>]+/)
+                .filter(Boolean),
+            );
+            let shared = 0;
+            for (const t of tokA) if (tokB.has(t)) shared++;
+            const sigSim = shared / Math.max(tokA.size, tokB.size);
+            if (sigSim < 0.3) continue;
+          }
+        }
+
+        clones.push({ name: c.name, path: c.path, line: c.line });
+        if (sim > bestSim) bestSim = sim;
+      }
 
       if (clones.length > 0) {
-        results.push({ name: h.name, line: h.line, clones });
+        results.push({
+          name: s.name,
+          line: s.line,
+          similarity: bestSim,
+          clones: clones.slice(0, 5),
+        });
       }
     }
 
+    // Sort by similarity descending
+    results.sort((a, b) => b.similarity - a.similarity);
     return results;
   }
 

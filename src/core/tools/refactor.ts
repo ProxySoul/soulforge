@@ -8,19 +8,9 @@ import {
 } from "../intelligence/index.js";
 import type { FileEdit, FormatEdit, Language, RefactorResult } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
-import type { TrackedResult } from "../workers/intelligence-client.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
-
-async function fallbackTracked<T>(
-  file: string | undefined,
-  operation: string & keyof import("../intelligence/types.js").IntelligenceBackend,
-  fn: (b: import("../intelligence/types.js").IntelligenceBackend) => Promise<T | null>,
-): Promise<TrackedResult<T>> {
-  const router = getIntelligenceRouter(process.cwd());
-  const language = router.detectLanguage(file);
-  return router.executeWithFallbackTracked(language, operation, fn);
-}
+import { fallbackTracked } from "./intelligence-helpers.js";
 
 async function resolveSymbolRange(
   router: CodeIntelligenceRouter,

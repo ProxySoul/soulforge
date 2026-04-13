@@ -499,10 +499,11 @@ async function duplication(
       return { success: true, output: `No structural clones found for functions in "${relPath}".` };
     }
 
-    const lines = [`Structural clones for functions in ${relPath}:\n`];
+    const lines = [`Near-duplicate functions in ${relPath}:\n`];
     for (const dup of fileDups) {
+      const pct = `${String(Math.round(dup.similarity * 100))}%`;
       lines.push(
-        `  ${dup.name} (line ${String(dup.line)}) — ${String(dup.clones.length)} clone(s):`,
+        `  ${dup.name} (line ${String(dup.line)}) — ${pct} similar, ${String(dup.clones.length)} match(es):`,
       );
       for (const c of dup.clones.slice(0, 10)) {
         lines.push(`    ${c.path}:${String(c.line)} — ${c.name}`);
@@ -535,9 +536,9 @@ async function duplication(
     }
   }
 
-  const nearDups = await repoMap.getNearDuplicates(0.7, cap);
+  const nearDups = await repoMap.getNearDuplicates(0.8, cap);
   if (nearDups.length > 0) {
-    lines.push(`Near-duplicates (>70% token similarity, ${String(nearDups.length)} pairs):\n`);
+    lines.push(`Near-duplicates (>80% token similarity, ${String(nearDups.length)} pairs):\n`);
     for (const pair of nearDups) {
       const pct = Math.round(pair.similarity * 100);
       lines.push(

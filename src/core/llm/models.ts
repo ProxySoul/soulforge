@@ -2,6 +2,7 @@ import { toErrorMessage } from "../../utils/errors.js";
 import { ensureProxy } from "../proxy/lifecycle.js";
 import { getProviderApiKey } from "../secrets.js";
 import { getIOClient } from "../workers/io-client.js";
+import { inferModelGroup } from "./model-utils.js";
 import { getAllProviders, getProvider, onProvidersChanged } from "./providers/index.js";
 import type { ProviderModelInfo } from "./providers/types.js";
 
@@ -447,27 +448,6 @@ export function getCachedGroupedModels(providerId: string): GroupedModelsResult 
 
 function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-/** Infer a provider group from a model ID prefix. */
-function inferModelGroup(modelId: string): string {
-  const id = modelId.toLowerCase();
-  if (id.startsWith("claude")) return "anthropic";
-  if (
-    id.startsWith("gpt") ||
-    id.startsWith("o1-") ||
-    id.startsWith("o3-") ||
-    id.startsWith("o4-") ||
-    id.startsWith("chatgpt")
-  )
-    return "openai";
-  if (id.startsWith("gemini")) return "google";
-  if (id.startsWith("grok")) return "xai";
-  if (id.startsWith("llama") || id.startsWith("meta-")) return "meta";
-  if (id.startsWith("mistral") || id.startsWith("codestral") || id.startsWith("pixtral"))
-    return "mistral";
-  if (id.startsWith("deepseek")) return "deepseek";
-  return "other";
 }
 
 const GROUP_DISPLAY_NAMES: Record<string, string> = {

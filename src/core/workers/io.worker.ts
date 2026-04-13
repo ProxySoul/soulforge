@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { isBinaryFile } from "isbinaryfile";
+import { inferModelGroup } from "../llm/model-utils.js";
 import { createWorkerHandler } from "./rpc.js";
 
 const MAX_READ_LINES = 2000;
@@ -280,26 +281,6 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
       return s.charAt(0).toUpperCase() + s.slice(1);
     }
 
-    function inferGroup(modelId: string): string {
-      const id = modelId.toLowerCase();
-      if (id.startsWith("claude")) return "anthropic";
-      if (
-        id.startsWith("gpt") ||
-        id.startsWith("o1-") ||
-        id.startsWith("o3-") ||
-        id.startsWith("o4-") ||
-        id.startsWith("chatgpt")
-      )
-        return "openai";
-      if (id.startsWith("gemini")) return "google";
-      if (id.startsWith("grok")) return "xai";
-      if (id.startsWith("llama") || id.startsWith("meta-")) return "meta";
-      if (id.startsWith("mistral") || id.startsWith("codestral") || id.startsWith("pixtral"))
-        return "mistral";
-      if (id.startsWith("deepseek")) return "deepseek";
-      return "other";
-    }
-
     try {
       const res = await fetch(url as string, { headers: headers as Record<string, string> });
       if (!res.ok) {
@@ -341,10 +322,10 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
           const si = m.id.indexOf("/");
           group = si >= 0 ? m.id.slice(0, si).toLowerCase() : "other";
         } else if (isLG) {
-          group = m.family?.toLowerCase() || inferGroup(m.id);
+          group = m.family?.toLowerCase() || inferModelGroup(m.id);
         } else {
           if (m.type && m.type !== "language") continue;
-          group = m.owned_by ?? inferGroup(m.id);
+          group = m.owned_by ?? inferModelGroup(m.id);
         }
         const arr = gMap[group] || [];
         gMap[group] = arr;

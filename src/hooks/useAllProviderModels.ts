@@ -90,13 +90,42 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       }
       if (init[cfg.id]?.loading) anyStale = true;
     }
-    setProviderData(init);
 
-    // If everything is cached, no need to fetch
-    if (!anyStale) return;
+    // Only trigger a re-render if the fresh cache differs from current state.
+    // Checks loading/error flags (value comparison) and items (reference
+    // comparison — cache returns the same array object on re-read).
+    setProviderData((prev) => {
+      const initKeys = Object.keys(init);
+      const prevKeys = Object.keys(prev);
+      if (initKeys.length !== prevKeys.length) return init;
+      // Detect replaced keys: same length but different key set
+      for (const k of prevKeys) {
+        if (!(k in init)) return init;
+      }
+      for (const k of initKeys) {
+        const a = prev[k];
+        const b = init[k];
+        if (!a || !b || a.loading !== b.loading || a.items !== b.items || a.error !== b.error) {
+          return init;
+        }
+      }
+      return prev;
+    });
+
+    // Re-sync availability from the global cache (cheap map read).
+    // If checkProviders() ran elsewhere (auth flow, config reload) the
+    // global cache was updated but our local state wasn't.
+    const cachedStatuses = getCachedProviderStatuses();
+    if (cachedStatuses) {
+      const map = new Map<string, boolean>();
+      for (const s of cachedStatuses) map.set(s.id, s.available);
+      setAvailability(map);
+    }
 
     let dead = false;
 
+    // Refresh availability in the background even when cache exists.
+    // This keeps local providers (e.g. Ollama/LM Studio) from staying stale.
     checkProviders()
       .then((statuses) => {
         if (dead) return;
@@ -104,7 +133,14 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
         for (const s of statuses) map.set(s.id, s.available);
         setAvailability(map);
       })
-      .catch(() => {});
+      .catch(() => undefined);
+
+    // If everything is cached, no need to fetch models
+    if (!anyStale) {
+      return () => {
+        dead = true;
+      };
+    }
 
     // Only fetch providers that aren't cached yet
     for (const cfg of PROVIDER_CONFIGS) {

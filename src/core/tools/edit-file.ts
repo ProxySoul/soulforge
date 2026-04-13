@@ -2,11 +2,17 @@ import { mkdir, readFile, stat as statAsync, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types";
 import { analyzeFile } from "../analysis/complexity";
-import { markToolWrite, readBufferContent, reloadBuffer } from "../editor/instance";
+import { markToolWrite, reloadBuffer } from "../editor/instance";
 import { isForbidden } from "../security/forbidden.js";
-import { autoFormatAfterEdit } from "./auto-format.js";
-import { pushEdit, updateLastAfterHash } from "./edit-stack.js";
+import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
+import {
+  appendAutoFormatResult,
+  appendCloneHints,
+  appendPostEditDiagnostics,
+  countOccurrences,
+  startPreEditDiagnostics,
+} from "./post-edit-helpers.js";
 
 interface EditFileArgs {
   path: string;
@@ -155,32 +161,7 @@ async function applyEdit(
   const beforeMetrics = analyzeFile(content);
   const afterMetrics = analyzeFile(updated);
 
-  // Kick off pre-edit diagnostics in parallel — don't block the file write.
-  // Skip if intelligence hasn't been initialized (avoids cold-starting LSP/tree-sitter from edit tools).
-  const diagsPromise = import("../intelligence/index.js")
-    .then(async (intel) => {
-      if (!intel.isIntelligenceReady()) return null;
-      const client = intel.getIntelligenceClient();
-      const router = intel.getIntelligenceRouter(process.cwd());
-      const language = client
-        ? await client.routerDetectLanguage(filePath)
-        : router.detectLanguage(filePath);
-      let diags: import("../intelligence/types.js").Diagnostic[] | null = null;
-      if (client) {
-        const tracked = await client.routerGetDiagnostics(filePath);
-        diags = tracked?.value ?? null;
-      } else {
-        diags = await router.executeWithFallback(language, "getDiagnostics", (b) =>
-          b.getDiagnostics ? b.getDiagnostics(filePath) : Promise.resolve(null),
-        );
-      }
-      return { beforeDiags: diags ?? [], router, language } as {
-        beforeDiags: import("../intelligence/types.js").Diagnostic[];
-        router: import("../intelligence/router.js").CodeIntelligenceRouter;
-        language: import("../intelligence/types.js").Language;
-      };
-    })
-    .catch((): null => null);
+  const diagsPromise = startPreEditDiagnostics(filePath);
 
   // CAS: verify file hasn't been modified since we read it (prevents concurrent edit races)
   const currentOnDisk = await readFile(filePath, "utf-8");
@@ -206,40 +187,9 @@ async function applyEdit(
   let output = `Edited ${filePath}${label}`;
   if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
 
-  // Auto-format after edit (cached command, 5s timeout)
-  const formatted = await autoFormatAfterEdit(filePath);
-  if (formatted) {
-    const postFormatContent = await readBufferContent(filePath);
-    updateLastAfterHash(filePath, postFormatContent, tabId);
-    const postLines = postFormatContent.split("\n").length;
-    const preLines = updated.split("\n").length;
-    if (postLines !== preLines) {
-      output += ` (formatted, line count changed ${String(preLines)}→${String(postLines)} — re-read affected range before next edit)`;
-    } else {
-      output += " (formatted)";
-    }
-  }
-
-  // Post-edit diagnostics: same-file only (skip expensive cross-file findImporters)
-  try {
-    const diagCtx = await Promise.race([
-      diagsPromise,
-      new Promise<null>((r) => setTimeout(() => r(null), 500)),
-    ]);
-    if (diagCtx) {
-      const { formatPostEditResult, sameFileDiagnostics } = await import(
-        "../intelligence/post-edit.js"
-      );
-      const diffResult = await Promise.race([
-        sameFileDiagnostics(diagCtx.router, filePath, diagCtx.language, diagCtx.beforeDiags),
-        new Promise<null>((r) => setTimeout(() => r(null), 800)),
-      ]);
-      if (diffResult) {
-        const diffOutput = formatPostEditResult(diffResult);
-        if (diffOutput) output += `\n${diffOutput}`;
-      }
-    }
-  } catch {}
+  output = await appendAutoFormatResult(filePath, updated, output, tabId);
+  output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
+  output = await appendCloneHints(filePath, output);
 
   return { success: true, output };
 }
@@ -296,6 +246,7 @@ export const editFileTool = {
         let out = `Created ${filePath} (lines: ${String(metrics.lineCount)}, imports: ${String(metrics.importCount)})`;
         if (dirCreated) out += ` [directory created: ${dir}]`;
         if (openedInEditor) out += " → opened in editor";
+        out = await appendCloneHints(filePath, out);
         return { success: true, output: out };
       }
 
@@ -370,7 +321,7 @@ export const editFileTool = {
 
         // Line range invalid — fall back to string match as last resort
         if (content.includes(oldStr)) {
-          const occurrences = content.split(oldStr).length - 1;
+          const occurrences = countOccurrences(content, oldStr);
           if (occurrences === 1) {
             const matchIdx = content.indexOf(oldStr);
             const matchLine = content.slice(0, matchIdx).split("\n").length;
@@ -412,7 +363,7 @@ export const editFileTool = {
         }
       }
 
-      const occurrences = content.split(resolvedOld).length - 1;
+      const occurrences = countOccurrences(content, resolvedOld);
       if (occurrences > 1) {
         const msg = `Found ${String(occurrences)} matches. Provide more context or use lineStart to disambiguate.`;
         return { success: false, output: msg, error: msg };

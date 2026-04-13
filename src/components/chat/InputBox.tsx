@@ -12,6 +12,7 @@ import { useTheme } from "../../core/theme/index.js";
 import { useUIStore } from "../../stores/ui.js";
 import type { ImageAttachment } from "../../types/index.js";
 import { readClipboardImageAsync } from "../../utils/clipboard.js";
+import { compressImageForApi } from "../../utils/image-compress.js";
 
 interface Props {
   onSubmit: (value: string, images?: ImageAttachment[]) => void;
@@ -462,17 +463,19 @@ export const InputBox = memo(function InputBox({
       imageLoadingRef.current = true;
 
       readClipboardImageAsync()
-        .then((clipImg) => {
+        .then(async (clipImg) => {
           imageLoadingRef.current = false;
           if (!clipImg) return;
           const ta = textareaRef.current;
           if (!ta) return;
+          // Compress large images to stay under API size limits (5 MB base64)
+          const { data, mediaType } = await compressImageForApi(clipImg.data, clipImg.mediaType);
           const idx = ++imageCounter.current;
           const label = `image-${String(idx)}`;
           pendingImages.current.push({
             label,
-            base64: clipImg.data.toString("base64"),
-            mediaType: clipImg.mediaType,
+            base64: data.toString("base64"),
+            mediaType,
           });
           ta.insertText(`[${label}] `);
           syncImageExtmarks(ta);

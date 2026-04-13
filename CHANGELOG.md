@@ -2,6 +2,45 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.11.0] — 2026-04-12
+
+### Bug Fixes
+
+- speed up model selector modal open path (#32)
+- disable stall watchdog by default, add /watchdog toggle
+### Features
+
+- scroll long command descriptions in command palette (#25)
+- add opencode go and opencode zen provider support. (#28)
+- custom thinking/reasoning params for OpenAI-compatible providers (#33)
+- add Codex account management commands (#24)
+### Miscellaneous
+
+- update models context & missing models (#30)
+### Other
+
+- Fix blank assistant messages being marked complete (#29)
+
+## Summary
+- stop finalizing assistant messages when the only collected output is a
+non-renderable segment
+- extract shared assistant-content and assistant-message helpers so the
+final completion and partial-save paths use the same rules
+- add regression tests that prove blank orphan tool segments do not
+create a completed assistant message
+
+Closes #26.
+
+## Testing
+- `bun test tests/usechat-content.test.ts tests/codex-provider.test.ts
+tests/provider-status.test.ts`
+- `bun run typecheck`
+- `bunx @biomejs/biome check src/hooks/useChat.ts
+src/hooks/useChat-content.ts tests/usechat-content.test.ts`
+- manually validated against the original issue scenario
+### Refactor
+
+- replace auto-restart with manual restart prompt in /update
 ## [2.10.0] — 2026-04-10
 
 ### Bug Fixes

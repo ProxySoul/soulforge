@@ -2,12 +2,18 @@ import { readFile, stat as statAsync, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
-import { markToolWrite, readBufferContent, reloadBuffer } from "../editor/instance.js";
+import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import { isForbidden } from "../security/forbidden.js";
-import { autoFormatAfterEdit } from "./auto-format.js";
 import { buildRichEditError, fuzzyWhitespaceMatch } from "./edit-file.js";
-import { pushEdit, updateLastAfterHash } from "./edit-stack.js";
+import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
+import {
+  appendAutoFormatResult,
+  appendCloneHints,
+  appendPostEditDiagnostics,
+  countOccurrences,
+  startPreEditDiagnostics,
+} from "./post-edit-helpers.js";
 
 interface EditEntry {
   oldString: string;
@@ -129,7 +135,7 @@ export const multiEditTool = {
 
         // ── FALLBACK: string-based editing (no lineStart or invalid range) ──
         if (content.includes(edit.oldString)) {
-          const occurrences = content.split(edit.oldString).length - 1;
+          const occurrences = countOccurrences(content, edit.oldString);
           if (occurrences > 1) {
             const msg = `${label}: found ${String(occurrences)} matches. Provide lineStart to disambiguate. NO edits were applied (atomic rollback).`;
             return {
@@ -149,7 +155,7 @@ export const multiEditTool = {
         // Fuzzy match (whitespace + escape normalization)
         const fixed = fuzzyWhitespaceMatch(content, edit.oldString, edit.newString);
         if (fixed && content.includes(fixed.oldStr)) {
-          const fixedOccurrences = content.split(fixed.oldStr).length - 1;
+          const fixedOccurrences = countOccurrences(content, fixed.oldStr);
           if (fixedOccurrences === 1) {
             const fixedOldLines = fixed.oldStr.split("\n").length;
             const fixedNewLines = fixed.newStr.split("\n").length;
@@ -173,36 +179,7 @@ export const multiEditTool = {
       const beforeMetrics = analyzeFile(originalContent);
       const afterMetrics = analyzeFile(content);
 
-      // Kick off pre-edit diagnostics in parallel — don't block the file write.
-      // Skip if intelligence hasn't been initialized (avoids cold-starting LSP/tree-sitter from edit tools).
-      const diagsPromise = import("../intelligence/index.js")
-        .then(async (intel) => {
-          if (!intel.isIntelligenceReady()) return null;
-          const client = intel.getIntelligenceClient();
-          const r = intel.getIntelligenceRouter(process.cwd());
-          const lang = client
-            ? await client.routerDetectLanguage(filePath)
-            : r.detectLanguage(filePath);
-          let diags: import("../intelligence/types.js").Diagnostic[] | null = null;
-          if (client) {
-            const tracked = await client.routerGetDiagnostics(filePath);
-            diags = tracked?.value ?? null;
-          } else {
-            diags = await r.executeWithFallback(lang, "getDiagnostics", (b) =>
-              b.getDiagnostics ? b.getDiagnostics(filePath) : Promise.resolve(null),
-            );
-          }
-          return {
-            beforeDiags: diags ?? [],
-            router: r,
-            language: lang,
-          } as {
-            beforeDiags: import("../intelligence/types.js").Diagnostic[];
-            router: import("../intelligence/router.js").CodeIntelligenceRouter;
-            language: import("../intelligence/types.js").Language;
-          };
-        })
-        .catch((): null => null);
+      const diagsPromise = startPreEditDiagnostics(filePath);
 
       // CAS: verify file hasn't been modified since we read it
       const currentOnDisk = await readFile(filePath, "utf-8");
@@ -241,40 +218,16 @@ export const multiEditTool = {
       let output = `Applied ${String(args.edits.length)} edits to ${args.path}`;
       if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
 
-      // Auto-format after edit (cached command, 5s timeout)
-      const formatted = await autoFormatAfterEdit(filePath);
-      if (formatted) {
-        const postFormatContent = await readBufferContent(filePath);
-        updateLastAfterHash(filePath, postFormatContent, args.tabId);
-        const postLines = postFormatContent.split("\n").length;
-        const preLines = content.split("\n").length;
-        if (postLines !== preLines) {
-          output += ` (formatted, line count changed ${String(preLines)}→${String(postLines)} — re-read affected range before next edit)`;
-        } else {
-          output += " (formatted)";
-        }
-      }
+      output = await appendAutoFormatResult(filePath, content, output, args.tabId);
+      output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
+      output = await appendCloneHints(filePath, output);
 
-      // Post-edit diagnostics: same-file only (skip expensive cross-file findImporters)
-      try {
-        const diagCtx = await Promise.race([
-          diagsPromise,
-          new Promise<null>((r) => setTimeout(() => r(null), 500)),
-        ]);
-        if (diagCtx) {
-          const { formatPostEditResult, sameFileDiagnostics } = await import(
-            "../intelligence/post-edit.js"
-          );
-          const diffResult = await Promise.race([
-            sameFileDiagnostics(diagCtx.router, filePath, diagCtx.language, diagCtx.beforeDiags),
-            new Promise<null>((r) => setTimeout(() => r(null), 800)),
-          ]);
-          if (diffResult) {
-            const diffOutput = formatPostEditResult(diffResult);
-            if (diffOutput) output += `\n${diffOutput}`;
-          }
-        }
-      } catch {}
+      // Nudge: warn if any edits lacked lineStart (consistent with edit_file)
+      const missingLineStart = args.edits.some((e) => e.lineStart == null);
+      if (missingLineStart) {
+        output +=
+          "\n⚠ Some edits lacked lineStart — pass lineStart from read output to make edits escape-proof.";
+      }
 
       return { success: true, output };
     } catch (err: unknown) {

@@ -4,18 +4,7 @@ import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import { isForbidden } from "../security/forbidden.js";
-import type { TrackedResult } from "../workers/intelligence-client.js";
-
-/** Fallback: use main-thread router when worker client is unavailable */
-async function fallbackTracked<T>(
-  file: string | undefined,
-  operation: string & keyof import("../intelligence/types.js").IntelligenceBackend,
-  fn: (b: import("../intelligence/types.js").IntelligenceBackend) => Promise<T | null>,
-): Promise<TrackedResult<T>> {
-  const router = getIntelligenceRouter(process.cwd());
-  const language = router.detectLanguage(file);
-  return router.executeWithFallbackTracked(language, operation, fn);
-}
+import { fallbackTracked } from "./intelligence-helpers.js";
 
 type AnalyzeAction =
   | "diagnostics"

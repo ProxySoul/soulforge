@@ -4,7 +4,8 @@ import type { ToolResult } from "../../types/index.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import type { CallHierarchyItem, SourceLocation, SymbolInfo } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
-import type { IntelligenceClient, TrackedResult } from "../workers/intelligence-client.js";
+import type { IntelligenceClient } from "../workers/intelligence-client.js";
+import { fallbackTracked } from "./intelligence-helpers.js";
 
 type NavigateAction =
   | "definition"
@@ -99,17 +100,6 @@ function buildDefinitionPattern(symbol: string): string {
   const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const alts = DEFINITION_KEYWORDS.map((kw) => `(?:${kw})`).join("|");
   return `(?:${alts})${escaped}\\b`;
-}
-
-/** Fallback: use main-thread router when worker client is unavailable */
-async function fallbackTracked<T>(
-  file: string | undefined,
-  operation: string & keyof import("../intelligence/types.js").IntelligenceBackend,
-  fn: (b: import("../intelligence/types.js").IntelligenceBackend) => Promise<T | null>,
-): Promise<TrackedResult<T>> {
-  const router = getIntelligenceRouter(process.cwd());
-  const language = router.detectLanguage(file);
-  return router.executeWithFallbackTracked(language, operation, fn);
 }
 
 async function autoResolveFile(

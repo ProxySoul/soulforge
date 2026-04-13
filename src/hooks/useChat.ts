@@ -14,7 +14,6 @@ import type { StreamSegment } from "../components/chat/StreamSegmentList.js";
 import type { LiveToolCall } from "../components/chat/ToolCallDisplay.js";
 import { normalizePath } from "../core/agents/agent-bus.js";
 import { createForgeAgent } from "../core/agents/index.js";
-
 import { onAgentStats, onMultiAgentEvent, onSubagentStep } from "../core/agents/subagent-events.js";
 import type { SharedCacheRef } from "../core/agents/subagent-tools.js";
 import {
@@ -60,7 +59,7 @@ import { getIOClient } from "../core/workers/io-client.js";
 import { logCompaction } from "../stores/compaction-logs.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { useRepoMapStore } from "../stores/repomap.js";
-import { accumulateModelUsage, useStatusBarStore } from "../stores/statusbar.js";
+import { accumulateModelUsage, useStatusBarStore, ZERO_USAGE } from "../stores/statusbar.js";
 import { useToolsStore } from "../stores/tools.js";
 import type {
   AppConfig,
@@ -75,7 +74,9 @@ import type {
   PlanStepStatus,
   QueuedMessage,
 } from "../types/index.js";
+import { compressImageForApi } from "../utils/image-compress.js";
 import { reprimeContextFromMessages, safeParseArgs } from "./chat/message-processing.js";
+import { buildAssistantMessage, hasRenderableAssistantContent } from "./useChat-content.js";
 import { cycleForgeMode } from "./useForgeMode.js";
 import { buildSessionMeta } from "./useSessionBuilder.js";
 
@@ -111,20 +112,6 @@ interface TokenUsage {
     { input: number; output: number; cacheRead: number; cacheWrite: number }
   >;
 }
-
-const ZERO_USAGE: TokenUsage = {
-  prompt: 0,
-  completion: 0,
-  total: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  subagentInput: 0,
-  subagentOutput: 0,
-  lastStepInput: 0,
-  lastStepOutput: 0,
-  lastStepCacheRead: 0,
-  modelBreakdown: {},
-};
 
 const CHARS_PER_TOKEN = 4;
 const PRUNE_PROTECT_TOKENS = 40_000;
@@ -435,6 +422,8 @@ export function useChat({
   }, []);
   const [sidebarPlan, setSidebarPlan] = useState<Plan | null>(initialState?.sidebarPlan ?? null);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  const pendingQuestionRef = useRef(pendingQuestion);
+  pendingQuestionRef.current = pendingQuestion;
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const messageQueueRef = useRef<QueuedMessage[]>([]);
   messageQueueRef.current = messageQueue;
@@ -589,6 +578,8 @@ export function useChat({
 
   // Plan mode
   const [pendingPlanReview, setPendingPlanReview] = useState<PendingPlanReview | null>(null);
+  const pendingPlanReviewRef = useRef(pendingPlanReview);
+  pendingPlanReviewRef.current = pendingPlanReview;
   const planPostActionRef = useRef<{
     action: "execute" | "clear_execute" | "cancel" | "revise";
     planContent: string | null;
@@ -1480,10 +1471,12 @@ export function useChat({
       if (images && images.length > 0) {
         const parts: Array<TextPart | ImagePart> = [{ type: "text" as const, text: input }];
         for (const img of images) {
+          const raw = Buffer.from(img.base64, "base64");
+          const { data, mediaType } = await compressImageForApi(raw, img.mediaType);
           parts.push({
             type: "image" as const,
-            image: Buffer.from(img.base64, "base64"),
-            mediaType: img.mediaType,
+            image: data,
+            mediaType,
           });
         }
         userContent = parts;
@@ -1751,7 +1744,11 @@ export function useChat({
                   : {}),
             }));
           const allCalls = [...completedCalls, ...livePending];
-          const hasContent = fullText.trim().length > 0 || allCalls.length > 0;
+          const hasContent = hasRenderableAssistantContent({
+            fullText,
+            toolCallCount: allCalls.length,
+            segments: finalSegments,
+          });
 
           if (!hasContent) {
             setMessages((prev) => [...prev, ...steeringMsgs]);
@@ -2166,79 +2163,86 @@ export function useChat({
         // ticks should force-resolve the stream if the abort didn't propagate.
         let stallAbortedAt = 0;
         const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
-        stallWatchdog = setInterval(() => {
-          // If we already aborted but the for-await loop is stuck on a dead
-          // connection that didn't honor the AbortSignal, force-resolve it.
-          if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
-            // Force the stream iterator to end by calling return() on the SAME
-            // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
-            // call would create a fresh reader and fail on the locked stream.
-            try {
-              streamIterator?.return?.();
-            } catch {}
-            // Clear ourselves — nothing more we can do
-            if (stallWatchdog) {
-              clearInterval(stallWatchdog);
-              stallWatchdog = null;
+        if (effectiveConfig.watchdog)
+          stallWatchdog = setInterval(() => {
+            // If we already aborted but the for-await loop is stuck on a dead
+            // connection that didn't honor the AbortSignal, force-resolve it.
+            if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
+              // Force the stream iterator to end by calling return() on the SAME
+              // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
+              // call would create a fresh reader and fail on the locked stream.
+              try {
+                streamIterator?.return?.();
+              } catch {}
+              // Clear ourselves — nothing more we can do
+              if (stallWatchdog) {
+                clearInterval(stallWatchdog);
+                stallWatchdog = null;
+              }
+              return;
             }
-            return;
-          }
-          if (abortController.signal.aborted) return;
-          // While tools run, only fire if tool itself is stuck (15min max)
-          if (toolsInFlight > 0) {
-            if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
-          } else {
-            // Between steps (SDK making a new API call) or before first chunk:
-            // use the generous first-chunk timeout since the provider may be
-            // processing a large context or queueing the request.
-            const threshold =
-              !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
-            if (Date.now() - lastActivityTs <= threshold) return;
-          }
-          // Capture the actual threshold that fired for the user-facing message
-          const firedThresholdMs =
-            toolsInFlight > 0
-              ? STALL_TOOL_MAX_MS
-              : !gotFirstContent || betweenSteps
-                ? STALL_FIRST_CHUNK_MS
-                : STALL_CHUNK_MS;
-          stallTriggered = true;
-          stallRetryCountRef.current++;
-          const count = stallRetryCountRef.current;
-          if (count <= STALL_MAX_RETRIES) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: `Connection stalled — no activity for ${String(Math.round(firedThresholdMs / 1000))}s. Auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})…`,
-                timestamp: Date.now(),
-                showInChat: true,
-              },
-            ]);
-            logBackgroundError(
-              "stream-stall",
-              `No stream activity — auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})`,
-            );
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: `Connection stalled ${String(STALL_MAX_RETRIES)} times — giving up. You can resend your message to try again.`,
-                timestamp: Date.now(),
-                showInChat: true,
-              },
-            ]);
-            logBackgroundError(
-              "stream-stall",
-              `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
-            );
-          }
-          stallAbortedAt = Date.now();
-          abortController.abort();
-        }, 10_000);
+            if (abortController.signal.aborted) return;
+            // Pause while a user prompt is active (web access, plan review, ask_user, etc.)
+            if (pendingQuestionRef.current || pendingPlanReviewRef.current) {
+              lastActivityTs = Date.now();
+              lastToolActivityTs = Date.now();
+              return;
+            }
+            // While tools run, only fire if tool itself is stuck (15min max)
+            if (toolsInFlight > 0) {
+              if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
+            } else {
+              // Between steps (SDK making a new API call) or before first chunk:
+              // use the generous first-chunk timeout since the provider may be
+              // processing a large context or queueing the request.
+              const threshold =
+                !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
+              if (Date.now() - lastActivityTs <= threshold) return;
+            }
+            // Capture the actual threshold that fired for the user-facing message
+            const firedThresholdMs =
+              toolsInFlight > 0
+                ? STALL_TOOL_MAX_MS
+                : !gotFirstContent || betweenSteps
+                  ? STALL_FIRST_CHUNK_MS
+                  : STALL_CHUNK_MS;
+            stallTriggered = true;
+            stallRetryCountRef.current++;
+            const count = stallRetryCountRef.current;
+            if (count <= STALL_MAX_RETRIES) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Connection stalled — no activity for ${String(Math.round(firedThresholdMs / 1000))}s. Auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})…`,
+                  timestamp: Date.now(),
+                  showInChat: true,
+                },
+              ]);
+              logBackgroundError(
+                "stream-stall",
+                `No stream activity — auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})`,
+              );
+            } else {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Connection stalled ${String(STALL_MAX_RETRIES)} times — giving up. You can resend your message to try again.`,
+                  timestamp: Date.now(),
+                  showInChat: true,
+                },
+              ]);
+              logBackgroundError(
+                "stream-stall",
+                `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
+              );
+            }
+            stallAbortedAt = Date.now();
+            abortController.abort();
+          }, 10_000);
 
         let streamEventCount = 0;
         let yieldBeforeNext = false;
@@ -2672,21 +2676,13 @@ export function useChat({
           throw new Error("Stream stall — abort did not throw");
         }
 
-        // Log agent stop reason for debugging (visible via /errors)
-        try {
-          const resp = await Promise.race([
-            result.response,
-            new Promise<null>((r) => setTimeout(() => r(null), 2_000)),
-          ]);
-          if (resp) {
-            const lastStep = resp.messages?.length ?? 0;
-            const reason = (resp as { finishReason?: string }).finishReason ?? "unknown";
-            logBackgroundError(
-              "agent-stop",
-              `finishReason=${reason} steps=${String(lastStep)} streamErrors=${String(streamErrors.length)}`,
-            );
-          }
-        } catch {}
+        // Log agent stop reason for debugging (visible via /errors) — only when errors occurred
+        if (streamErrors.length > 0) {
+          logBackgroundError(
+            "agent-stop",
+            `streamErrors=${String(streamErrors.length)}: ${streamErrors[0]?.slice(0, 200)}`,
+          );
+        }
 
         if (flushTimerRef.current) {
           clearInterval(flushTimerRef.current);
@@ -2736,19 +2732,13 @@ export function useChat({
           syncV2Slots();
         }
 
-        const hasAssistantContent =
-          fullText.trim().length > 0 || completedCalls.length > 0 || finalSegments.length > 0;
-        const assistantMsg: ChatMessage | null = hasAssistantContent
-          ? {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content: fullText,
-              timestamp: Date.now(),
-              toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
-              segments: finalSegments.length > 0 ? finalSegments : undefined,
-              durationMs: Date.now() - responseStartedAt,
-            }
-          : null;
+        const assistantMsg = buildAssistantMessage({
+          fullText,
+          completedCalls,
+          segments: finalSegments,
+          responseStartedAt,
+          now: Date.now(),
+        });
 
         const errorMsgs: ChatMessage[] = streamErrors.map((errContent) => ({
           id: crypto.randomUUID(),
@@ -2849,14 +2839,14 @@ export function useChat({
           }
           // Commit any partial assistant output so the retry has context
           if (fullText.trim().length > 0 || completedCalls.length > 0) {
-            const partialMsg: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content: fullText,
-              timestamp: Date.now(),
-              toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
-              segments: finalSegments.length > 0 ? finalSegments : undefined,
-            };
+            const partialMsg = buildAssistantMessage({
+              fullText,
+              completedCalls,
+              segments: finalSegments,
+              responseStartedAt,
+              now: Date.now(),
+            });
+            if (!partialMsg) return;
             setMessages((prev) => [...prev, partialMsg]);
             if (completedCalls.length > 0) {
               const assistantContent: Array<TextPart | ToolCallPart> = [];
@@ -2915,6 +2905,10 @@ export function useChat({
         }
 
         const rawMsg = err instanceof Error ? err.message : String(err);
+        // Log non-abort errors to /errors for debugging
+        if (!isAbort) {
+          logBackgroundError("agent-error", rawMsg);
+        }
         // ── StopFailure hook ──
         if (!isAbort) {
           runHooks({
@@ -2970,15 +2964,22 @@ export function useChat({
         }
 
         const hasPlanPostAction = !!planPostActionRef.current;
-        if (!hasPlanPostAction && (fullText.trim().length > 0 || completedCalls.length > 0)) {
-          const partialMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: fullText,
-            timestamp: Date.now(),
-            toolCalls: completedCalls.length > 0 ? completedCalls : undefined,
-            segments: finalSegments.length > 0 ? finalSegments : undefined,
-          };
+        if (
+          !hasPlanPostAction &&
+          hasRenderableAssistantContent({
+            fullText,
+            toolCallCount: completedCalls.length,
+            segments: finalSegments,
+          })
+        ) {
+          const partialMsg = buildAssistantMessage({
+            fullText,
+            completedCalls,
+            segments: finalSegments,
+            responseStartedAt,
+            now: Date.now(),
+          });
+          if (!partialMsg) return;
           setMessages((prev) => [...prev, partialMsg]);
 
           if (completedCalls.length > 0) {
@@ -3220,11 +3221,8 @@ export function useChat({
   );
   handleSubmitRef.current = handleSubmit;
 
-  const pendingQuestionRef = useRef(pendingQuestion);
-  pendingQuestionRef.current = pendingQuestion;
-
-  const pendingPlanReviewRef = useRef(pendingPlanReview);
-  pendingPlanReviewRef.current = pendingPlanReview;
+  // pendingQuestionRef / pendingPlanReviewRef are declared near their state (lines ~438, ~594)
+  // so the stall watchdog inside handleSubmit can access them.
 
   const abort = useCallback(() => {
     if (compactAbortRef.current) {

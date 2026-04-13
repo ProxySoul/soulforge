@@ -105,6 +105,31 @@ const freshField = () => optBool().describe("Set true to bypass cache and re-exe
 /** Send tool results as plain text to the model instead of JSON.stringify'd objects.
  *  Without this, the AI SDK wraps `{success,output}` in JSON, escaping all newlines
  *  and quotes — adding 3-8% token overhead per tool result that compounds across steps. */
+/** Enrich a successful edit result with blast radius + cochanges from the repo map. */
+async function enrichWithBlastRadius(
+  result: { success: boolean; output: string; error?: string },
+  filePath: string,
+  cwd: string,
+  repoMap?: IntelligenceClient,
+): Promise<void> {
+  if (!result.success || !repoMap?.isReady) return;
+  const rel = filePath.startsWith("/") ? filePath.slice(cwd.length + 1) : filePath;
+  const blast = await repoMap.getFileBlastRadius(rel);
+  const cochanges = await repoMap.getFileCoChanges(rel);
+  if (blast > 0 || cochanges.length > 0) {
+    const parts: string[] = [];
+    if (blast > 0) parts.push(`${String(blast)} files depend on this`);
+    if (cochanges.length > 0)
+      parts.push(
+        `cochanges: ${cochanges
+          .slice(0, 3)
+          .map((c: { path: string; count: number }) => c.path)
+          .join(", ")}${cochanges.length > 3 ? ` +${String(cochanges.length - 3)}` : ""}`,
+      );
+    result.output += `\n[impact: ${parts.join(" · ")}]`;
+  }
+}
+
 const TEXT_OUTPUT = {
   toModelOutput({ output }: { output: unknown }) {
     if (typeof output === "string") return { type: "text" as const, value: output };
@@ -544,26 +569,7 @@ export function buildTools(
             error: "contested",
           };
         }
-        // Enrich successful edits with blast radius from repo map
-        if (result.success && opts?.repoMap?.isReady) {
-          const rel = args.path.startsWith("/")
-            ? args.path.slice(effectiveCwd.length + 1)
-            : args.path;
-          const blast = await opts.repoMap.getFileBlastRadius(rel);
-          const cochanges = await opts.repoMap.getFileCoChanges(rel);
-          if (blast > 0 || cochanges.length > 0) {
-            const parts: string[] = [];
-            if (blast > 0) parts.push(`${String(blast)} files depend on this`);
-            if (cochanges.length > 0)
-              parts.push(
-                `cochanges: ${cochanges
-                  .slice(0, 3)
-                  .map((c: { path: string; count: number }) => c.path)
-                  .join(", ")}${cochanges.length > 3 ? ` +${String(cochanges.length - 3)}` : ""}`,
-              );
-            result.output += `\n[impact: ${parts.join(" · ")}]`;
-          }
-        }
+        await enrichWithBlastRadius(result, args.path, effectiveCwd, opts?.repoMap);
         return result;
       }),
     }),
@@ -627,26 +633,7 @@ export function buildTools(
             error: "contested",
           };
         }
-        // Enrich with blast radius + cochanges (same as edit_file)
-        if (result.success && opts?.repoMap?.isReady) {
-          const rel = args.path.startsWith("/")
-            ? args.path.slice(effectiveCwd.length + 1)
-            : args.path;
-          const blast = await opts.repoMap.getFileBlastRadius(rel);
-          const cochanges = await opts.repoMap.getFileCoChanges(rel);
-          if (blast > 0 || cochanges.length > 0) {
-            const impactParts: string[] = [];
-            if (blast > 0) impactParts.push(`${String(blast)} files depend on this`);
-            if (cochanges.length > 0)
-              impactParts.push(
-                `cochanges: ${cochanges
-                  .slice(0, 3)
-                  .map((c: { path: string; count: number }) => c.path)
-                  .join(", ")}${cochanges.length > 3 ? ` +${String(cochanges.length - 3)}` : ""}`,
-              );
-            result.output += `\n[impact: ${impactParts.join(" · ")}]`;
-          }
-        }
+        await enrichWithBlastRadius(result, args.path, effectiveCwd, opts?.repoMap);
         return result;
       }),
     }),

@@ -363,7 +363,9 @@ export const TabInstance = memo(function TabInstance({
       const msg = chat.messages[i];
       if (msg?.role !== "assistant" || !msg.toolCalls) continue;
       for (const tc of msg.toolCalls) {
-        if (tc.name === "edit_file" && tc.result?.success) return true;
+        if ((tc.name === "edit_file" || tc.name === "multi_edit") && tc.result?.success)
+          return true;
+        if (tc.name === "dispatch" && tc.result?.filesEdited?.length) return true;
       }
     }
     return false;

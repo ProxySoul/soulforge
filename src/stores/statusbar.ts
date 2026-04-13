@@ -319,7 +319,7 @@ export function accumulateModelUsage(
   };
 }
 
-const ZERO_USAGE: TokenUsage = {
+export const ZERO_USAGE: TokenUsage = {
   prompt: 0,
   completion: 0,
   total: 0,

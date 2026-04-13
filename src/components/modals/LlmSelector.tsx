@@ -206,9 +206,15 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   const [scrollOff, setScrollOff] = useState(0);
   const spinFrameRef = useSpinnerFrameRef();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // Defer the heavy entry list by one frame so the popup chrome paints instantly
+  // Tracks whether we've shown the loading spinner or deferred rendering.
+  // Set to true immediately when data is cached; deferred by one frame when loading.
   const [ready, setReady] = useState(false);
+  const anyLoadingRef = useRef(anyLoading);
+  anyLoadingRef.current = anyLoading;
 
+  // Reset state and initialize collapse when the modal opens.
+  // Only depends on [visible, activeModel] — anyLoading changes must NOT
+  // reset user state (query, cursor) while the modal is open.
   useEffect(() => {
     if (!visible) {
       setReady(false);
@@ -223,9 +229,14 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
       init[cfg.id] = cfg.id !== activeProvider;
     }
     setCollapsed(init);
-    // Paint the popup chrome first, then mount the entry list next frame
-    const raf = setTimeout(() => setReady(true), 0);
-    return () => clearTimeout(raf);
+    // When all data is cached, render immediately; otherwise defer one frame
+    if (!anyLoadingRef.current) {
+      setReady(true);
+    } else {
+      const tid = setTimeout(() => setReady(true), 0);
+      return () => clearTimeout(tid);
+    }
+    return undefined;
   }, [visible, activeModel]);
 
   const { providerFilter, modelFilter } = (() => {

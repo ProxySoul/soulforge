@@ -35,6 +35,19 @@ interface AgentEnv {
   headers: Record<string, string> | undefined;
 }
 
+/**
+ * Re-raise SIGINT for signal-triggered exits so the parent shell sees a true
+ * signal death (WIFSIGNALED) instead of a normal exit with code 130.
+ * For non-signal exits, fall through to process.exit().
+ */
+function reraiseOrExit(code: number): never {
+  if (code === EXIT_ABORT) {
+    process.removeAllListeners("SIGINT");
+    process.kill(process.pid, "SIGINT");
+  }
+  process.exit(code);
+}
+
 async function setupAgent(
   opts: {
     cwd?: string;
@@ -523,7 +536,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
 
   env.contextManager.dispose();
   await disposeMCPManager();
-  process.exit(exitCode);
+  reraiseOrExit(exitCode);
 }
 
 /**
@@ -699,7 +712,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
 
     env.contextManager.dispose();
     await disposeMCPManager();
-    process.exit(code);
+    reraiseOrExit(code);
   }
 
   // SIGINT: abort current turn, save, print resume, exit
@@ -708,7 +721,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
       // Second Ctrl+C — force exit
       env.contextManager.dispose();
       disposeMCPManager();
-      process.exit(EXIT_ABORT);
+      reraiseOrExit(EXIT_ABORT);
     }
     aborted = true;
     turnAbort.abort();
