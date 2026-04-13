@@ -94,6 +94,40 @@ export async function appendPostEditDiagnostics(
 }
 
 /**
+ * Query clone detection for the edited file and append hints about near-duplicate
+ * functions that already exist elsewhere. Non-blocking — 500ms timeout, swallows errors.
+ */
+export async function appendCloneHints(filePath: string, output: string): Promise<string> {
+  try {
+    const { relative } = await import("node:path");
+    const intel = await import("../intelligence/index.js");
+    if (!intel.isIntelligenceReady()) return output;
+    const client = intel.getIntelligenceClient();
+    if (!client) return output;
+    const relPath = relative(process.cwd(), filePath);
+    const dupes = await Promise.race([
+      client.getFileDuplicates(relPath),
+      new Promise<null>((r) => setTimeout(() => r(null), 500)),
+    ]);
+    if (!dupes || dupes.length === 0) return output;
+    const hints: string[] = [];
+    for (const d of dupes.slice(0, 3)) {
+      const pct = `${String(Math.round(d.similarity * 100))}%`;
+      const top = d.clones[0];
+      if (!top) continue;
+      const extra = d.clones.length > 1 ? ` (+${String(d.clones.length - 1)} more)` : "";
+      hints.push(
+        `  ${d.name} ~${pct} similar to ${top.name} at ${top.path}:${String(top.line)}${extra}`,
+      );
+    }
+    if (hints.length > 0) {
+      return `${output}\n⚠ Near-duplicate code detected — consider reusing:\n${hints.join("\n")}`;
+    }
+  } catch {}
+  return output;
+}
+
+/**
  * Count occurrences of a substring without allocating split arrays.
  * O(n) scan using indexOf — cheaper than content.split(needle).length - 1
  * for large files with long needles.

@@ -8,6 +8,7 @@ import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
 import {
   appendAutoFormatResult,
+  appendCloneHints,
   appendPostEditDiagnostics,
   countOccurrences,
   startPreEditDiagnostics,
@@ -188,6 +189,7 @@ async function applyEdit(
 
   output = await appendAutoFormatResult(filePath, updated, output, tabId);
   output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
+  output = await appendCloneHints(filePath, output);
 
   return { success: true, output };
 }

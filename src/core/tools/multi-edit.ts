@@ -9,6 +9,7 @@ import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
 import {
   appendAutoFormatResult,
+  appendCloneHints,
   appendPostEditDiagnostics,
   countOccurrences,
   startPreEditDiagnostics,
@@ -219,6 +220,7 @@ export const multiEditTool = {
 
       output = await appendAutoFormatResult(filePath, content, output, args.tabId);
       output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
+      output = await appendCloneHints(filePath, output);
 
       // Nudge: warn if any edits lacked lineStart (consistent with edit_file)
       const missingLineStart = args.edits.some((e) => e.lineStart == null);
