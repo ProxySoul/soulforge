@@ -87,6 +87,18 @@ type SummaryGenerator = (
 ) => Promise<Array<{ name: string; summary: string }>>;
 
 export class RepoMap {
+  /** SQL WHERE fragment: true when path column is a test file. */
+  private static testFileMatch(alias = "f"): string {
+    const a = alias;
+    return `(${a}.path LIKE 'tests/%' OR ${a}.path LIKE 'test/%' OR ${a}.path LIKE 'spec/%' OR ${a}.path LIKE 'src/test/%' OR ${a}.path LIKE '%.test.%' OR ${a}.path LIKE '%.spec.%' OR ${a}.path LIKE '%_test.%' OR ${a}.path LIKE '%_spec.%' OR ${a}.path LIKE '%/test_%' OR ${a}.path LIKE '%/__tests__/%')`;
+  }
+
+  /** SQL WHERE fragment: true when path column is NOT a test file. */
+  private static notTestFile(alias = "f"): string {
+    const a = alias;
+    return `${a}.path NOT LIKE 'tests/%' AND ${a}.path NOT LIKE 'test/%' AND ${a}.path NOT LIKE 'spec/%' AND ${a}.path NOT LIKE 'src/test/%' AND ${a}.path NOT LIKE '%.test.%' AND ${a}.path NOT LIKE '%.spec.%' AND ${a}.path NOT LIKE '%_test.%' AND ${a}.path NOT LIKE '%_spec.%' AND ${a}.path NOT LIKE '%/test_%' AND ${a}.path NOT LIKE '%/__tests__/%'`;
+  }
+
   private db: Database;
   private cwd: string;
   private scanPromise: Promise<void> | null = null;
@@ -1672,11 +1684,8 @@ export class RepoMap {
     const testFiles = this.db
       .query<{ id: number; path: string }, []>(
         `SELECT f.id, f.path FROM files f
-         WHERE (f.path LIKE '%.test.%' OR f.path LIKE '%.spec.%'
-           OR f.path LIKE '%_test.%' OR f.path LIKE '%_spec.%'
-           OR f.path LIKE 'tests/%' OR f.path LIKE 'test/%'
-           OR f.path LIKE '%/__tests__/%')
-         AND NOT EXISTS (SELECT 1 FROM edges WHERE source_file_id = f.id)`,
+         WHERE ${RepoMap.testFileMatch()}
+           AND NOT EXISTS (SELECT 1 FROM edges WHERE source_file_id = f.id)`,
       )
       .all();
 
@@ -3623,7 +3632,7 @@ export class RepoMap {
                WHERE s2.name = s.name AND s2.is_exported = 1
              ) = 1)
            )
-           AND (rf.path LIKE 'tests/%' OR rf.path LIKE '%.test.%' OR rf.path LIKE '%.spec.%' OR rf.path LIKE '%/__tests__/%')
+           AND ${RepoMap.testFileMatch("rf")}
          )
          AND NOT EXISTS (
            SELECT 1 FROM refs r
@@ -3636,7 +3645,7 @@ export class RepoMap {
                WHERE s2.name = s.name AND s2.is_exported = 1
              ) = 1)
            )
-           AND rf.path NOT LIKE 'tests/%' AND rf.path NOT LIKE '%.test.%' AND rf.path NOT LIKE '%.spec.%' AND rf.path NOT LIKE '%/__tests__/%'
+           AND ${RepoMap.notTestFile("rf")}
          )
          ORDER BY f.path`,
       )
@@ -3862,7 +3871,7 @@ export class RepoMap {
          FROM token_signatures ts
          JOIN files f ON f.id = ts.file_id
          LEFT JOIN symbols s ON s.file_id = ts.file_id AND s.name = ts.name AND s.line = ts.line
-         WHERE f.path NOT LIKE 'tests/%' AND f.path NOT LIKE '%.test.%' AND f.path NOT LIKE '%.spec.%' AND f.path NOT LIKE '%/__tests__/%'
+         WHERE ${RepoMap.notTestFile()}
          ORDER BY f.pagerank DESC
          LIMIT 500`,
       )
@@ -3978,7 +3987,7 @@ export class RepoMap {
            FROM token_fragments tf
            JOIN files f ON f.id = tf.file_id
            WHERE tf.hash = ?
-               AND f.path NOT LIKE 'tests/%' AND f.path NOT LIKE '%.test.%' AND f.path NOT LIKE '%.spec.%' AND f.path NOT LIKE '%/__tests__/%'
+               AND ${RepoMap.notTestFile()}
            ORDER BY f.path, tf.line
              LIMIT 20`,
         )
@@ -4013,7 +4022,7 @@ export class RepoMap {
          FROM shape_hashes sh
          JOIN files f ON f.id = sh.file_id
          WHERE sh.node_count >= ?
-             AND f.path NOT LIKE 'tests/%' AND f.path NOT LIKE '%.test.%' AND f.path NOT LIKE '%.spec.%' AND f.path NOT LIKE '%/__tests__/%'
+             AND ${RepoMap.notTestFile()}
          GROUP BY sh.shape_hash
          HAVING cnt > 1
            ORDER BY sh.node_count * cnt DESC
@@ -4096,7 +4105,7 @@ export class RepoMap {
            JOIN files f ON f.id = ts.file_id
          LEFT JOIN symbols s ON s.file_id = ts.file_id AND s.name = ts.name AND s.line = ts.line
          WHERE ts.file_id != ?
-           AND f.path NOT LIKE 'tests/%' AND f.path NOT LIKE '%.test.%' AND f.path NOT LIKE '%.spec.%' AND f.path NOT LIKE '%/__tests__/%'
+           AND ${RepoMap.notTestFile()}
          ORDER BY f.pagerank DESC
          LIMIT 500`,
       )
