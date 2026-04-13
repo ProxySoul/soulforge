@@ -136,20 +136,25 @@ process.on("exit", () => {
   printExitBanner();
 });
 
-process.on("SIGINT", () => {
+/**
+ * Re-raise a caught signal so the parent shell sees a true signal death
+ * (WIFSIGNALED=true) instead of a normal exit with code 128+N.
+ * This prevents shells like fish from printing spurious
+ * "terminated by signal" messages.
+ * See: https://unix.stackexchange.com/questions/386836
+ */
+function reraiseSignal(signal: NodeJS.Signals): void {
   flushEmergencySession();
-  cleanupAndExit(130);
-});
+  runCleanup();
+  renderer?.destroy();
+  printExitBanner();
+  process.removeAllListeners(signal);
+  process.kill(process.pid, signal);
+}
 
-process.on("SIGTERM", () => {
-  flushEmergencySession();
-  cleanupAndExit(143);
-});
-
-process.on("SIGHUP", () => {
-  flushEmergencySession();
-  cleanupAndExit(129);
-});
+process.on("SIGINT", () => reraiseSignal("SIGINT"));
+process.on("SIGTERM", () => reraiseSignal("SIGTERM"));
+process.on("SIGHUP", () => reraiseSignal("SIGHUP"));
 
 process.on("uncaughtException", (err) => {
   flushEmergencySession();
