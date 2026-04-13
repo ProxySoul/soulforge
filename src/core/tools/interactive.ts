@@ -33,7 +33,7 @@ export function buildInteractiveTools(
   return {
     plan: tool({
       description:
-        "Create an implementation plan for large changes. Requires 7+ files — the system rejects plans with fewer files (edit directly instead). " +
+        "Create an implementation plan for large changes. Requires 3+ files — the system rejects plans with fewer files (edit directly instead). " +
         'depth "light": fast checklist (steps + files + guidance). depth "full": self-contained with code_snippets and old→new diffs.',
       inputSchema: z.object({
         depth: z
@@ -158,13 +158,13 @@ export function buildInteractiveTools(
         const isFull = depth === "full";
         const errors: string[] = [];
 
-        // Gate: reject plans for small changes — edit directly
+        // Gate: reject plans for trivial changes — edit directly
         const fileCount = args.files.length;
-        if (fileCount <= 6 && !forgeMode?.startsWith("plan")) {
+        if (fileCount <= 2 && !forgeMode?.startsWith("plan")) {
           return {
             output:
               `Plan rejected — ${String(fileCount)} file${fileCount === 1 ? "" : "s"} doesn't need a plan. ` +
-              "Edit files directly with read → multi_edit. Plans are for 7+ files or when the user explicitly asks (/plan mode).",
+              "Edit files directly with read → multi_edit. Plans are for 3+ files or when the user explicitly asks (/plan mode).",
           };
         }
 

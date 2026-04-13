@@ -2903,6 +2903,10 @@ export function useChat({
         }
 
         const rawMsg = err instanceof Error ? err.message : String(err);
+        // Log non-abort errors to /errors for debugging
+        if (!isAbort) {
+          logBackgroundError("agent-error", rawMsg);
+        }
         // ── StopFailure hook ──
         if (!isAbort) {
           runHooks({
