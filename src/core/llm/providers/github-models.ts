@@ -35,7 +35,7 @@ export const githubModels: ProviderDefinition = {
         `${ENV_VAR} is not set. Create a fine-grained PAT with models:read at github.com/settings/tokens`,
       );
     }
-    return createOpenAI({ baseURL: BASE_URL, apiKey, headers: GH_HEADERS }).chat(modelId);
+    return createOpenAI({ baseURL: BASE_URL, apiKey, headers: GH_HEADERS }).responses(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

@@ -85,7 +85,7 @@ function createCopilotModel(modelId: string): LanguageModel {
       return res;
     }) as typeof fetch,
   });
-  return client.chat(modelId);
+  return client.responses(modelId);
 }
 
 export const copilot: ProviderDefinition = {
