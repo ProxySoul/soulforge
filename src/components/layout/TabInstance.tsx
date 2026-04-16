@@ -321,7 +321,8 @@ export const TabInstance = memo(function TabInstance({
   const checkpoints = useCheckpointStore((s) => s.tabs[tabId]?.checkpoints ?? []);
   const checkpointViewing = useCheckpointStore((s) => s.tabs[tabId]?.viewing ?? null);
 
-  // Scroll to the viewed checkpoint's user message (pinned to top of viewport)
+  // Scroll to the viewed checkpoint's user message (pinned to top of viewport).
+  // Use a microtask so layout has settled after the state change.
   useEffect(() => {
     const sb = scrollRef.current;
     if (!sb) return;
@@ -329,14 +330,17 @@ export const TabInstance = memo(function TabInstance({
       sb.scrollTo(sb.scrollHeight);
       return;
     }
-    const cp = checkpoints.find((c) => c.index === checkpointViewing);
-    if (!cp) return;
-    const child = sb.content.findDescendantById(`msg-${cp.anchorMessageId}`);
-    if (child) {
-      sb.scrollTop = child.y;
-    } else {
-      sb.scrollChildIntoView(`msg-${cp.anchorMessageId}`);
-    }
+    queueMicrotask(() => {
+      const cp = checkpoints.find((c) => c.index === checkpointViewing);
+      if (!cp) return;
+      const child = sb.content.findDescendantById(`msg-${cp.anchorMessageId}`);
+      if (child) {
+        // Offset slightly so the "You" header is fully visible, not clipped
+        sb.scrollTop = Math.max(0, child.y - 1);
+      } else {
+        sb.scrollChildIntoView(`msg-${cp.anchorMessageId}`);
+      }
+    });
   }, [checkpointViewing, checkpoints]);
 
   // Cleanup / dispose on unmount
