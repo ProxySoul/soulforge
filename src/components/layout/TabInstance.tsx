@@ -600,7 +600,7 @@ export const TabInstance = memo(function TabInstance({
       <SystemBanner messages={chat.messages} expanded={codeExpanded} />
 
       {checkpoints.length > 1 && (
-        <box flexShrink={0} height={1} paddingX={1} flexDirection="row" gap={1}>
+        <box flexShrink={0} height={1} paddingX={1} flexDirection="row" justifyContent="flex-end">
           <text fg={t.textDim}>
             <span fg={t.brand}>◆</span> latest
             <span fg={t.textFaint}> │ </span>
