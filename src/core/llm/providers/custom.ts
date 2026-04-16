@@ -19,6 +19,20 @@ function normalizeModels(models?: (string | ProviderModelInfo)[]): ProviderModel
   return models.map((m) => (typeof m === "string" ? { id: m, name: m } : m));
 }
 
+function getConfiguredModelInfo(
+  models: ProviderModelInfo[],
+  modelId: string,
+): ProviderModelInfo | undefined {
+  return models.find((m) => m.id === modelId);
+}
+
+function getEffectiveReasoning(
+  providerReasoning: CustomReasoningConfig | undefined,
+  modelReasoning: CustomReasoningConfig | undefined,
+): CustomReasoningConfig | undefined {
+  return modelReasoning ?? providerReasoning;
+}
+
 /** Build request body params from reasoning config.
  *  Supports three API styles simultaneously:
  *  1. OpenAI-style: { reasoning: { effort: "high" } }
@@ -82,8 +96,7 @@ function createReasoningFetchWrapper(reasoningBody: Record<string, unknown>): Fe
 
 export function buildCustomProvider(config: CustomProviderConfig): ProviderDefinition {
   const envVar = config.envVar ?? "";
-  const reasoningBody = buildReasoningBody(config.reasoning);
-  const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+  const normalizedModels = normalizeModels(config.models);
 
   return {
     id: config.id,
@@ -95,6 +108,10 @@ export function buildCustomProvider(config: CustomProviderConfig): ProviderDefin
     customReasoning: config.reasoning,
 
     createModel(modelId: string) {
+      const modelInfo = getConfiguredModelInfo(normalizedModels, modelId);
+      const effectiveReasoning = getEffectiveReasoning(config.reasoning, modelInfo?.reasoning);
+      const reasoningBody = buildReasoningBody(effectiveReasoning);
+      const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
       const apiKey = envVar ? (getProviderApiKey(envVar) ?? "") : "custom";
       const client = createOpenAICompatible({
         name: config.id,
@@ -123,7 +140,7 @@ export function buildCustomProvider(config: CustomProviderConfig): ProviderDefin
       return data.data.map((m) => ({ id: m.id, name: m.id }));
     },
 
-    fallbackModels: normalizeModels(config.models),
+    fallbackModels: normalizedModels,
     contextWindows: [],
 
     async checkAvailability() {

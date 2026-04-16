@@ -27,6 +27,22 @@ import {
   PROVIDER_CONFIGS,
 } from "../core/llm/models.js";
 import { notifyProviderSwitch } from "../core/llm/provider.js";
+import {
+  type CustomProviderConfig,
+  getProvider,
+  registerCustomProviders,
+} from "../core/llm/providers/index.js";
+import {
+  applyModelReasoningOverride,
+  resolveProviderReasoningTarget,
+} from "../core/llm/providers/reasoning-overrides.js";
+import {
+  getReasoningVariantLabel,
+  getReasoningVariantValue,
+  parseBudgetInput,
+  THINKING_VARIANT_OPTIONS,
+} from "../core/llm/providers/reasoning-variants.js";
+import type { CustomReasoningConfig } from "../core/llm/providers/types.js";
 import { disposeMCPManager, getMCPManager } from "../core/mcp/index.js";
 import { initForbidden } from "../core/security/forbidden.js";
 import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
@@ -513,6 +529,45 @@ export function App({
     [projConfig],
   );
 
+  const updateCustomProviderModelReasoning = useCallback(
+    (modelId: string, reasoning: CustomReasoningConfig | null) => {
+      const slash = modelId.indexOf("/");
+      if (slash === -1) return false;
+
+      const providerId = modelId.slice(0, slash);
+      const bareModelId = modelId.slice(slash + 1);
+      const provider = getProvider(providerId);
+      const projectProviders = (projConfig?.providers ?? []) as CustomProviderConfig[];
+      const globalProviders = (globalConfig.providers ?? []) as CustomProviderConfig[];
+      const target = resolveProviderReasoningTarget(providerId, globalProviders, projectProviders);
+      if (!target) return false;
+
+      const runtimeModel = provider?.fallbackModels.find((m) => m.id === bareModelId);
+      const updatedProviders = applyModelReasoningOverride(
+        target.providers,
+        providerId,
+        bareModelId,
+        reasoning,
+        runtimeModel,
+      );
+
+      saveToScope({ providers: updatedProviders }, target.scope);
+
+      const mergedGlobalProviders = target.scope === "global" ? updatedProviders : globalProviders;
+      const mergedProjectProviders =
+        target.scope === "project" ? updatedProviders : projectProviders;
+      const merged = new Map(mergedGlobalProviders.map((p) => [p.id, p]));
+      for (const p of mergedProjectProviders) merged.set(p.id, p);
+      registerCustomProviders([...merged.values()]);
+
+      activeChatRef.current?.setActiveModel(modelId);
+      notifyProviderSwitch(modelId);
+      setActiveModelForHeader(modelId);
+      return true;
+    },
+    [globalConfig.providers, projConfig?.providers, saveToScope],
+  );
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-time init
   useEffect(() => {
     initForbidden(cwd);
@@ -760,6 +815,91 @@ export function App({
     }
   }, [tabMgr.activeTabId]);
 
+  const openThinkingVariantPicker = useCallback(() => {
+    const modelId = activeChatRef.current?.activeModel ?? activeModelForHeader;
+    if (!modelId || modelId === "none") return;
+
+    const slash = modelId.indexOf("/");
+    if (slash === -1) return;
+
+    const providerId = modelId.slice(0, slash);
+    const bareModelId = modelId.slice(slash + 1);
+    const projectProviders = (projConfig?.providers ?? []) as CustomProviderConfig[];
+    const globalProviders = (globalConfig.providers ?? []) as CustomProviderConfig[];
+    const configuredProvider =
+      projectProviders.find((p) => p.id === providerId) ??
+      globalProviders.find((p) => p.id === providerId);
+
+    if (!configuredProvider) {
+      useUIStore.getState().openModal("providerSettings");
+      return;
+    }
+
+    const configuredModel = (configuredProvider.models ?? []).find(
+      (m) => (typeof m === "string" ? m : m.id) === bareModelId,
+    );
+    const modelReasoning =
+      typeof configuredModel === "string" ? undefined : configuredModel?.reasoning;
+    const currentReasoning = modelReasoning ?? configuredProvider.reasoning;
+    const currentValue = getReasoningVariantValue(currentReasoning);
+
+    useUIStore.getState().openCommandPicker({
+      title: `Thinking Variant — ${getShortModelLabel(modelId)}`,
+      icon: icon("system"),
+      searchable: false,
+      currentValue,
+      options: [
+        ...THINKING_VARIANT_OPTIONS.map((opt) => ({
+          value: opt.value,
+          label: opt.label,
+          description: opt.description,
+        })),
+        {
+          value: "custom-budget",
+          label: "Custom Budget...",
+          description: "Enter an exact thinking budget in tokens",
+        },
+      ],
+      input: {
+        key: "budget",
+        label: "Custom budget",
+        value:
+          currentReasoning?.enabled && currentReasoning.budget
+            ? String(currentReasoning.budget)
+            : "",
+        placeholder: "type tokens, e.g. 24576 or 32k",
+        activateFromOptionValue: "custom-budget",
+        onChange: () => {},
+        onSubmit: (raw) => {
+          const budget = parseBudgetInput(raw);
+          if (!budget) {
+            addSystemMessage(
+              `Invalid thinking budget: ${raw}. Enter a positive token count like 4096, 16384, or 32k.`,
+            );
+            return;
+          }
+          useUIStore.getState().closeModal("commandPicker");
+          updateCustomProviderModelReasoning(modelId, { enabled: true, budget });
+        },
+      },
+      onSelect: (value) => {
+        if (value === "custom-budget") {
+          return;
+        }
+
+        const selected = THINKING_VARIANT_OPTIONS.find((opt) => opt.value === value);
+        if (!selected) return;
+        updateCustomProviderModelReasoning(modelId, selected.reasoning);
+      },
+    });
+  }, [
+    activeModelForHeader,
+    globalConfig.providers,
+    projConfig?.providers,
+    updateCustomProviderModelReasoning,
+    addSystemMessage,
+  ]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: narrow trigger — only re-run on tab count/active changes
   useEffect(() => {
     if (tabMgr.tabCount <= 1) return;
@@ -779,37 +919,56 @@ export function App({
     })();
   }, [tabMgr.tabCount, tabMgr.activeTabId]);
 
-  const { displayProvider, displayModel, isGateway, isProxy } = useMemo(() => {
-    const model = activeModelForHeader;
-    if (model === "none") {
+  const { displayProvider, displayModel, displayReasoningVariant, isGateway, isProxy } =
+    useMemo(() => {
+      const model = activeModelForHeader;
+      if (model === "none") {
+        return {
+          displayProvider: "none",
+          displayModel: "Ctrl+L to select",
+          displayReasoningVariant: null,
+          isGateway: false,
+          isProxy: false,
+        };
+      }
+      const isGw = model.startsWith("vercel_gateway/");
+      const isPrx = model.startsWith("proxy/");
+      if (isGw || isPrx) {
+        const prefix = isGw ? "vercel_gateway/" : "proxy/";
+        const rest = model.slice(prefix.length);
+        const idx = rest.indexOf("/");
+        return {
+          displayProvider: idx >= 0 ? rest.slice(0, idx) : rest,
+          displayModel: idx >= 0 ? rest.slice(idx + 1) : rest,
+          displayReasoningVariant: null,
+          isGateway: isGw,
+          isProxy: isPrx,
+        };
+      }
+      const idx = model.indexOf("/");
+      const providerId = idx >= 0 ? model.slice(0, idx) : "unknown";
+      const bareModelId = idx >= 0 ? model.slice(idx + 1) : model;
+      const projectProviders = (projConfig?.providers ?? []) as CustomProviderConfig[];
+      const globalProviders = (globalConfig.providers ?? []) as CustomProviderConfig[];
+      const configuredProvider =
+        projectProviders.find((p) => p.id === providerId) ??
+        globalProviders.find((p) => p.id === providerId);
+      const configuredModel = configuredProvider?.models?.find(
+        (m) => (typeof m === "string" ? m : m.id) === bareModelId,
+      );
+      const modelReasoning =
+        typeof configuredModel === "string" ? undefined : configuredModel?.reasoning;
+      const displayReasoningVariant = getReasoningVariantLabel(
+        modelReasoning ?? configuredProvider?.reasoning,
+      );
       return {
-        displayProvider: "none",
-        displayModel: "Ctrl+L to select",
+        displayProvider: providerId,
+        displayModel: bareModelId,
+        displayReasoningVariant,
         isGateway: false,
         isProxy: false,
       };
-    }
-    const isGw = model.startsWith("vercel_gateway/");
-    const isPrx = model.startsWith("proxy/");
-    if (isGw || isPrx) {
-      const prefix = isGw ? "vercel_gateway/" : "proxy/";
-      const rest = model.slice(prefix.length);
-      const idx = rest.indexOf("/");
-      return {
-        displayProvider: idx >= 0 ? rest.slice(0, idx) : rest,
-        displayModel: idx >= 0 ? rest.slice(idx + 1) : rest,
-        isGateway: isGw,
-        isProxy: isPrx,
-      };
-    }
-    const idx = model.indexOf("/");
-    return {
-      displayProvider: idx >= 0 ? model.slice(0, idx) : "unknown",
-      displayModel: idx >= 0 ? model.slice(idx + 1) : model,
-      isGateway: false,
-      isProxy: false,
-    };
-  }, [activeModelForHeader]);
+    }, [activeModelForHeader, globalConfig.providers, projConfig?.providers]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: narrow trigger — only re-run when nvimError changes
   useEffect(() => {
@@ -1038,6 +1197,7 @@ export function App({
       }
     }, []),
     tabMgr,
+    openThinkingVariantPicker,
   });
 
   if (suspended) {
@@ -1095,6 +1255,12 @@ export function App({
             <span fg={t.textSecondary}>
               {truncate(displayModel, isProxy || isGateway ? 20 : 28)}
             </span>
+            {displayReasoningVariant && (
+              <>
+                <span fg={t.textFaint}> </span>
+                <span fg={t.info}>[{displayReasoningVariant}]</span>
+              </>
+            )}
           </text>
           {git.isRepo && (
             <>

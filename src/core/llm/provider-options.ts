@@ -556,8 +556,17 @@ export async function buildProviderOptions(
   // here for logging, degradation, and future extensibility.
   const { provider } = parseModelId(modelId);
   const customProvider = provider ? getProvider(provider) : null;
-  if (customProvider?.custom && customProvider.customReasoning) {
-    const r = customProvider.customReasoning;
+  if (customProvider?.custom) {
+    const model = parseModelId(modelId).model;
+    const modelInfo = customProvider.fallbackModels.find((m) => m.id === model);
+    const r = modelInfo?.reasoning ?? customProvider.customReasoning;
+    if (!r) {
+      return {
+        providerOptions: providerOptions as ProviderOptions,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        contextWindow,
+      };
+    }
     const customOpts: Record<string, unknown> = {};
     if (r.effort) {
       customOpts.effort = r.effort;
