@@ -1,31 +1,7 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { AppConfig, ContextManagementConfig, EffortLevel } from "../../types/index.js";
-import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 import { getModelContextWindow } from "./models.js";
 import { getProvider } from "./providers/index.js";
-
-/** Write the final Anthropic provider options to .soulforge/effort.json for debugging.
- *  Captures what's actually being sent to the API, not the raw config. */
-function logAnthropicOptions(
-  modelId: string,
-  opts: Record<string, unknown>,
-  headers: Record<string, string>,
-): void {
-  try {
-    const dir = ensureSoulforgeDir(process.cwd());
-    const payload = {
-      timestamp: new Date().toISOString(),
-      modelId,
-      providerOptions: { anthropic: opts },
-      headers,
-    };
-    writeFileSync(join(dir, "effort.json"), `${JSON.stringify(payload, null, 2)}\n`);
-  } catch {
-    // Never let debug logging break the request
-  }
-}
 
 interface ModelCapabilities {
   provider: "anthropic" | "openai" | "google" | "other";
@@ -595,8 +571,6 @@ async function buildAnthropicOptions(
   if (thinkingEnabled && caps.interleavedThinking) {
     headers["anthropic-beta"] = "interleaved-thinking-2025-05-14";
   }
-
-  logAnthropicOptions(modelId, opts, headers);
 
   return { opts, headers, thinkingEnabled };
 }
