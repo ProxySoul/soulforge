@@ -66,7 +66,7 @@ export const CheckpointRail = memo(function CheckpointRail({
       // Scroll the viewed checkpoint's dot into view
       sb.scrollChildIntoView(`dot-${String(viewing)}`);
     }
-  }, [viewing, checkpoints.length]);
+  }, [viewing]);
 
   if (checkpoints.length === 0) return null;
 
