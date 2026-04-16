@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.12.1] — 2026-04-16
+
+### Bug Fixes
+
+- use install @latest instead of update for upgrade commands
 ## [2.12.0] — 2026-04-16
 
 ### Bug Fixes
