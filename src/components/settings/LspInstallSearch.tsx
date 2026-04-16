@@ -14,6 +14,7 @@ import {
   type PackageCategory,
   type PackageStatus,
   uninstallPackage,
+  updatePackage,
 } from "../../core/intelligence/backends/lsp/installer.js";
 import { clearProbeCache } from "../../core/intelligence/backends/lsp/server-registry.js";
 import { useTheme } from "../../core/theme/index.js";
@@ -31,11 +32,12 @@ import {
 const MAX_POPUP_WIDTH = 110;
 const CHROME_ROWS = 10;
 
-type Tab = "search" | "installed" | "disabled" | "recommended";
-const TABS: Tab[] = ["search", "installed", "disabled", "recommended"];
+type Tab = "search" | "installed" | "updates" | "disabled" | "recommended";
+const TABS: Tab[] = ["search", "installed", "updates", "disabled", "recommended"];
 const TAB_LABELS: Record<Tab, string> = {
   search: "Search",
   installed: "Installed",
+  updates: "Updates",
   disabled: "Disabled",
   recommended: "Recommended",
 };
@@ -112,6 +114,15 @@ function PackageRow({ status, isActive, isDisabled, isRecommended, innerW }: Pac
 
   const nameFg = isDisabled ? t.textMuted : isActive ? t.brandSecondary : t.textSecondary;
 
+  const updateBadge = status.hasUpdate ? (
+    <text bg={bg} fg={t.warning}>
+      {" "}
+      {status.installedVersion ?? "?"}
+      {" → "}
+      {status.registryVersion ?? "?"}
+    </text>
+  ) : null;
+
   const statusBadge = status.installed ? (
     <text bg={bg} fg={t.success}>
       {" "}
@@ -144,6 +155,7 @@ function PackageRow({ status, isActive, isDisabled, isRecommended, innerW }: Pac
         </text>
       ) : null}
       {statusBadge}
+      {updateBadge}
       {isDisabled && (
         <text bg={bg} fg={t.error}>
           {" "}
@@ -269,6 +281,18 @@ export function LspInstallSearch({
     return list;
   })();
 
+  const updatesList = (() => {
+    let list = allStatus.filter((s) => s.hasUpdate);
+    if (filterQuery) {
+      list = list.filter(
+        (s) =>
+          s.pkg.name.toLowerCase().includes(filterQuery) ||
+          s.pkg.languages.some((l) => l.toLowerCase().includes(filterQuery)),
+      );
+    }
+    return list;
+  })();
+
   const filteredRecommended = (() => {
     if (!filterQuery) return recommended;
     return recommended.filter(
@@ -281,6 +305,7 @@ export function LspInstallSearch({
   const currentItems = ((): PackageStatus[] => {
     if (tab === "search") return filteredList;
     if (tab === "installed") return installedList;
+    if (tab === "updates") return updatesList;
     if (tab === "disabled") return disabledList;
     return filteredRecommended;
   })();
@@ -316,6 +341,32 @@ export function LspInstallSearch({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onSystemMessage(`✗ Failed to install ${status.pkg.name}: ${msg}`);
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const doUpdate = async (status: PackageStatus) => {
+    if (installing) return;
+    if (!status.hasUpdate) {
+      onSystemMessage(`${status.pkg.name} is already up to date`);
+      return;
+    }
+
+    setInstalling(true);
+    try {
+      const result = await updatePackage(status.pkg, (msg) => onSystemMessage(msg));
+      if (result.success) {
+        onSystemMessage(`✓ ${status.pkg.name} updated to ${status.registryVersion ?? "latest"}`);
+        clearProbeCache();
+        clearPathCache();
+        refreshAll();
+      } else {
+        onSystemMessage(`✗ Failed to update ${status.pkg.name}: ${result.error}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onSystemMessage(`✗ Failed to update ${status.pkg.name}: ${msg}`);
     } finally {
       setInstalling(false);
     }
@@ -434,7 +485,9 @@ export function LspInstallSearch({
       const item = currentItems[cursor];
       if (!item) return;
 
-      if (tab === "installed" || tab === "disabled") {
+      if (tab === "updates") {
+        doUpdate(item);
+      } else if (tab === "installed" || tab === "disabled") {
         if (isInProject) {
           setPendingToggle(item);
           setScopeCursor(0);
@@ -505,7 +558,15 @@ export function LspInstallSearch({
       }
       footer={[
         { key: "↑↓", label: "nav" },
-        { key: "⏎", label: tab === "installed" || tab === "disabled" ? "toggle" : "install" },
+        {
+          key: "⏎",
+          label:
+            tab === "updates"
+              ? "update"
+              : tab === "installed" || tab === "disabled"
+                ? "toggle"
+                : "install",
+        },
         { key: "^D", label: "disable" },
         { key: "^U", label: "uninstall" },
         { key: "^F", label: "category" },

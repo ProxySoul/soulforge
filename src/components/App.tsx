@@ -76,6 +76,7 @@ import { InfoPopup } from "./modals/InfoPopup.js";
 import { LlmSelector } from "./modals/LlmSelector.js";
 import { SessionPicker } from "./modals/SessionPicker.js";
 import { StatusDashboard } from "./modals/StatusDashboard.js";
+import { TabNamePopup } from "./modals/TabNamePopup.js";
 import { UpdateModal } from "./modals/UpdateModal.js";
 import { EditorSettings } from "./settings/EditorSettings.js";
 import { LspInstallSearch } from "./settings/LspInstallSearch.js";
@@ -85,7 +86,6 @@ import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { RouterSettings } from "./settings/RouterSettings.js";
 import { SkillSearch } from "./settings/SkillSearch.js";
 import { ToolsPopup } from "./settings/ToolsPopup.js";
-import { TabNamePopup } from "./modals/TabNamePopup.js";
 
 startMemoryPoll();
 

@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const SOULFORGE_LSP_DIR = join(homedir(), ".soulforge", "lsp-servers");
+const VERSIONS_FILE = join(homedir(), ".soulforge", "lsp-versions.json");
 
 const MASON_REGISTRY_LOCAL = join(
   homedir(),
@@ -58,6 +59,9 @@ export interface PackageStatus {
   requiresToolchain: string | null; // "cargo", "go", "pip3", null
   toolchainAvailable: boolean;
   binaries: string[];
+  installedVersion: string | null;
+  registryVersion: string | null;
+  hasUpdate: boolean;
 }
 
 interface ParsedPurl {
@@ -85,6 +89,21 @@ function parsePurl(id: string): ParsedPurl | null {
     name: decoded.slice(lastSlash + 1),
     version,
   };
+}
+
+/** Compare versions: returns true if `a` is newer than `b`. Strips leading 'v', compares numeric segments. */
+function isNewerVersion(a: string, b: string): boolean {
+  const normalize = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const pa = normalize(a);
+  const pb = normalize(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] ?? 0;
+    const nb = pb[i] ?? 0;
+    if (na > nb) return true;
+    if (na < nb) return false;
+  }
+  return false; // equal
 }
 
 function getInstallMethod(purl: ParsedPurl): InstallMethod {
@@ -221,6 +240,56 @@ export function clearPathCache(): void {
   pathCache.clear();
 }
 
+// ── Version tracking ──────────────────────────────────────────────────
+
+type VersionMap = Record<string, { version: string; installedAt: string }>;
+
+let versionCache: VersionMap | null = null;
+
+function loadVersions(): VersionMap {
+  if (versionCache) return versionCache;
+  try {
+    if (existsSync(VERSIONS_FILE)) {
+      versionCache = JSON.parse(readFileSync(VERSIONS_FILE, "utf-8")) as VersionMap;
+      return versionCache;
+    }
+  } catch {}
+  return {};
+}
+
+function saveVersions(map: VersionMap): void {
+  versionCache = map;
+  try {
+    mkdirSync(join(homedir(), ".soulforge"), { recursive: true });
+    writeFileSync(VERSIONS_FILE, JSON.stringify(map, null, 2), "utf-8");
+  } catch {}
+}
+
+function recordInstalledVersion(pkg: MasonPackage): void {
+  const purl = parsePurl(pkg.source.id);
+  if (!purl) return;
+  const map = loadVersions();
+  map[pkg.name] = { version: purl.version, installedAt: new Date().toISOString() };
+  saveVersions(map);
+}
+
+function removeInstalledVersion(pkg: MasonPackage): void {
+  const map = loadVersions();
+  delete map[pkg.name];
+  saveVersions(map);
+}
+
+/** Get the version we recorded at install time (null if unknown) */
+export function getInstalledVersion(pkgName: string): string | null {
+  return loadVersions()[pkgName]?.version ?? null;
+}
+
+/** Get packages that have a newer version in the registry */
+export function getUpdatablePackages(): PackageStatus[] {
+  const all = getAllPackageStatus();
+  return all.filter((s) => s.hasUpdate);
+}
+
 /** Check install status for a single package */
 export function checkPackageStatus(pkg: MasonPackage): PackageStatus {
   const purl = parsePurl(pkg.source.id);
@@ -259,6 +328,14 @@ export function checkPackageStatus(pkg: MasonPackage): PackageStatus {
     }
   }
 
+  const registryVersion = purl?.version ?? null;
+  const installedVersion = installed ? getInstalledVersion(pkg.name) : null;
+  const hasUpdate =
+    installed &&
+    installedVersion !== null &&
+    registryVersion !== null &&
+    isNewerVersion(registryVersion, installedVersion);
+
   return {
     pkg,
     installMethod: method,
@@ -267,6 +344,9 @@ export function checkPackageStatus(pkg: MasonPackage): PackageStatus {
     requiresToolchain: toolchain,
     toolchainAvailable: toolchainAvailable(toolchain),
     binaries,
+    installedVersion,
+    registryVersion,
+    hasUpdate,
   };
 }
 
@@ -493,6 +573,7 @@ export async function installPackage(
     }
 
     log(`✓ ${pkg.name} installed`);
+    recordInstalledVersion(pkg);
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -579,12 +660,35 @@ export async function uninstallPackage(
     }
 
     log(`✓ ${pkg.name} uninstalled`);
+    removeInstalledVersion(pkg);
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log(`✗ Failed: ${msg}`);
     return { success: false, error: msg };
   }
+}
+
+/** Update a package: uninstall then reinstall at the registry version */
+export async function updatePackage(
+  pkg: MasonPackage,
+  onProgress?: (msg: string) => void,
+): Promise<{ success: boolean; error?: string }> {
+  const status = checkPackageStatus(pkg);
+  if (!status.installed) {
+    return installPackage(pkg, onProgress);
+  }
+  const log = (msg: string) => onProgress?.(msg);
+  const old = status.installedVersion ?? "unknown";
+  const next = status.registryVersion ?? "latest";
+  log(`Updating ${pkg.name} ${old} → ${next}...`);
+
+  // Only uninstall soulforge-managed packages; PATH/mason ones just get overwritten
+  if (status.source === "soulforge") {
+    const rm = await uninstallPackage(pkg, onProgress);
+    if (!rm.success) return rm;
+  }
+  return installPackage(pkg, onProgress);
 }
 
 function getMasonTarget(): string {
