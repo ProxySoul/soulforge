@@ -2,6 +2,22 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.12.2] — 2026-04-16
+
+### Bug Fixes
+
+- guard cost computation against NaN/undefined usage fields
+- avoid matching date suffixes as minor version in supportsTemperature
+- prevent tab name popup from opening when at max tabs
+### Features
+
+- log final Anthropic provider options to .soulforge/effort.json
+- add xhigh effort level and per-model effort clamping
+- inline checkpoint legend with tabs bar
+### Other
+
+- remove .soulforge/effort.json debug logging
+- group Clear Thinking under thinking section, disable when thinking off, clarify label
 ## [2.12.1] — 2026-04-16
 
 ### Bug Fixes
