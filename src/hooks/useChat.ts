@@ -40,6 +40,7 @@ import {
   buildProviderOptions,
   degradeProviderOptions,
   isProviderOptionsError,
+  supportsTemperature,
 } from "../core/llm/provider-options.js";
 import { resolveTaskModel } from "../core/llm/task-router.js";
 import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
@@ -968,7 +969,7 @@ export function useChat({
 
           const v1Result = await generateText({
             model,
-            temperature: 0,
+            ...(supportsTemperature(activeModelRef.current) ? { temperature: 0 } : {}),
             maxOutputTokens: 8192,
             abortSignal: compactAbort.signal,
             ...(providerOptions && Object.keys(providerOptions).length > 0

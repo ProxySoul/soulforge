@@ -2,6 +2,7 @@ import type { JSONObject } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
 import { generateText } from "ai";
 import { logBackgroundError } from "../../stores/errors.js";
+import { getModelId, supportsTemperature } from "../llm/provider-options.js";
 import type { IOClient } from "../workers/io-client.js";
 import type { WorkingStateManager } from "./working-state.js";
 
@@ -66,7 +67,7 @@ export async function buildV2Summary(opts: {
   try {
     const genResult = await generateText({
       model,
-      temperature: 0,
+      ...(supportsTemperature(getModelId(model)) ? { temperature: 0 } : {}),
       maxOutputTokens: 2048,
       maxRetries: 0,
       ...(abortSignal ? { abortSignal } : {}),

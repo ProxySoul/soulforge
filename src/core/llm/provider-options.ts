@@ -280,6 +280,28 @@ export function isAnthropicNative(modelId: string): boolean {
   return detectModelFamily(modelId) === "claude";
 }
 
+/** Extract model ID string from a LanguageModel (object with .modelId) or pass-through strings. */
+export function getModelId(model: unknown): string {
+  if (typeof model === "string") return model;
+  if (typeof model === "object" && model !== null && "modelId" in model) {
+    return String((model as { modelId: unknown }).modelId);
+  }
+  return "";
+}
+
+/** Opus 4.7+ rejects temperature/top_p/top_k — return false for those models. */
+export function supportsTemperature(modelId: string): boolean {
+  const base = extractBaseModel(modelId);
+  if (!base.startsWith("claude")) return true;
+  // Opus 4.7+ deprecates sampling params — match both hyphen (4-7) and dot (4.7) conventions.
+  // Minor version is 1-2 digits only to avoid matching date suffixes (e.g. opus-4-20250514).
+  const m = base.match(/opus-(?:(\d+)[.-](\d{1,2})(?!\d)|(\d+))/);
+  if (!m) return true;
+  const major = Number(m[1] ?? m[3]);
+  const minor = m[2] ? Number(m[2]) : 0;
+  return major < 5 && (major < 4 || minor < 7);
+}
+
 /** Programmatic tool calling (allowedCallers) requires Claude 4+ non-haiku. */
 export function supportsProgrammaticToolCalling(modelId: string): boolean {
   const base = extractBaseModel(modelId);
@@ -616,6 +638,7 @@ export function isProviderOptionsError(error: unknown): boolean {
     lower.includes("adaptive thinking") ||
     lower.includes("clear_thinking") ||
     lower.includes("context management") ||
-    lower.includes("unknown parameter")
+    lower.includes("unknown parameter") ||
+    lower.includes("temperature is deprecated")
   );
 }

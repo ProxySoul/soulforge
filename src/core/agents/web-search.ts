@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
+import { getModelId, supportsTemperature } from "../llm/provider-options.js";
 import { fetchPageTool } from "../tools/fetch-page.js";
 import { webSearchScraper } from "../tools/web-search-scraper.js";
 import { repairToolCall, sanitizeToolInputsStep } from "./stream-options.js";
@@ -26,7 +27,7 @@ export function createWebSearchAgent(
   return new ToolLoopAgent({
     id: "web-search",
     model,
-    temperature: 0,
+    ...(supportsTemperature(getModelId(model)) ? { temperature: 0 } : {}),
     tools: {
       web_search: tool({
         description: webSearchScraper.description,

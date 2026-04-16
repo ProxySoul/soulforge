@@ -9,7 +9,7 @@ import { setNeovimFileWrittenHandler } from "../editor/neovim.js";
 import { setIntelligenceClient } from "../intelligence/instance.js";
 import type { SymbolForSummary } from "../intelligence/repo-map.js";
 import { resolveModel } from "../llm/provider.js";
-import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
+import { EPHEMERAL_CACHE, supportsTemperature } from "../llm/provider-options.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
   buildDirectoryTree,
@@ -822,7 +822,7 @@ export class ContextManager {
 
       const { text, usage } = await generateText({
         model,
-        temperature: 0,
+        ...(supportsTemperature(modelId) ? { temperature: 0 } : {}),
         providerOptions: EPHEMERAL_CACHE,
         system: [
           "Summarize each code symbol in ONE line (max 80 chars). Focus on BEHAVIOR: what it does, key side effects, non-obvious logic.",

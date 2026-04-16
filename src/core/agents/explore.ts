@@ -1,7 +1,7 @@
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
 import { ToolLoopAgent } from "ai";
-import { EPHEMERAL_CACHE } from "../llm/provider-options.js";
+import { EPHEMERAL_CACHE, getModelId, supportsTemperature } from "../llm/provider-options.js";
 import { buildEmberExploreTools, wrapWithBusCache } from "../tools/index.js";
 import type { AgentBus } from "./agent-bus.js";
 import { buildBusTools } from "./bus-tools.js";
@@ -106,7 +106,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
   return new ToolLoopAgent({
     id: options?.agentId ?? "explore",
     model,
-    temperature: 0,
+    ...(supportsTemperature(getModelId(model)) ? { temperature: 0 } : {}),
     // biome-ignore lint/suspicious/noExplicitAny: forgeTools come as Record<string, unknown> for cache sharing
     tools: allTools as any,
     instructions: {

@@ -16,7 +16,9 @@ import {
   detectModelFamily,
   EPHEMERAL_CACHE,
   getAnthropicToolVersions,
+  getModelId,
   isAnthropicNative,
+  supportsTemperature,
 } from "../llm/provider-options.js";
 import { getMCPManager } from "../mcp/index.js";
 import {
@@ -715,7 +717,7 @@ export function createForgeAgent({
   return new ToolLoopAgent({
     id: "forge",
     model,
-    temperature: 0,
+    ...(supportsTemperature(fullModelId ?? getModelId(model)) ? { temperature: 0 } : {}),
     // maxOutputTokens: 16384,
     tools: allTools,
     stopWhen: () => false,
