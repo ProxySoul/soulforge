@@ -281,11 +281,12 @@ export function computeTotalCostFromBreakdown(breakdown: Record<string, PerModel
   let total = 0;
   for (const [modelId, usage] of Object.entries(breakdown)) {
     const p = matchPricing(modelId);
-    total +=
-      (usage.input / 1e6) * p.input +
-      (usage.cacheWrite / 1e6) * p.cacheWrite +
-      (usage.cacheRead / 1e6) * p.cacheRead +
-      (usage.output / 1e6) * p.output;
+    const cost =
+      ((usage.input ?? 0) / 1e6) * p.input +
+      ((usage.cacheWrite ?? 0) / 1e6) * p.cacheWrite +
+      ((usage.cacheRead ?? 0) / 1e6) * p.cacheRead +
+      ((usage.output ?? 0) / 1e6) * p.output;
+    if (Number.isFinite(cost)) total += cost;
   }
   return total;
 }
@@ -293,12 +294,12 @@ export function computeTotalCostFromBreakdown(breakdown: Record<string, PerModel
 /** Compute cost for a single model from the breakdown. */
 export function computeModelCost(modelId: string, usage: PerModelUsage): number {
   const p = matchPricing(modelId);
-  return (
-    (usage.input / 1e6) * p.input +
-    (usage.cacheWrite / 1e6) * p.cacheWrite +
-    (usage.cacheRead / 1e6) * p.cacheRead +
-    (usage.output / 1e6) * p.output
-  );
+  const cost =
+    ((usage.input ?? 0) / 1e6) * p.input +
+    ((usage.cacheWrite ?? 0) / 1e6) * p.cacheWrite +
+    ((usage.cacheRead ?? 0) / 1e6) * p.cacheRead +
+    ((usage.output ?? 0) / 1e6) * p.output;
+  return Number.isFinite(cost) ? cost : 0;
 }
 
 /** Accumulate tokens for a specific model in the breakdown. Returns a new breakdown object. */

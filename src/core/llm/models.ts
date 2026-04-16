@@ -220,7 +220,13 @@ export function getOpenRouterModelPricing(
   const cacheRead = Number(p.input_cache_read ?? "0") * 1e6;
   // If no cache write price, default to input price (most providers charge same as input)
   const cacheWrite = p.input_cache_write ? Number(p.input_cache_write) * 1e6 : input;
-  if (Number.isNaN(input) || Number.isNaN(output)) return null;
+  if (
+    Number.isNaN(input) ||
+    Number.isNaN(output) ||
+    Number.isNaN(cacheRead) ||
+    Number.isNaN(cacheWrite)
+  )
+    return null;
   return { input, output, cacheRead, cacheWrite };
 }
 

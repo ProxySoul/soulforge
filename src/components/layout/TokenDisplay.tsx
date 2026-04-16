@@ -18,6 +18,7 @@ function approach(current: number, target: number): number {
 }
 
 function fmtCost(usd: number): string {
+  if (!Number.isFinite(usd)) return "$0";
   if (usd < 0.01) return `$${usd.toFixed(3)}`;
   return `$${usd.toFixed(2)}`;
 }
@@ -58,7 +59,7 @@ export function TokenDisplay() {
           !localRef.current && modelIds.length > 0 && modelIds.every((mid) => isModelFree(mid));
         const rawCost =
           breakdown && modelIds.length > 0 ? computeTotalCostFromBreakdown(breakdown) : 0;
-        costRef.current = Math.round(rawCost * 100);
+        costRef.current = Number.isFinite(rawCost) ? Math.round(rawCost * 100) : 0;
         const totalInput = usage.prompt + usage.subagentInput + usage.cacheRead + usage.cacheWrite;
         cacheHitRef.current = totalInput > 0 ? Math.round((usage.cacheRead / totalInput) * 100) : 0;
       }),
