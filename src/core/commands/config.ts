@@ -299,6 +299,30 @@ const handleWatchdog = createTogglePicker({
   messageTemplate: (v, s) => `Watchdog ${v === "on" ? "enabled" : "disabled"} (${s})`,
 });
 
+function handleTimeouts(_input: string, ctx: CommandContext): void {
+  const cfg = loadConfig();
+  const current = cfg.toolTimeout ?? 2;
+  const options = [
+    { value: "1", label: "1 min" },
+    { value: "2", label: "2 min", description: "default" },
+    { value: "5", label: "5 min" },
+    { value: "10", label: "10 min" },
+    { value: "20", label: "20 min" },
+    { value: "0", label: "No timeout", description: "tools run until completion" },
+  ];
+  ctx.openCommandPicker({
+    title: "Tool Timeout",
+    icon: icon("clock"),
+    currentValue: String(current),
+    scopeEnabled: false,
+    options,
+    onSelect: (value) => {
+      ctx.saveToScope({ toolTimeout: Number(value) }, "global");
+      sysMsg(ctx, `Tool timeout → ${value === "0" ? "none" : `${value}m`} (global)`);
+    },
+  });
+}
+
 function handleLockIn(_input: string, ctx: CommandContext): void {
   const next = !ctx.lockIn;
   ctx.setLockIn(next);
@@ -627,6 +651,7 @@ const settingsHandlers: Record<string, (input: string, ctx: CommandContext) => v
   font: handleFont,
   split: handleSplit,
   "model-scope": handleModelScope,
+  timeouts: handleTimeouts,
 };
 
 function handleSettingsHub(_input: string, ctx: CommandContext): void {
@@ -667,6 +692,11 @@ function handleSettingsHub(_input: string, ctx: CommandContext): void {
         value: "editor-settings",
         label: `${icon("cog")} Editor Settings`,
         description: "LSP integrations",
+      },
+      {
+        value: "timeouts",
+        label: `${icon("clock")} Tool Timeout`,
+        description: `${String(loadConfig().toolTimeout ?? 2)}m`,
       },
     ],
     onSelect: (value) => {
@@ -870,6 +900,7 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/lock-in", handleLockIn);
   map.set("/theme", handleTheme);
   map.set("/watchdog", handleWatchdog);
+  map.set("/timeouts", handleTimeouts);
 }
 
 export function matchConfigPrefix(cmd: string): CommandHandler | null {

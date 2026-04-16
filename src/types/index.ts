@@ -344,6 +344,8 @@ export interface AppConfig {
   mcpServers?: MCPServerConfig[];
   /** Auto-retry on stream stalls. Default: false (disabled). Toggle via /watchdog. */
   watchdog?: boolean;
+  /** Tool call timeout in minutes. Applies to shell, project, and agent tools. Default: 2 */
+  toolTimeout?: number;
 }
 
 export interface MCPServerConfig {

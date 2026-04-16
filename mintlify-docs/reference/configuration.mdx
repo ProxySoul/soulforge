@@ -41,11 +41,12 @@ Project settings override global. Session-level settings (changed via commands b
     "semantic":   "anthropic/claude-haiku-4-5",
     "default":    null
   },
-  "agentFeatures": {
+  "toolTimeout": 2,
+    "agentFeatures": {
     "desloppify": true,
     "tierRouting": true,
     "dispatchCache": true,
-    "targetFileValidation": true
+      "targetFileValidation": true
   },
   "providers": []
 }
@@ -75,6 +76,12 @@ Project settings override global. Session-level settings (changed via commands b
 |-------|------|---------|-------------|
 | `repoMap` | `boolean` | `true` | Enable repo map scanning |
 | `semanticSummaries` | `string` | `"ast"` | Summary mode: `"ast"` (tree-sitter), `"llm"` (LLM-generated), `"off"` |
+
+### Tools
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `toolTimeout` | `number` | `2` | Tool call timeout in minutes. Applies to shell, project, and agent tools. `0` disables timeout. Change via `/timeouts`. |
 
 ### Compaction
 

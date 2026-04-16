@@ -14,6 +14,7 @@ import { AgentBus, type AgentTask, normalizePath, type SharedCache } from "./age
 import { cleanupDispatchDir, type DispatchOutput, type DoneToolResult } from "./agent-results.js";
 import {
   classifyTask,
+  getAgentWaitMs,
   MAX_CONCURRENT_AGENTS,
   runAgentTask,
   selectModel,
@@ -943,7 +944,9 @@ export function buildSubagentTools(models: SubagentModels) {
               if (hasDeps && task.dependsOn) {
                 try {
                   await Promise.all(
-                    task.dependsOn.map((dep) => bus.waitForAgent(dep, task.timeoutMs ?? 300_000)),
+                    task.dependsOn.map((dep) =>
+                      bus.waitForAgent(dep, task.timeoutMs ?? getAgentWaitMs()),
+                    ),
                   );
                 } catch {
                   // Dep failed or timed out — fall through to runAgentTask which

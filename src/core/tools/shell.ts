@@ -10,7 +10,7 @@ import { checkShellBinaryRead } from "./binary-detect.js";
 import { compressShellOutputFull as compressLocal } from "./shell-compress.js";
 import { saveTee, truncateWithTee } from "./tee.js";
 
-const DEFAULT_TIMEOUT = 30_000;
+import { getToolTimeoutMs } from "./tool-timeout.js";
 
 // Intercept `git commit -m "..."` to:
 // 1. Auto-run lint/typecheck on staged files before committing
@@ -313,7 +313,7 @@ export const shellTool = {
       const lintErr = await runPreCommitChecks(cwd);
       if (lintErr) return { success: false, output: lintErr, error: lintErr };
     }
-    const timeout = args.timeout ?? DEFAULT_TIMEOUT;
+    const timeout = args.timeout ?? getToolTimeoutMs();
 
     return new Promise((resolve) => {
       const chunks: string[] = [];

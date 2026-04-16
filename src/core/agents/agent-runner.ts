@@ -34,7 +34,20 @@ const MAX_RETRIES = 3;
 const MAX_NO_EDIT_RETRIES = 1;
 
 export const MAX_CONCURRENT_AGENTS = 3;
-const AGENT_TIMEOUT_MS = 300_000;
+
+import { getToolTimeoutMs } from "../tools/tool-timeout.js";
+/** 0 = no timeout (for generate calls). For waitForAgent, use getAgentWaitMs(). */
+export function getAgentTimeoutMs(): number {
+  const toolMs = getToolTimeoutMs();
+  if (toolMs === 0) return 0;
+  return Math.max(300_000, toolMs * 2.5);
+}
+
+/** Timeout for waiting on dependency agents. Never 0 (uses 24h ceiling). */
+export function getAgentWaitMs(): number {
+  const ms = getAgentTimeoutMs();
+  return ms === 0 ? 86_400_000 : ms;
+}
 const RETRY_JITTER_MS = 1000;
 
 const RETURN_FORMAT_INSTRUCTIONS: Record<import("./agent-bus.js").ReturnFormat, string> = {
@@ -208,7 +221,7 @@ export async function runAgentTask(
   if (task.dependsOn && task.dependsOn.length > 0) {
     try {
       await Promise.all(
-        task.dependsOn.map((dep) => bus.waitForAgent(dep, task.timeoutMs ?? AGENT_TIMEOUT_MS)),
+        task.dependsOn.map((dep) => bus.waitForAgent(dep, task.timeoutMs ?? getAgentWaitMs())),
       );
     } catch (err) {
       if (err instanceof DependencyFailedError) {
@@ -376,13 +389,13 @@ export async function runAgentTask(
                 } satisfies ModelMessage,
               ],
               abortSignal,
-              timeout: { stepMs: 300_000 },
+              ...(getAgentTimeoutMs() > 0 ? { timeout: { stepMs: getAgentTimeoutMs() } } : {}),
               ...callbacks,
             }
           : {
               prompt: enrichedPrompt,
               abortSignal,
-              timeout: { stepMs: 300_000 },
+              ...(getAgentTimeoutMs() > 0 ? { timeout: { stepMs: getAgentTimeoutMs() } } : {}),
               ...callbacks,
             };
 
@@ -498,7 +511,7 @@ export async function runAgentTask(
                 retryResult = await retryAgent.generate({
                   prompt: retryPrompt,
                   abortSignal,
-                  timeout: { stepMs: 300_000 },
+                  ...(getAgentTimeoutMs() > 0 ? { timeout: { stepMs: getAgentTimeoutMs() } } : {}),
                   ...retryCallbacks,
                 });
               } catch (retryGenErr: unknown) {

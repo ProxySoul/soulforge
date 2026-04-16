@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { compressShellOutputFull } from "./shell-compress.js";
 import { saveTee, truncateWithTee } from "./tee.js";
+import { getToolTimeoutMs } from "./tool-timeout.js";
 
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
@@ -866,14 +867,14 @@ export const projectTool = {
         stderr: "pipe",
         env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", ...args.env },
       });
-      const timeoutMs = args.timeout ?? 120_000;
-      const timer = setTimeout(() => proc.kill(), timeoutMs);
+      const timeoutMs = args.timeout ?? getToolTimeoutMs();
+      const timer = timeoutMs > 0 ? setTimeout(() => proc.kill(), timeoutMs) : null;
       const [stdout, stderr] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
       ]);
       const exitCode = await proc.exited;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       return { stdout, stderr, exitCode };
     };
 
@@ -954,7 +955,7 @@ export const projectTool = {
       if (exitCode === null) {
         return {
           success: false,
-          output: `${args.action} timed out after ${String((args.timeout ?? 120_000) / 1000)}s`,
+          output: `${args.action} timed out after ${String((args.timeout ?? getToolTimeoutMs()) / 1000)}s`,
           error: "timeout",
         };
       }

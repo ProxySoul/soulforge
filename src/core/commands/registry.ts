@@ -831,6 +831,13 @@ const COMMAND_DEFS: CommandDef[] = [
     category: "System",
     tags: ["stall", "retry", "timeout"],
   },
+  {
+    cmd: "/timeouts",
+    ic: "clock",
+    desc: "Set tool call timeout (shell, project, agents)",
+    category: "System",
+    tags: ["timeout", "shell", "agent"],
+  },
 ];
 
 export function getCommandDefs(): CommandDef[] {
