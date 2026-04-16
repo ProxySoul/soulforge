@@ -1,5 +1,4 @@
 import { toErrorMessage } from "../../utils/errors.js";
-import { ensureProxy } from "../proxy/lifecycle.js";
 import { getProviderApiKey } from "../secrets.js";
 import { getIOClient } from "../workers/io-client.js";
 import { inferModelGroup } from "./model-utils.js";
@@ -622,16 +621,18 @@ async function fetchProxyGrouped(): Promise<GroupedModelsResult> {
   const baseURL = process.env.PROXY_API_URL || "http://127.0.0.1:8317/v1";
   const apiKey = process.env.PROXY_API_KEY || "soulforge";
 
-  const proxyStatus = await ensureProxy();
-  if (!proxyStatus.ok) {
-    return { subProviders: [], modelsByProvider: {}, error: proxyStatus.error };
-  }
-
+  // Don't auto-install or spawn the proxy just to browse models.
+  // Only fetch if the proxy is already running. The user must explicitly
+  // select the proxy provider (onActivate → ensureProxy) to install/start it.
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
     const res = await fetch(`${baseURL}/models`, {
+      signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}` },
     });
-    if (!res.ok) throw new Error(`Proxy API ${String(res.status)}`);
+    clearTimeout(timeout);
+    if (!res.ok) return { subProviders: [], modelsByProvider: {} };
 
     const data = (await res.json()) as {
       data: (OpenAIModelEntry & { context_length?: number })[];
