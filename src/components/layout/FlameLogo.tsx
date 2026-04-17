@@ -109,8 +109,10 @@ function stepSim(sim: FlameSim, intensity: number, breath: number): void {
 
 // ── Render ───────────────────────────────────────────────────────────
 
-// Sample the flame heat in a 3-cell radius around (x, y) and return the
-// max heat — used to tint wordmark glyphs as the flame licks them.
+// Sample the flame heat around (x, y) with distance falloff — used to
+// tint wordmark glyphs. Samples a wider radius than a simple max so
+// letters further from the flame still pick up dim ambient glow.
+// Heat above the cell matters most (fire radiates upward/downward).
 function sampleNeighborHeat(
   heat: Float32Array,
   cols: number,
@@ -118,17 +120,23 @@ function sampleNeighborHeat(
   x: number,
   y: number,
 ): number {
-  let max = heat[y * cols + x] ?? 0;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
+  let weighted = heat[y * cols + x] ?? 0;
+  // Search a 5-wide, 6-tall (mostly upward) window with 1/distance falloff.
+  for (let dy = -4; dy <= 1; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      if (dx === 0 && dy === 0) continue;
       const nx = x + dx;
       const ny = y + dy;
       if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
       const h = heat[ny * cols + nx] ?? 0;
-      if (h > max) max = h;
+      if (h <= 0) continue;
+      // Attenuation: inverse of Chebyshev distance.
+      const dist = Math.max(Math.abs(dx), Math.abs(dy));
+      const contribution = h / (dist + 1);
+      if (contribution > weighted) weighted = contribution;
     }
   }
-  return max;
+  return weighted;
 }
 
 // Compute a 0..1 "flame intensity" for the whole frame — the average of
@@ -184,6 +192,7 @@ function renderComposite(
   shadow: string,
   amber: string,
   globalIntensity: number,
+  breathPhase: number,
 ): StyledText {
   const { cols, rows, heat } = sim;
   const parts: ReturnType<ReturnType<typeof fgStyle>>[] = [];
@@ -193,20 +202,26 @@ function renderComposite(
   const wmOff = Math.max(0, Math.floor((cols - WM_W) / 2));
   const wmStartY = rows - wmRows;
 
-  // Smooth gradient: for each wordmark row, interpolate along
-  // highlight → brand → shadow based on vertical position (0..1).
-  // When the flame is low, deepen the shadow side (fire is the only
-  // light source, so unlit letters fall into darkness).
-  const shadowDeepening = 1 - globalIntensity * 0.5; // 0.5..1
+  // Global tint — hard dead zone below 0.35, then fast ramp. Letters
+  // stay purple when the flame is low (no ambient wash), heat up fast
+  // once fire is strong. intensity < 0.35 → 0, 0.5 → 0.12, 0.7 → 0.46,
+  // 1.0 → 1.0.
+  const tintStrength = globalIntensity < 0.35 ? 0 : ((globalIntensity - 0.35) / 0.65) ** 1.3;
+
+  // Breath brightness: 0.82…1.0 multiplier synced to flame breath.
+  const breathMul = 0.82 + breathPhase * 0.18;
+
+  // Smooth row gradient: highlight → brand → shadow. When flame is low,
+  // deepen the shadow side (unlit letters fall into darkness).
+  const shadowDeepening = 1 - globalIntensity * 0.5;
   const deepShadow = lerpHex(shadow, dark, 1 - shadowDeepening);
   const rowColors: string[] = [];
   for (let r = 0; r < wmRows; r++) {
     const t = wmRows === 1 ? 0.5 : r / (wmRows - 1);
-    if (t < 0.5) {
-      rowColors.push(lerpHex(highlight, brand, t * 2));
-    } else {
-      rowColors.push(lerpHex(brand, deepShadow, (t - 0.5) * 2));
-    }
+    const col =
+      t < 0.5 ? lerpHex(highlight, brand, t * 2) : lerpHex(brand, deepShadow, (t - 0.5) * 2);
+    // Breath brightness: pulse toward shadow when phase is low.
+    rowColors.push(lerpHex(deepShadow, col, breathMul));
   }
 
   for (let y = 0; y < rows; y++) {
@@ -216,19 +231,18 @@ function renderComposite(
     const baseColor = inWordmark ? (rowColors[wmRowIdx] ?? brand) : brand;
 
     for (let x = 0; x < cols; x++) {
-      // Check if this cell is a wordmark glyph.
       if (inWordmark) {
         const wmX = x - wmOff;
         if (wmX >= 0 && wmX < wmRow.length) {
           const ch = wmRow[wmX];
           if (ch && ch !== " ") {
-            // Local heat contribution (proximity to hot cells).
             const localHeat = sampleNeighborHeat(heat, cols, rows, x, y);
-            // Combine local + global: local gives spatial variation,
-            // global makes the whole wordmark breathe with the flame.
-            // Global dominates so surges unify the glow across letters.
-            const tint = Math.min(1, (localHeat * 0.6 + globalIntensity * 0.8) * 1.2);
-            const litColor = tint > 0.05 ? lerpHex(baseColor, amber, tint) : baseColor;
+            // Local is gated by tintStrength so individual hot cells
+            // can't tint when the overall flame is weak — fire must be
+            // alive for letters to glow.
+            const localScale = Math.min(1, 0.2 + tintStrength * 1.6);
+            const tint = Math.min(1, localHeat * 1.1 * localScale + tintStrength * 0.7);
+            const litColor = tint > 0.04 ? lerpHex(baseColor, amber, tint) : baseColor;
             parts.push(fgStyle(litColor)(ch));
             continue;
           }
@@ -290,6 +304,10 @@ export function FlameLogo({ cols, rows }: FlameLogoProps) {
   const flameWidth = useMemo(() => Math.min(cols - 2, WM_W + 6), [cols]);
   const sim = useMemo(() => makeSim(cols, rows, flameWidth), [cols, rows, flameWidth]);
 
+  // Breath phase in [0, 1] — feeds wordmark brightness pulse so letters
+  // brighten and dim in sync with the flame's breath.
+  const breathPhaseRef = useRef(0.5);
+
   // Reset sim when dims change.
   useEffect(() => {
     sim.heat.fill(0);
@@ -308,8 +326,10 @@ export function FlameLogo({ cols, rows }: FlameLogoProps) {
       if (intensityRef.current >= 0.999) {
         const phase = ((t - INTRO_MS) / 2800) * Math.PI * 2;
         breathRef.current = 0.9 + Math.sin(phase) * 0.15;
+        breathPhaseRef.current = (Math.sin(phase) + 1) * 0.5;
       } else {
         breathRef.current = 1;
+        breathPhaseRef.current = 0.5;
       }
     };
     tick();
@@ -345,6 +365,7 @@ export function FlameLogo({ cols, rows }: FlameLogoProps) {
             tk.brandDim,
             tk.amber,
             globalIntensityRef.current,
+            breathPhaseRef.current,
           );
         }
       } catch {
