@@ -2,14 +2,13 @@ import { fg as fgStyle, StyledText, TextAttributes, type TextRenderable } from "
 import { useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
-import { getShortModelLabel } from "../../core/llm/models.js";
 import type { ProviderStatus } from "../../core/llm/provider.js";
 import type { PrerequisiteStatus } from "../../core/setup/prerequisites.js";
 import { getThemeTokens, useTheme } from "../../core/theme/index.js";
 import { WORDMARK } from "../../core/utils/splash.js";
 import { useMCPStore } from "../../stores/mcp.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
-import { ForgeSpinner } from "./ForgeSpinner.js";
+import { FlameLogo } from "./FlameLogo.js";
 import { Spinner } from "./shared.js";
 
 const BOLD = TextAttributes.BOLD;
@@ -197,22 +196,21 @@ function pickQuip(): string {
 
 // ── Status block — model on top (colored), info below (muted) ───────
 
-function StatusBlock({ modelLabel }: { modelLabel: string | null }) {
+function StatusBlock() {
   const tk = useTheme();
 
   // Live repo map / LSP status
   const [repoState, setRepoState] = useState(() => {
     const s = useRepoMapStore.getState();
-    return { status: s.status, files: s.files, lspStatus: s.lspStatus };
+    return { status: s.status, lspStatus: s.lspStatus };
   });
 
   useEffect(
     () =>
       useRepoMapStore.subscribe((s) => {
         setRepoState((prev) => {
-          if (prev.status === s.status && prev.files === s.files && prev.lspStatus === s.lspStatus)
-            return prev;
-          return { status: s.status, files: s.files, lspStatus: s.lspStatus };
+          if (prev.status === s.status && prev.lspStatus === s.lspStatus) return prev;
+          return { status: s.status, lspStatus: s.lspStatus };
         });
       }),
     [],
@@ -227,67 +225,73 @@ function StatusBlock({ modelLabel }: { modelLabel: string | null }) {
     return count;
   });
 
-  const { status, files, lspStatus } = repoState;
+  const { status, lspStatus } = repoState;
 
-  // Build info segments (everything except model)
-  const infoParts: React.ReactNode[] = [];
-
+  // Only surface SoulMap / LSP when something is *not* in the steady ready
+  // state — loading or errors. Healthy = silent.
+  let mapNode: React.ReactNode;
   if (status === "scanning") {
-    infoParts.push(
-      <text key="idx">
+    mapNode = (
+      <text key="map">
         <Spinner inline color={tk.amber} suffix={" "} />
-        <span fg={tk.amber}>indexing…</span>
-      </text>,
+        <span fg={tk.amber}>SoulMap</span>
+      </text>
     );
-  } else if (status === "ready") {
-    infoParts.push(
-      <text key="idx" fg={tk.textMuted}>
-        {String(files)} files indexed
-      </text>,
-    );
-  }
-
-  if (lspStatus === "ready") {
-    infoParts.push(
-      <text key="lsp" fg={tk.textMuted}>
-        lsp ready
-      </text>,
+  } else if (status === "error") {
+    mapNode = (
+      <text key="map">
+        <span fg={tk.error}>{icon("error")}</span>
+        <span fg={tk.error}> SoulMap</span>
+      </text>
     );
   }
 
+  let lspNode: React.ReactNode;
+  if (lspStatus === "generating") {
+    lspNode = (
+      <text key="lsp">
+        <Spinner inline color={tk.amber} suffix={" "} />
+        <span fg={tk.amber}>LSP</span>
+      </text>
+    );
+  } else if (lspStatus === "error") {
+    lspNode = (
+      <text key="lsp">
+        <span fg={tk.error}>{icon("error")}</span>
+        <span fg={tk.error}> LSP</span>
+      </text>
+    );
+  }
+
+  // MCP only shown when ready (informational — keep)
+  let mcpNode: React.ReactNode;
   if (mcpReady > 0) {
-    infoParts.push(
-      <text key="mcp" fg={tk.textMuted}>
-        {String(mcpReady)} mcp
-      </text>,
+    mcpNode = (
+      <text key="mcp">
+        <span fg={tk.success}>{icon("check")}</span>
+        <span fg={tk.textSecondary}> {String(mcpReady)} MCP</span>
+      </text>
     );
   }
 
-  // Join info parts with · separators
-  const joinedInfo: React.ReactNode[] = [];
-  for (let i = 0; i < infoParts.length; i++) {
+  const parts = [mapNode, lspNode, mcpNode].filter(Boolean);
+  const joined: React.ReactNode[] = [];
+  for (let i = 0; i < parts.length; i++) {
     if (i > 0) {
-      joinedInfo.push(
+      joined.push(
         <text key={`sep-${String(i)}`} fg={tk.textFaint}>
-          {" · "}
+          {"  │  "}
         </text>,
       );
     }
-    joinedInfo.push(infoParts[i]);
+    joined.push(parts[i]);
   }
 
   return (
     <box flexDirection="column" alignItems="center" gap={0}>
-      {/* Model — prominent, colored */}
-      {modelLabel && (
-        <text fg={tk.brand} attributes={BOLD}>
-          {modelLabel}
-        </text>
-      )}
-      {/* Info line — muted, compact */}
-      {joinedInfo.length > 0 && (
+      {joined.length > 0 && (
         <box flexDirection="row" gap={0} justifyContent="center">
-          {joinedInfo}
+          {joined}
         </box>
       )}
     </box>
@@ -305,7 +309,7 @@ interface LandingPageProps {
 export function LandingPage({
   bootProviders: _bp,
   bootPrereqs: _bq,
-  activeModel,
+  activeModel: _am,
 }: LandingPageProps) {
   const tk = useTheme();
   const { width, height } = useTerminalDimensions();
@@ -316,78 +320,100 @@ export function LandingPage({
   const showWordmark = columns >= 35;
   const showRuneField = rows >= 16 && columns >= 50;
 
+  // Wordmark is 84 cols wide; guard the flame behind enough terminal
+  // real estate. flameCols must be ≥ wordmark width + padding so the
+  // trailing "E" isn't clipped by the parent container border.
+  const showFlame = columns >= 88 && rows >= 24;
+  const flameCols = Math.min(88, columns - 2);
+  // Total flame+wordmark grid height. Wordmark is 6 rows; rest is
+  // flame. We reserve ~8 rows for status/spinner/input below, and
+  // give the flame as much of the remaining vertical space as we can
+  // so the tip has room to taper off into sparse embers rather than
+  // clipping flat against the top boundary.
+  const flameRows = Math.min(36, Math.max(14, rows - 8));
+
   const quip = useMemo(() => pickQuip(), []);
-  const modelLabel = activeModel ? getShortModelLabel(activeModel) : null;
+
   const divW = Math.min(WORDMARK[0]?.length ?? 27, columns - 4);
 
   return (
-    <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} justifyContent="center">
+    <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
       {/* ── Floating rune particles (behind content) ── */}
       {showRuneField && <RuneField cols={columns} rows={rows} />}
 
-      {/* ── Content ── */}
-      <box flexDirection="column" alignItems="center" gap={0} zIndex={1}>
-        {/* ── Ghost ── */}
-        <text fg={tk.brand} attributes={BOLD}>
-          {icon("ghost")}
-        </text>
+      {/* Flexible top spacer — absorbs extra height so the content
+          stack below always sits flush against the input. When the
+          input grows or the status block expands, this shrinks first. */}
+      <box flexGrow={1} flexShrink={1} minHeight={0} />
 
-        {!compact && <box height={1} />}
-
-        {/* ── Wordmark with runic subtitle ── */}
-        {showWordmark ? (
-          <>
-            {WORDMARK.map((line) => (
-              <text key={line} fg={tk.brand} attributes={BOLD}>
-                {line}
-              </text>
-            ))}
-            <text fg={tk.textDim}>
-              <span fg={tk.brandAlt}>ᛊ</span>
-              <span fg={tk.textFaint}>·</span>
-              <span fg={tk.textDim}>ᛟ·ᚢ·ᛚ</span>
-              <span fg={tk.textFaint}>·</span>
-              <span fg={tk.brandAlt}>ᚠ</span>
-              <span fg={tk.textFaint}>·</span>
-              <span fg={tk.textDim}>ᛟ</span>
-              <span fg={tk.textFaint}>·</span>
-              <span fg={tk.brandAlt}>ᚱ</span>
-              <span fg={tk.textFaint}>·</span>
-              <span fg={tk.textDim}>ᚷ·ᛖ</span>
-            </text>
-          </>
-        ) : (
+      {/* ── Content — always anchored to the bottom ── */}
+      <box flexDirection="column" alignItems="center" gap={0} flexShrink={0} zIndex={1}>
+        {/* ── Ghost (only when flame is NOT showing) ── */}
+        {!showFlame && (
           <text fg={tk.brand} attributes={BOLD}>
-            SOULFORGE
+            {icon("ghost")}
           </text>
         )}
 
-        {/* ── Tagline ── */}
-        <text fg={tk.textMuted} attributes={ITALIC}>
-          Graph-Powered Code Intelligence
-        </text>
+        {/* ── Animated flame (preferred) or ASCII wordmark fallback ──
+             The flame is the whole brand moment — when it's showing, we
+             skip the wordmark/subtitle/tagline/divider/quip since the
+             fire carries the vibe. On small terminals we fall back to
+             the classic stack. */}
+        {showFlame ? (
+          <FlameLogo cols={flameCols} rows={flameRows} />
+        ) : (
+          <>
+            {showWordmark ? (
+              <>
+                {WORDMARK.map((line) => (
+                  <text key={line} fg={tk.brand} attributes={BOLD}>
+                    {line}
+                  </text>
+                ))}
+                <text fg={tk.textDim}>
+                  <span fg={tk.brandAlt}>ᛊ</span>
+                  <span fg={tk.textFaint}>·</span>
+                  <span fg={tk.textDim}>ᛟ·ᚢ·ᛚ</span>
+                  <span fg={tk.textFaint}>·</span>
+                  <span fg={tk.brandAlt}>ᚠ</span>
+                  <span fg={tk.textFaint}>·</span>
+                  <span fg={tk.textDim}>ᛟ</span>
+                  <span fg={tk.textFaint}>·</span>
+                  <span fg={tk.brandAlt}>ᚱ</span>
+                  <span fg={tk.textFaint}>·</span>
+                  <span fg={tk.textDim}>ᚷ·ᛖ</span>
+                </text>
+              </>
+            ) : (
+              <text fg={tk.brand} attributes={BOLD}>
+                SOULFORGE
+              </text>
+            )}
 
-        {!compact && <box height={1} />}
+            {/* Tagline */}
+            <text fg={tk.textMuted} attributes={ITALIC}>
+              Graph-Powered Code Intelligence
+            </text>
 
-        {/* ── Ember divider ── */}
-        <EmberDivider width={divW} />
+            {!compact && <box height={1} />}
 
-        {!compact && <box height={1} />}
+            {/* Ember divider */}
+            <EmberDivider width={divW} />
 
-        {/* ── Quip ── */}
-        <text fg={tk.brandAlt} attributes={ITALIC}>
-          {quip}
-        </text>
+            {!compact && <box height={1} />}
 
-        {!compact && <box height={1} />}
+            {/* Quip */}
+            <text fg={tk.brandAlt} attributes={ITALIC}>
+              {quip}
+            </text>
 
-        {/* ── Status line: model · index · lsp · mcp ── */}
-        <StatusBlock modelLabel={modelLabel} />
+            {!compact && <box height={1} />}
+          </>
+        )}
 
-        {!compact && <box height={1} />}
-
-        {/* ── Forge spinner ── */}
-        <ForgeSpinner />
+        {/* ── Status line: only appears when something is wrong / loading ── */}
+        <StatusBlock />
       </box>
     </box>
   );
