@@ -35,7 +35,7 @@ import {
   getModelContextWindow,
   getShortModelLabel,
 } from "../core/llm/models.js";
-import { resolveModel } from "../core/llm/provider.js";
+import { getActiveProviderId, resolveModel } from "../core/llm/provider.js";
 import {
   buildProviderOptions,
   degradeProviderOptions,
@@ -44,6 +44,7 @@ import {
 } from "../core/llm/provider-options.js";
 import { resolveTaskModel } from "../core/llm/task-router.js";
 import { onCompaction, writeDiary } from "../core/mcp/mempalace.js";
+import { bounceProxy, proxyHealthProbe } from "../core/proxy/lifecycle.js";
 import { resolveRetrySettings } from "../core/retry/settings.js";
 import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
@@ -228,7 +229,11 @@ export interface ChatInstance {
   planMode: boolean;
   planRequest: string | null;
   // Actions
-  handleSubmit: (input: string, images?: ImageAttachment[]) => Promise<void>;
+  handleSubmit: (
+    input: string,
+    images?: ImageAttachment[],
+    opts?: { inboundId?: string; origin?: ChatMessage["origin"] },
+  ) => Promise<void>;
   summarizeConversation: (opts?: { skipQueueDrain?: boolean }) => Promise<void>;
   abort: () => void;
   interactiveCallbacks: InteractiveCallbacks;
@@ -722,6 +727,14 @@ export function useChat({
   // auto-retry "Continue." inherits the count from the previous attempt.
   const stallRetryCountRef = useRef(0);
   const stallRetryPendingRef = useRef(false);
+  // Per-turn token deltas captured from finish-step events. Reset at the start
+  // of each handleSubmit run so the value emitted to the Hearth bridge in
+  // turn-done reflects only this turn (not cumulative session totals).
+  const turnTokensRef = useRef<{ input: number; output: number; cacheRead: number }>({
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+  });
   const summarizeConversationRef = useRef<(opts?: { skipQueueDrain?: boolean }) => Promise<void>>(
     async () => {},
   );
@@ -1343,55 +1356,106 @@ export function useChat({
       },
       onPlanReview: (plan: Plan, planFile: string, planContent: string) => {
         return new Promise<PlanReviewAction>((resolve) => {
+          let done = false;
+          const applyAction = async (action: PlanReviewAction): Promise<void> => {
+            if (action === "execute" || action === "clear_execute") {
+              let content: string | null = null;
+              try {
+                content = await readFile(
+                  join(cwd, ".soulforge", "plans", planFileName(sessionIdRef.current)),
+                  "utf-8",
+                );
+              } catch {
+                content = planContent;
+              }
+              planPostActionRef.current = {
+                action: action === "clear_execute" ? "clear_execute" : "execute",
+                planContent: content,
+                plan,
+              };
+            } else if (action === "cancel") {
+              planPostActionRef.current = { action: "cancel", planContent: null, plan };
+            } else {
+              planPostActionRef.current = {
+                action: "revise",
+                planContent: null,
+                reviseFeedback: action,
+              };
+            }
+          };
+          const settle = (action: PlanReviewAction): void => {
+            if (done) return;
+            done = true;
+            setPendingPlanReview(null);
+            void applyAction(action).then(() => {
+              resolve(action);
+              abortRef.current?.abort();
+            });
+          };
           setPendingPlanReview({
             plan,
             planFile,
             planContent,
-            resolve: async (action: PlanReviewAction) => {
-              setPendingPlanReview(null);
-
-              if (action === "execute" || action === "clear_execute") {
-                let content: string | null = null;
-                try {
-                  content = await readFile(
-                    join(cwd, ".soulforge", "plans", planFileName(sessionIdRef.current)),
-                    "utf-8",
-                  );
-                } catch {
-                  content = planContent;
-                }
-                planPostActionRef.current = {
-                  action: action === "clear_execute" ? "clear_execute" : "execute",
-                  planContent: content,
-                  plan,
-                };
-              } else if (action === "cancel") {
-                planPostActionRef.current = { action: "cancel", planContent: null, plan };
-              } else {
-                planPostActionRef.current = {
-                  action: "revise",
-                  planContent: null,
-                  reviseFeedback: action,
-                };
-              }
-
-              resolve(action);
-              abortRef.current?.abort();
-            },
+            resolve: (action: PlanReviewAction) => settle(action),
+          });
+          // Race remote bridge. Remote reply resolves into `settle` → same
+          // plan-post-action flow as TUI approval.
+          void import("../hearth/bridge.js").then(({ askRemote }) => {
+            if (done) return;
+            void askRemote<string>(
+              tabId,
+              (callbackId) => ({
+                type: "plan-review",
+                callbackId,
+                title: plan.title,
+                summary: `${String(plan.steps.length)} step(s)`,
+              }),
+              "",
+            ).then((answer) => {
+              if (!answer) return;
+              // Valid plan-review actions: execute / clear_execute / cancel / revise:<text>
+              const action: PlanReviewAction =
+                answer === "execute" || answer === "clear_execute" || answer === "cancel"
+                  ? answer
+                  : answer;
+              settle(action);
+            });
           });
         });
       },
       onAskUser: (question, options, allowSkip) => {
+        // Race TUI prompt against remote bridge prompt. Whichever resolves first
+        // wins; the loser is cancelled via setPendingQuestion(null).
         return new Promise<string>((resolve) => {
+          let done = false;
+          const settle = (v: string): void => {
+            if (done) return;
+            done = true;
+            setPendingQuestion(null);
+            resolve(v);
+          };
           setPendingQuestion({
             id: crypto.randomUUID(),
             question,
             options,
             allowSkip,
-            resolve: (answer) => {
-              setPendingQuestion(null);
-              resolve(answer);
-            },
+            resolve: (answer) => settle(answer),
+          });
+          void import("../hearth/bridge.js").then(({ askRemote }) => {
+            if (done) return;
+            void askRemote<string>(
+              tabId,
+              (callbackId) => ({
+                type: "ask-user",
+                callbackId,
+                question,
+                options: [...options],
+                allowSkip,
+              }),
+              "",
+            ).then((answer) => {
+              if (answer) settle(answer);
+            });
           });
         });
       },
@@ -1402,14 +1466,70 @@ export function useChat({
           openEditor();
         }
       },
-      onWebSearchApproval: (query: string) => promptWebAccess(`Search: "${query}"`),
-      onFetchPageApproval: (url: string) => promptWebAccess(`Fetch: ${url}`),
+      onWebSearchApproval: (query: string) => {
+        return new Promise<boolean>((resolve) => {
+          let done = false;
+          const settle = (v: boolean): void => {
+            if (done) return;
+            done = true;
+            resolve(v);
+          };
+          void promptWebAccess(`Search: "${query}"`).then((ok) => settle(ok));
+          void import("../hearth/bridge.js").then(({ askRemote }) => {
+            if (done) return;
+            void askRemote<string>(
+              tabId,
+              (callbackId) => ({
+                type: "approval-request",
+                callbackId,
+                tool: "web_search",
+                summary: `Web search: ${query.slice(0, 120)}`,
+              }),
+              "",
+            ).then((answer) => {
+              if (answer === "allow") settle(true);
+              else if (answer === "deny") settle(false);
+            });
+          });
+        });
+      },
+      onFetchPageApproval: (url: string) => {
+        return new Promise<boolean>((resolve) => {
+          let done = false;
+          const settle = (v: boolean): void => {
+            if (done) return;
+            done = true;
+            resolve(v);
+          };
+          void promptWebAccess(`Fetch: ${url}`).then((ok) => settle(ok));
+          void import("../hearth/bridge.js").then(({ askRemote }) => {
+            if (done) return;
+            void askRemote<string>(
+              tabId,
+              (callbackId) => ({
+                type: "approval-request",
+                callbackId,
+                tool: "fetch_page",
+                summary: `Fetch page: ${url.slice(0, 140)}`,
+              }),
+              "",
+            ).then((answer) => {
+              if (answer === "allow") settle(true);
+              else if (answer === "deny") settle(false);
+            });
+          });
+        });
+      },
     }),
     [openEditor, openEditorWithFile, cwd, setActivePlan, promptWebAccess, tabId],
   );
 
   const handleSubmit = useCallback(
-    async (input: string, images?: ImageAttachment[]) => {
+    async (
+      input: string,
+      images?: ImageAttachment[],
+      opts?: { inboundId?: string; origin?: ChatMessage["origin"] },
+    ) => {
       // Read current config via ref — effectiveConfig object is NOT in deps
       // (new object every render would force constant callback recreation)
       const effectiveConfig = effectiveConfigRef.current;
@@ -1450,12 +1570,20 @@ export function useChat({
         }
       }
 
+      // Reset per-turn token accumulator so the Hearth bridge turn-done
+      // reflects only THIS turn, not cumulative session totals.
+      turnTokensRef.current = { input: 0, output: 0, cacheRead: 0 };
+
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
         content: input,
         timestamp: Date.now(),
         images: images && images.length > 0 ? images : undefined,
+        // Origin is stamped synchronously at message creation time — no post-submit
+        // scan required, so rapid-fire inbound messages can never land on the
+        // wrong row.
+        origin: opts?.origin,
       };
       setMessages((prev) => {
         const allMsgs = [...prev, userMsg];
@@ -1951,6 +2079,7 @@ export function useChat({
           tabLabel,
         });
         let result: StreamTextResult<ToolSet, never> | undefined;
+        let proxyBounced = false;
         const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
           resolveRetrySettings(effectiveConfig.retry);
         for (let retry = 0; retry <= MAX_TRANSIENT_RETRIES; retry++) {
@@ -2023,6 +2152,25 @@ export function useChat({
               );
             if (!isTransient || retry === MAX_TRANSIENT_RETRIES || abortController.signal.aborted) {
               throw err;
+            }
+            // Self-heal the proxy on connection-level failures (wedged child process).
+            // At most once per submit, hard-capped by an 8s timeout so a stuck
+            // ensureProxy() can never block the retry loop.
+            const isConnErr =
+              /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
+                msg,
+              );
+            if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
+              proxyBounced = true;
+              // Probe /v1/models first — a healthy proxy means the error is
+              // upstream (Claude subscription flake) and bouncing is pointless.
+              const healthy = await proxyHealthProbe().catch(() => false);
+              if (!healthy) {
+                await Promise.race([
+                  bounceProxy().catch(() => false),
+                  new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+                ]);
+              }
             }
             const delay = RETRY_BASE_DELAY_MS * 2 ** retry + Math.random() * 500;
             const delaySec = Math.round(delay / 1000);
@@ -2307,6 +2455,9 @@ export function useChat({
             case "reasoning-delta": {
               gotFirstContent = true;
               appendReasoningContent(part.text);
+              void import("../hearth/bridge.js").then(({ reasoningStreamEmitter }) => {
+                reasoningStreamEmitter.append(tabId, part.text);
+              });
               break;
             }
             case "reasoning-end":
@@ -2335,6 +2486,10 @@ export function useChat({
                   }
                 }
               }
+              // Stream visible text to Hearth surfaces in real time (coalesced).
+              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                bridgeStreamEmitter.stream(tabId, { type: "text", content: part.text });
+              });
               queueMicrotaskFlush();
               break;
             }
@@ -2343,6 +2498,13 @@ export function useChat({
               markToolStart();
               segmentsDirty.current = true;
               toolCallsDirty.current = true;
+              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "tool-call",
+                  tool: part.toolName,
+                  toolCallId: part.id,
+                });
+              });
 
               // Detect code_execution child calls: if a code_execution call is currently
               // running (state !== "done"/"error"), any new tool call is a child spawned from it.
@@ -2521,6 +2683,17 @@ export function useChat({
                 );
                 syncV2Slots();
               }
+              // Stream tool-result summary to Hearth (truncated — adapters render).
+              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "tool-result",
+                  tool: part.toolName,
+                  toolCallId: part.toolCallId,
+                  summary: toolResult.error
+                    ? `✗ ${toolResult.error.slice(0, 200)}`
+                    : `✓ ${(toolResult.output ?? "").slice(0, 200)}`,
+                });
+              });
               flushStreamState();
               yieldBeforeNext = true;
               break;
@@ -2559,6 +2732,14 @@ export function useChat({
                 workingStateRef.current.addFailure(`${part.toolName}: ${errorMsg.slice(0, 200)}`);
                 syncV2Slots();
               }
+              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "tool-result",
+                  tool: part.toolName,
+                  toolCallId: part.toolCallId,
+                  summary: `✗ ${errorMsg.slice(0, 200)}`,
+                });
+              });
               flushStreamState();
               yieldBeforeNext = true;
               break;
@@ -2614,6 +2795,13 @@ export function useChat({
               streamingCharsRef.current = 0;
               if (stepTotal > 0) pendingContextTokens.current = stepTotal;
               pendingLastStepOutput.current = stepOut;
+              // Accumulate per-turn delta so the Hearth bridge's turn-done
+              // reports real numbers instead of zeros.
+              turnTokensRef.current = {
+                input: turnTokensRef.current.input + stepIn,
+                output: turnTokensRef.current.output + stepOut,
+                cacheRead: turnTokensRef.current.cacheRead + stepCache,
+              };
               queueMicrotaskFlush();
 
               if (completedCalls.length > 0 && Date.now() - lastIncrementalSave > 10_000) {
@@ -2787,6 +2975,27 @@ export function useChat({
               sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
             }
           });
+          // Finalize streaming: flush any remaining text + reasoning + emit turn-done.
+          // Individual text-delta / tool-call / tool-result / reasoning-delta events
+          // were already streamed during the turn.
+          if (assistantMsg) {
+            void import("../hearth/bridge.js").then(
+              ({ bridgeStreamEmitter, reasoningStreamEmitter }) => {
+                reasoningStreamEmitter.flushNow(tabId);
+                bridgeStreamEmitter.flushNow(tabId);
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "turn-done",
+                  turn: 0,
+                  output: assistantMsg.content,
+                  steps: assistantMsg.toolCalls?.length ?? 0,
+                  tokens: { ...turnTokensRef.current },
+                  toolCalls: (assistantMsg.toolCalls ?? []).map((c) => c.name),
+                  filesEdited: [],
+                  duration: assistantMsg.durationMs ?? 0,
+                });
+              },
+            );
+          }
           return allMsgs;
         });
 
@@ -2870,6 +3079,15 @@ export function useChat({
             });
             if (!partialMsg) return;
             setMessages((prev) => [...prev, partialMsg]);
+            // Flush the streaming buffer and send the stall warning — tool-calls
+            // and text were already streamed in real time during the turn.
+            void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+              bridgeStreamEmitter.flushNow(tabId);
+              bridgeStreamEmitter.stream(tabId, {
+                type: "warning",
+                message: `Stream stalled, auto-retrying (${String(stallRetryCountRef.current)}/${String(STALL_MAX_RETRIES)})`,
+              });
+            });
             if (completedCalls.length > 0) {
               const assistantContent: Array<TextPart | ToolCallPart> = [];
               if (fullText.length > 0) {
@@ -3048,6 +3266,34 @@ export function useChat({
               timestamp: Date.now(),
             },
           ]);
+          // Flush streaming buffers (text + reasoning) and emit abort/error + turn-done.
+          void import("../hearth/bridge.js").then(
+            ({ bridgeStreamEmitter, reasoningStreamEmitter }) => {
+              reasoningStreamEmitter.discard(tabId);
+              bridgeStreamEmitter.flushNow(tabId);
+              if (isAbort) {
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "warning",
+                  message: "Generation interrupted.",
+                });
+              } else {
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "error",
+                  error: errorMsg,
+                });
+              }
+              bridgeStreamEmitter.stream(tabId, {
+                type: "turn-done",
+                turn: 0,
+                output: fullText,
+                steps: completedCalls.length,
+                tokens: { ...turnTokensRef.current },
+                toolCalls: completedCalls.map((c) => c.name),
+                filesEdited: [],
+                duration: 0,
+              });
+            },
+          );
         }
         streamSegmentsBuffer.current = [];
         liveToolCallsBuffer.current = [];

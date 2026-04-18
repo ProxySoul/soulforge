@@ -28,7 +28,7 @@ export interface UseTabsReturn {
   tabCount: number;
   activeTabIndex: number;
   canCreateTab: boolean;
-  createTab: (label?: string) => void;
+  createTab: (label?: string) => string | null;
   closeTab: (id: string) => boolean;
   isTabLoading: (id: string) => boolean;
   switchTab: (id: string) => void;
@@ -103,8 +103,8 @@ export function useTabs(): UseTabsReturn {
     setActiveTabId(targetId);
   }, []);
 
-  const createTab = useCallback((label?: string) => {
-    if (tabsRef.current.length >= MAX_TABS) return;
+  const createTab = useCallback((label?: string): string | null => {
+    if (tabsRef.current.length >= MAX_TABS) return null;
     const newId = crypto.randomUUID();
     setTabs((prev) => {
       const newLabel = label || `TAB-${String(prev.length + 1)}`;
@@ -112,6 +112,7 @@ export function useTabs(): UseTabsReturn {
     });
     if (label) autoLabeled.current.add(newId);
     setActiveTabId(newId);
+    return newId;
   }, []);
 
   const closeTab = useCallback((targetId: string): boolean => {

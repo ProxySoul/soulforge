@@ -32,6 +32,7 @@ export type ModalName =
   | "floatingTerminal"
   | "updateModal"
   | "mcpSettings"
+  | "hearthSettings"
   | "tabNamePopup";
 
 type Modals = Record<ModalName, boolean>;
@@ -64,6 +65,7 @@ const INITIAL_MODALS: Modals = {
   floatingTerminal: false,
   updateModal: false,
   mcpSettings: false,
+  hearthSettings: false,
   tabNamePopup: false,
 };
 

@@ -20,7 +20,7 @@ import {
   writeEvent,
   writeMarkdown,
 } from "./output.js";
-import type { HeadlessChatOptions, HeadlessRunOptions } from "./types.js";
+import type { HeadlessChatOptions, HeadlessEvent, HeadlessRunOptions } from "./types.js";
 
 interface AgentEnv {
   cwd: string;
@@ -183,8 +183,11 @@ async function streamTurn(
     maxSteps?: number;
     showProgress: boolean;
     render?: boolean;
+    emit?: (event: HeadlessEvent) => void;
   },
 ): Promise<TurnResult> {
+  const emit =
+    reporting.emit ?? ((e: HeadlessEvent) => writeEvent(e as unknown as Record<string, unknown>));
   let output = "";
   let steps = 0;
   const tokens = {
@@ -212,7 +215,7 @@ async function streamTurn(
         error = `Max steps reached (${String(reporting.maxSteps)})`;
         exitCode = EXIT_ERROR;
         if (reporting.showProgress) stderrWarn(`\n${error}`);
-        if (reporting.events) writeEvent({ type: "error", error });
+        if (reporting.events) emit({ type: "error", error });
         break;
       }
 
@@ -223,7 +226,7 @@ async function streamTurn(
           for (const w of warnings) {
             const msg = `[${w.type}]${w.message ? ` ${w.message}` : ""}`;
             if (reporting.events) {
-              writeEvent({ type: "warning", message: msg });
+              emit({ type: "warning", message: msg });
             } else if (reporting.showProgress) {
               process.stderr.write(`${DIM}  ⚠ ${msg}${RST}\n`);
             }
@@ -232,14 +235,20 @@ async function streamTurn(
       } else if (part.type === "text-delta") {
         output += part.text;
         if (reporting.events) {
-          writeEvent({ type: "text", content: part.text });
+          emit({ type: "text", content: part.text });
         } else if (!reporting.json && !reporting.render) {
           process.stdout.write(part.text);
         }
       } else if (part.type === "tool-call") {
         toolCalls.push(part.toolName);
+        const partInput = part as { input?: Record<string, unknown>; toolCallId?: string };
         if (reporting.events) {
-          writeEvent({ type: "tool-call", tool: part.toolName });
+          emit({
+            type: "tool-call",
+            tool: part.toolName,
+            toolCallId: partInput.toolCallId,
+            input: partInput.input,
+          });
         } else if (reporting.showProgress) {
           process.stderr.write(`${DIM}  ▸ ${part.toolName}${RST}\n`);
         }
@@ -264,7 +273,12 @@ async function streamTurn(
           } else {
             summary = String(raw).slice(0, 200);
           }
-          writeEvent({ type: "tool-result", tool: part.toolName, summary });
+          emit({
+            type: "tool-result",
+            tool: part.toolName,
+            toolCallId: (part as { toolCallId?: string }).toolCallId,
+            summary,
+          });
         }
       } else if (part.type === "finish-step") {
         steps++;
@@ -280,7 +294,7 @@ async function streamTurn(
         tokens.output += tokens.lastStepOutput;
         tokens.cacheRead += tokens.lastStepCacheRead;
         if (reporting.events) {
-          writeEvent({ type: "step", step: steps, tokens: { ...tokens } });
+          emit({ type: "step", step: steps, tokens: { ...tokens } });
         }
       }
     }
@@ -293,7 +307,7 @@ async function streamTurn(
       exitCode = EXIT_ERROR;
     }
     if (reporting.showProgress) stderrError(error);
-    if (reporting.events) writeEvent({ type: "error", error });
+    if (reporting.events) emit({ type: "error", error });
   }
 
   return { output, steps, tokens, toolCalls, filesEdited: [...filesEdited], error, exitCode };
@@ -617,9 +631,15 @@ function readPromptFromStdin(): Promise<string | null> {
 }
 
 export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Promise<void> {
-  const isEvents = opts.events === true;
-  const isQuiet = opts.quiet === true;
+  const isEmbedded = opts.embedded === true;
+  const hasEventSink = typeof opts.onEvent === "function";
+  const isEvents = opts.events === true || hasEventSink;
+  const isQuiet = opts.quiet === true || isEmbedded;
   const showProgress = !opts.json && !isEvents && !isQuiet;
+  const emit = (event: HeadlessEvent): void => {
+    if (opts.onEvent) opts.onEvent(event);
+    else if (opts.events === true) writeEvent(event as unknown as Record<string, unknown>);
+  };
 
   const env = await setupAgent(opts, merged);
 
@@ -659,7 +679,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   };
 
   if (isEvents) {
-    writeEvent({
+    emit({
       type: "start",
       model: env.modelId,
       mode: env.mode,
@@ -699,7 +719,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     }
 
     if (isEvents) {
-      writeEvent({ type: "chat-done", turns, tokens: totalTokens, sessionId: savedId });
+      emit({ type: "chat-done", turns, tokens: totalTokens, sessionId: savedId });
     } else if (showProgress) {
       separator();
       stderrDim(`${String(turns)} turns — ${formatTokens(totalTokens)} total`);
@@ -712,27 +732,49 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     }
 
     env.contextManager.dispose();
-    await disposeMCPManager();
+    if (!isEmbedded) await disposeMCPManager();
+    if (isEmbedded) return;
     reraiseOrExit(code);
   }
 
-  // SIGINT: abort current turn, save, print resume, exit
-  process.on("SIGINT", () => {
-    if (aborted) {
-      // Second Ctrl+C — force exit
-      env.contextManager.dispose();
-      disposeMCPManager();
-      reraiseOrExit(EXIT_ABORT);
-    }
-    aborted = true;
-    turnAbort.abort();
-  });
+  // SIGINT: abort current turn, save, print resume, exit. Skipped in embedded mode
+  // (daemon owns process-level signal handling and MCP lifetime).
+  if (!isEmbedded) {
+    process.on("SIGINT", () => {
+      if (aborted) {
+        env.contextManager.dispose();
+        disposeMCPManager();
+        reraiseOrExit(EXIT_ABORT);
+      }
+      aborted = true;
+      turnAbort.abort();
+    });
+  }
 
-  if (isEvents) writeEvent({ type: "ready" });
+  // External abort signal (Hearth tab abort, timeout, etc.)
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      aborted = true;
+      turnAbort.abort();
+    } else {
+      opts.signal.addEventListener(
+        "abort",
+        () => {
+          aborted = true;
+          turnAbort.abort();
+        },
+        { once: true },
+      );
+    }
+  }
+
+  if (isEvents) emit({ type: "ready" });
   if (showProgress) process.stderr.write(`${PURPLE()}▸${RST} `);
 
+  const readPrompt = opts.readPrompt ?? readPromptFromStdin;
+
   while (!aborted) {
-    const prompt = await readPromptFromStdin();
+    const prompt = await readPrompt();
     if (prompt === null) break;
 
     turns++;
@@ -752,6 +794,10 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     if (opts.timeout) {
       setTimeout(() => turnAbort.abort(), opts.timeout);
     }
+    if (opts.signal && !opts.signal.aborted) {
+      const fwd = () => turnAbort.abort();
+      opts.signal.addEventListener("abort", fwd, { once: true });
+    }
 
     const turn = await streamTurn(env.agent, history, prompt, turnAbort.signal, {
       json: opts.json,
@@ -759,6 +805,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
       quiet: isQuiet,
       maxSteps: opts.maxSteps,
       showProgress,
+      emit,
     });
 
     // Even partial output is valuable — save it
@@ -777,7 +824,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
     totalTokens.cacheRead += turn.tokens.cacheRead;
 
     if (isEvents) {
-      writeEvent({
+      emit({
         type: "turn-done",
         turn: turns,
         output: turn.output,
@@ -788,7 +835,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
         duration: Date.now() - turnStart,
         ...(turn.error ? { error: turn.error } : {}),
       });
-      if (!aborted) writeEvent({ type: "ready" });
+      if (!aborted) emit({ type: "ready" });
     } else if (opts.json) {
       process.stdout.write(
         `${JSON.stringify({

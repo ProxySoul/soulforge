@@ -230,3 +230,18 @@ export const undoEditTool = {
     }
   },
 };
+/** Files this tab has edited in the current session — used by remote /diff and /files. */
+export function getEditedFilesForTab(
+  tabId: string,
+): Array<{ path: string; edits: number; lastTs: number }> {
+  const out: Array<{ path: string; edits: number; lastTs: number }> = [];
+  for (const [path, stack] of stacks) {
+    const tabEdits = stack.filter((e) => !e.tabId || e.tabId === tabId);
+    if (tabEdits.length === 0) continue;
+    const last = tabEdits[tabEdits.length - 1];
+    if (!last) continue;
+    out.push({ path, edits: tabEdits.length, lastTs: last.timestamp });
+  }
+  out.sort((a, b) => b.lastTs - a.lastTs);
+  return out;
+}

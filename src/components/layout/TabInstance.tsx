@@ -240,6 +240,59 @@ export const TabInstance = memo(function TabInstance({
     return () => unregisterChat(tabId);
   }, [tabId, chat, registerChat, unregisterChat]);
 
+  // Register this tab's chat handle with the Hearth bridge so Telegram/Discord/
+  // iMessage can drive it. App-level bootstrap (TuiHost start + auto-claim)
+  // runs once in App.tsx; this effect only wires the per-tab submit/abort.
+  useEffect(() => {
+    let cancelled = false;
+    void import("../../hearth/bridge.js")
+      .then(({ hearthBridge }) => {
+        if (cancelled) return;
+        hearthBridge.registerTab({
+          tabId,
+          label: tabLabel,
+          submit: async (input, origin, inboundId, images) => {
+            try {
+              type IA = import("../../types/index.js").ImageAttachment;
+              const imgs: IA[] | undefined =
+                images && images.length > 0
+                  ? images
+                      .map((im, i): IA | null => {
+                        const mt = im.mediaType;
+                        if (
+                          mt !== "image/png" &&
+                          mt !== "image/jpeg" &&
+                          mt !== "image/gif" &&
+                          mt !== "image/webp"
+                        )
+                          return null;
+                        const base64 = im.url.startsWith("data:")
+                          ? (im.url.split(",")[1] ?? "")
+                          : im.url;
+                        return { label: `image-${String(i + 1)}`, base64, mediaType: mt };
+                      })
+                      .filter((x): x is IA => x !== null)
+                  : undefined;
+              await chat.handleSubmit(input, imgs, {
+                inboundId,
+                origin,
+              });
+            } catch (err) {
+              throw err instanceof Error ? err : new Error(String(err));
+            }
+          },
+          abort: () => chat.abort(),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      void import("../../hearth/bridge.js").then(({ hearthBridge }) => {
+        hearthBridge.unregisterTab(tabId);
+      });
+    };
+  }, [tabId, tabLabel, chat]);
+
   // Sync forge mode to header when it changes in the active tab
   useEffect(() => {
     if (visible && onModeChange) onModeChange(chat.forgeMode);

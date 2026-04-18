@@ -56,6 +56,7 @@ export interface CommandContext {
   openApiKeySettings: () => void;
   openLspStatus: () => void;
   openLspInstall: () => void;
+  openHearthSettings: () => void;
   openCommandPicker: (config: CommandPickerConfig) => void;
   openInfoPopup: (config: InfoPopupConfig) => void;
   toggleChanges: () => void;

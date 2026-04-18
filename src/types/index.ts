@@ -149,6 +149,8 @@ export interface ChatMessage {
   showInChat?: boolean;
   /** Marks a user message injected via steering (sent while AI was working). */
   isSteering?: boolean;
+  /** Origin of a user message — "local" (TUI), "telegram", "discord", "imessage", etc. */
+  origin?: "local" | "telegram" | "discord" | "imessage" | "fakechat";
   /** How long the assistant response took (ms). Set when the response completes. */
   durationMs?: number;
   /** Attached images (pasted from clipboard or referenced by path). */

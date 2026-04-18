@@ -695,6 +695,7 @@ const UserMessageAccent = memo(function UserMessageAccent({ msg }: { msg: ChatMe
         </text>
         <text fg={t.textDim}> · {time}</text>
         {msg.isSteering && <text fg={t.warning}> · steering</text>}
+        {msg.origin && msg.origin !== "local" && <text fg={t.info}> · {msg.origin}</text>}
         {msg.images && msg.images.length > 0 && (
           <text fg={t.info}>
             {" "}

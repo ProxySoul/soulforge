@@ -79,6 +79,7 @@ import { StatusDashboard } from "./modals/StatusDashboard.js";
 import { TabNamePopup } from "./modals/TabNamePopup.js";
 import { UpdateModal } from "./modals/UpdateModal.js";
 import { EditorSettings } from "./settings/EditorSettings.js";
+import { HearthSettings } from "./settings/HearthSettings.js";
 import { LspInstallSearch } from "./settings/LspInstallSearch.js";
 import { MCPSettings } from "./settings/MCPSettings.js";
 import { ProviderSettings } from "./settings/ProviderSettings.js";
@@ -263,6 +264,8 @@ import {
   subscribeProviderStatuses,
 } from "../core/llm/provider.js";
 import type { PrerequisiteStatus } from "../core/setup/prerequisites.js";
+import { getEditedFilesForTab } from "../core/tools/edit-stack.js";
+import { useMCPStore } from "../stores/mcp.js";
 
 interface Props {
   config: AppConfig;
@@ -530,6 +533,7 @@ export function App({
   const modalStatusDashboard = useUIStore((s) => s.modals.statusDashboard);
   const modalToolsPopup = useUIStore((s) => s.modals.toolsPopup);
   const modalMCPSettings = useUIStore((s) => s.modals.mcpSettings);
+  const modalHearthSettings = useUIStore((s) => s.modals.hearthSettings);
   const modalFirstRunWizard = useUIStore((s) => s.modals.firstRunWizard);
   const modalUpdateModal = useUIStore((s) => s.modals.updateModal);
   const modalTabNamePopup = useUIStore((s) => s.modals.tabNamePopup);
@@ -854,6 +858,231 @@ export function App({
     }
   }, []);
 
+  // ── Hearth bootstrap + auto-claim ────────────────────────────────────────
+  // One-shot per process: restore bridge bindings from disk, start the TUI-side
+  // SurfaceHost (no-op if another process owns the bridge lock), then pull any
+  // daemon-owned workspaces for this cwd. Claimed sessions rehydrate as real
+  // TUI tabs via `tabMgr.restoreFromMeta` so history, tool state, and plan
+  // review survive the hand-off.
+  const hasBootedHearthRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-time boot
+  useEffect(() => {
+    if (hasBootedHearthRef.current) return;
+    hasBootedHearthRef.current = true;
+    void (async () => {
+      try {
+        const [
+          { hearthBridge },
+          { getTuiHost },
+          { autoClaimDaemonWorkspaces, bindClaimedSessions },
+        ] = await Promise.all([
+          import("../hearth/bridge.js"),
+          import("../hearth/tui-host.js"),
+          import("../hearth/claim.js"),
+        ]);
+        hearthBridge.restoreFromDisk();
+        hearthBridge.setTabListProvider(() =>
+          tabMgrRef.current.tabs.map((t) => ({ id: t.id, label: t.label })),
+        );
+        hearthBridge.setTuiActions({
+          createTab: (label?: string) => tabMgrRef.current.createTab(label),
+          closeTab: (id: string) => tabMgrRef.current.closeTab(id),
+          getTabStatus: (tabId: string) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            const tab = tabMgrRef.current.tabs.find((t) => t.id === tabId);
+            if (!chat || !tab) return null;
+            return {
+              tabId,
+              label: tab.label,
+              activeModel: chat.activeModel,
+              forgeMode: chat.forgeMode,
+              isLoading: chat.isLoading,
+              messageCount: chat.messages.length,
+              tokenUsage: {
+                input: chat.tokenUsage.prompt,
+                output: chat.tokenUsage.completion,
+              },
+              cwd: cwd,
+              queueCount: chat.messageQueue.length,
+            };
+          },
+          setActiveModel: (tabId, model) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return false;
+            chat.setActiveModel(model);
+            return true;
+          },
+          setForgeMode: (tabId, mode) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return false;
+            const valid = ["default", "architect", "socratic", "challenge", "plan", "auto"];
+            if (!valid.includes(mode)) return false;
+            chat.setForgeMode(mode as import("../types/index.js").ForgeMode);
+            return true;
+          },
+          clearTab: (tabId) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return false;
+            chat.setMessages([]);
+            chat.setCoreMessages([]);
+            chat.setMessageQueue([]);
+            chat.setActivePlan(null);
+            chat.setSidebarPlan(null);
+            return true;
+          },
+          getCost: (tabId) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return null;
+            return {
+              input: chat.tokenUsage.prompt,
+              output: chat.tokenUsage.completion,
+              cacheRead: chat.tokenUsage.cacheRead,
+            };
+          },
+          getQueue: (tabId) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return [];
+            return chat.messageQueue.map((q) => q.content);
+          },
+          appendQueue: (tabId, text) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return false;
+            chat.setMessageQueue((q) => [
+              ...q,
+              { id: crypto.randomUUID(), content: text, queuedAt: Date.now() },
+            ]);
+            return true;
+          },
+          getCwd: (_tabId) => cwd,
+          getDiff: (tabId) => {
+            try {
+              const files = getEditedFilesForTab(tabId);
+              if (files.length === 0) return "(no edits in this tab yet)";
+              return files.map((f) => `${String(f.edits).padStart(3)} × ${f.path}`).join("\n");
+            } catch {
+              return "(diff unavailable)";
+            }
+          },
+          getFiles: (_tabId) => "(run /diff for a per-tab edit list)",
+          listSessions: (limit = 10) => {
+            try {
+              const entries = sessionManager.listSessions();
+              return entries.slice(0, limit).map((e) => ({
+                id: e.id,
+                title: e.title,
+                updatedAt: e.updatedAt,
+              }));
+            } catch {
+              return [];
+            }
+          },
+          resumeSession: (_idPrefix) => ({
+            ok: false,
+            error: "resume from remote not yet wired — use TUI /sessions",
+          }),
+          listCheckpoints: (_tabId) => [],
+          undoCheckpoint: (_tabId, _idx) => ({
+            ok: false,
+            error: "remote undo not yet wired — use TUI Ctrl+Z",
+          }),
+          listAgents: (_tabId) => [],
+          cancelAgent: (_tabId, _id) => false,
+          listMcp: () => {
+            try {
+              const servers = useMCPStore.getState().servers;
+              return Object.values(servers).map((s) => ({
+                name: s.config.name,
+                enabled: !s.config.disabled,
+                status: s.status,
+              }));
+            } catch {
+              return [];
+            }
+          },
+          toggleMcp: (_name) => ({
+            ok: false,
+            error: "remote mcp toggle not yet wired — use TUI /mcp",
+          }),
+          setNotifyMode: (_tabId, _mode) => false,
+          sendToTab: (tabId, text) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return false;
+            void chat.handleSubmit(text, undefined, { origin: "telegram" });
+            return true;
+          },
+          findInTab: (tabId, query, limit = 10) => {
+            const chat = tabMgrRef.current.getChat(tabId);
+            if (!chat) return [];
+            const q = query.toLowerCase();
+            const hits: Array<{ msgId: string; snippet: string }> = [];
+            for (const m of chat.messages) {
+              const content = typeof m.content === "string" ? m.content : "";
+              const idx = content.toLowerCase().indexOf(q);
+              if (idx < 0) continue;
+              const start = Math.max(0, idx - 30);
+              const end = Math.min(content.length, idx + query.length + 60);
+              hits.push({
+                msgId: m.id,
+                snippet: `${start > 0 ? "…" : ""}${content.slice(start, end)}${end < content.length ? "…" : ""}`,
+              });
+              if (hits.length >= limit) break;
+            }
+            return hits;
+          },
+          branchTab: (_tabId, _label) => ({
+            ok: false,
+            error: "branch from remote not yet wired",
+          }),
+        });
+        try {
+          await getTuiHost().start();
+        } catch {}
+        process.once("exit", () => {
+          void import("../hearth/tui-host.js").then(({ getTuiHost: g2 }) => {
+            void g2().stop();
+          });
+        });
+
+        // Skip auto-claim when we're already mid-resume from the CLI's
+        // --resume flag — that path already restored a full session and the
+        // user intent is "load that specific session", not "pick up whatever
+        // the daemon was running".
+        if (resumeSessionId) return;
+
+        const result = await autoClaimDaemonWorkspaces(cwd);
+        if (result.sessions.length === 0) return;
+
+        // Merge all claimed sessions into a single multi-tab restore. Pick the
+        // first session's activeTabId as the active; union all tab metas and
+        // messages. Daemon-side session ids don't collide (uuidv4).
+        const allTabMetas = result.sessions.flatMap((s) => s.meta.tabs);
+        const combinedMessages = new Map<string, ChatMessage[]>();
+        const combinedCore = new Map<string, import("ai").ModelMessage[]>();
+        let hasCore = false;
+        for (const s of result.sessions) {
+          for (const [tid, msgs] of s.tabMessages) combinedMessages.set(tid, msgs);
+          if (s.tabCoreMessages) {
+            hasCore = true;
+            for (const [tid, cm] of s.tabCoreMessages) combinedCore.set(tid, cm);
+          }
+        }
+        const activeId = result.sessions[0]?.meta.activeTabId ?? allTabMetas[0]?.id ?? "";
+        if (allTabMetas.length > 0 && activeId) {
+          tabMgrRef.current.restoreFromMeta(
+            allTabMetas,
+            activeId,
+            combinedMessages,
+            hasCore ? combinedCore : undefined,
+          );
+        }
+        // Bind surfaces → tabs now that tabs exist.
+        bindClaimedSessions(result.sessions);
+      } catch {
+        // Hearth unavailable / socket missing — silent.
+      }
+    })();
+  }, []);
+
   const [activeModelForHeader, setActiveModelForHeader] = useState(effectiveConfig.defaultModel);
   const activeChatRef = useRef<ChatInstance | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: derived from activeTabId — stable trigger
@@ -1072,6 +1301,7 @@ export function App({
         openWebSearchSettings: () => uiState.openModal("webSearchSettings"),
         openApiKeySettings: () => uiState.openModal("apiKeySettings"),
         openLspStatus: () => uiState.openModal("lspStatus"),
+        openHearthSettings: () => uiState.openModal("hearthSettings"),
         openCompactionLog: () => uiState.openModal("compactionLog"),
         openCommandPicker: (pickerConfig) => uiState.openCommandPicker(pickerConfig),
         openInfoPopup: (popupConfig) => uiState.openInfoPopup(popupConfig),
@@ -1468,6 +1698,8 @@ export function App({
         onSave={(servers, scope) => saveToScope({ mcpServers: servers }, scope)}
         onClose={getCloser("mcpSettings")}
       />
+
+      <HearthSettings visible={modalHearthSettings} onClose={getCloser("hearthSettings")} />
 
       <RouterSettings
         visible={modalRouterSettings && !routerSlotPicking}

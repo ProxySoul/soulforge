@@ -183,6 +183,28 @@ export function StatusDashboard({
   const rm = useRepoMapStore();
   const wk = useWorkerStore();
 
+  interface HearthStatusSummary {
+    running: boolean;
+    uptimeLabel: string;
+    connectedSurfaces: number;
+    totalSurfaces: number;
+    totalChats: number;
+    pendingApprovals: number;
+    stats: {
+      messagesIn: number;
+      eventsOut: number;
+      approvalsHandled: number;
+      approvalsAllowed: number;
+      approvalsDenied: number;
+      pairingsIssued: number;
+      tabsOpened: number;
+      turnsCompleted: number;
+      toolCalls: number;
+      workspacesEver: number;
+    };
+  }
+  const [hearth, setHearth] = useState<HearthStatusSummary | null>(null);
+
   useEffect(() => {
     if (visible) {
       setTab(initialTab ?? "Context");
@@ -190,6 +212,97 @@ export function StatusDashboard({
       setScopeTabId(tabMgr.activeTabId);
     }
   }, [visible, initialTab, tabMgr.activeTabId]);
+
+  // Probe Hearth daemon — dynamic import so the dependency is lazy.
+  useEffect(() => {
+    if (!visible) return;
+    let stopped = false;
+    const probe = async () => {
+      try {
+        const [{ loadHearthConfig }, { socketRequest }, { HEARTH_PROTOCOL_VERSION }] =
+          await Promise.all([
+            import("../../hearth/config.js"),
+            import("../../hearth/protocol.js"),
+            import("../../hearth/types.js"),
+          ]);
+        const cfg = loadHearthConfig();
+        const { existsSync } = await import("node:fs");
+        if (!existsSync(cfg.daemon.socketPath)) {
+          if (!stopped)
+            setHearth({
+              running: false,
+              uptimeLabel: "—",
+              connectedSurfaces: 0,
+              totalSurfaces: 0,
+              totalChats: 0,
+              pendingApprovals: 0,
+              stats: {
+                messagesIn: 0,
+                eventsOut: 0,
+                approvalsHandled: 0,
+                approvalsAllowed: 0,
+                approvalsDenied: 0,
+                pairingsIssued: 0,
+                tabsOpened: 0,
+                turnsCompleted: 0,
+                toolCalls: 0,
+                workspacesEver: 0,
+              },
+            });
+          return;
+        }
+        const res = (await socketRequest(
+          { op: "health", v: HEARTH_PROTOCOL_VERSION },
+          { path: cfg.daemon.socketPath, timeoutMs: 1500 },
+        )) as unknown as {
+          ok: boolean;
+          uptime: number;
+          pendingApprovals: number;
+          surfaces: { connected: boolean; chats: number }[];
+          stats?: HearthStatusSummary["stats"];
+        };
+        if (stopped) return;
+        const connected = res.surfaces.filter((s) => s.connected).length;
+        const total = res.surfaces.length;
+        const chats = res.surfaces.reduce((a, s) => a + s.chats, 0);
+        const s = Math.floor(res.uptime / 1000);
+        const uptimeLabel =
+          s < 60
+            ? `${String(s)}s`
+            : s < 3600
+              ? `${String(Math.floor(s / 60))}m ${String(s % 60)}s`
+              : `${String(Math.floor(s / 3600))}h ${String(Math.floor(s / 60) % 60)}m`;
+        setHearth({
+          running: res.ok === true,
+          uptimeLabel,
+          connectedSurfaces: connected,
+          totalSurfaces: total,
+          totalChats: chats,
+          pendingApprovals: res.pendingApprovals,
+          stats: res.stats ?? {
+            messagesIn: 0,
+            eventsOut: 0,
+            approvalsHandled: 0,
+            approvalsAllowed: 0,
+            approvalsDenied: 0,
+            pairingsIssued: 0,
+            tabsOpened: 0,
+            turnsCompleted: 0,
+            toolCalls: 0,
+            workspacesEver: 0,
+          },
+        });
+      } catch {
+        if (!stopped) setHearth(null);
+      }
+    };
+    void probe();
+    const iv = setInterval(() => void probe(), 4000);
+    return () => {
+      stopped = true;
+      clearInterval(iv);
+    };
+  }, [visible]);
 
   const pollWorkerMemory = useCallback(async () => {
     const store = useWorkerStore.getState();
@@ -927,8 +1040,115 @@ export function StatusDashboard({
       />,
     );
 
+    // Hearth daemon lifetime stats — rendered when the daemon is reachable.
+    if (hearth) {
+      lines.push(<Spacer key="s-hearth" innerW={innerW} />);
+      lines.push(<SectionHeader key="h-hearth" label="Hearth" innerW={innerW} />);
+      lines.push(
+        <EntryRow
+          key="h-status"
+          label="  Status"
+          value={hearth.running ? "running" : "offline"}
+          valueColor={hearth.running ? t.success : t.textMuted}
+          innerW={innerW}
+        />,
+      );
+      if (hearth.running) {
+        lines.push(
+          <EntryRow
+            key="h-uptime"
+            label="  Uptime"
+            value={hearth.uptimeLabel}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-surfaces"
+            label="  Surfaces"
+            value={`${String(hearth.connectedSurfaces)}/${String(hearth.totalSurfaces)} connected · ${String(hearth.totalChats)} chats`}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-msgs"
+            label="  Messages in"
+            value={String(hearth.stats.messagesIn)}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-events"
+            label="  Events out"
+            value={String(hearth.stats.eventsOut)}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-turns"
+            label="  Turns completed"
+            value={String(hearth.stats.turnsCompleted)}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-tools"
+            label="  Tool calls"
+            value={String(hearth.stats.toolCalls)}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-appr"
+            label="  Approvals"
+            value={`${String(hearth.stats.approvalsHandled)} (${String(hearth.stats.approvalsAllowed)} allow · ${String(hearth.stats.approvalsDenied)} deny)`}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-pending"
+            label="  Pending approvals"
+            value={String(hearth.pendingApprovals)}
+            valueColor={hearth.pendingApprovals > 0 ? t.warning : t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-tabs"
+            label="  Tabs opened"
+            value={`${String(hearth.stats.tabsOpened)} (${String(hearth.stats.workspacesEver)} workspaces)`}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+        lines.push(
+          <EntryRow
+            key="h-pair"
+            label="  Pairings issued"
+            value={String(hearth.stats.pairingsIssued)}
+            valueColor={t.textPrimary}
+            innerW={innerW}
+          />,
+        );
+      }
+    }
+
     return lines;
-  }, [sb, rm, wk, currentMode, currentModeLabel, innerW, t, lspCount]);
+  }, [sb, rm, wk, currentMode, currentModeLabel, innerW, t, lspCount, hearth]);
 
   const activeLines = tab === "Context" ? contextLines : systemLines;
   const clampedScroll = Math.min(scrollOffset, Math.max(0, activeLines.length - maxVisible));

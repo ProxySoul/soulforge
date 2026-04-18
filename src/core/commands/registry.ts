@@ -5,6 +5,7 @@ import { matchConfigPrefix, register as registerConfig } from "./config.js";
 import { matchContextPrefix, register as registerContext } from "./context.js";
 import { register as registerDebug } from "./debug.js";
 import { matchGitPrefix, register as registerGit } from "./git.js";
+import { register as registerHearth } from "./hearth.js";
 import { register as registerHooks } from "./hooks.js";
 import { matchNavPrefix, register as registerNavigation } from "./navigation.js";
 import { register as registerProxy } from "./proxy.js";
@@ -27,6 +28,7 @@ registerStorage(commandMap);
 registerSecurity(commandMap);
 registerClaims(commandMap);
 registerCodex(commandMap);
+registerHearth(commandMap);
 registerHooks(commandMap);
 registerCheckpoint(commandMap);
 
@@ -880,8 +882,67 @@ const COMMAND_DEFS: CommandDef[] = [
   },
 ];
 
+const HEARTH_COMMAND_DEFS: CommandDef[] = [
+  {
+    cmd: "/hearth",
+    ic: "network",
+    desc: "Hearth — open settings (surfaces, daemon, pairings, logs)",
+    category: "System",
+    tags: ["remote", "telegram", "discord", "imessage", "settings"],
+  },
+  {
+    cmd: "/hearth settings",
+    ic: "network",
+    desc: "Open the Hearth settings dashboard",
+    category: "System",
+    tags: ["remote", "ui", "panel"],
+  },
+  {
+    cmd: "/hearth status",
+    ic: "network",
+    desc: "Daemon + surface health",
+    category: "System",
+    tags: ["remote", "status"],
+  },
+  {
+    cmd: "/hearth login",
+    ic: "key",
+    desc: "Store a bot token in keychain",
+    category: "System",
+    tags: ["telegram", "discord", "auth"],
+  },
+  {
+    cmd: "/hearth pair",
+    ic: "key",
+    desc: "Mint a pairing code for a surface",
+    category: "System",
+    tags: ["pair", "code"],
+  },
+  {
+    cmd: "/hearth bind",
+    ic: "link",
+    desc: "Bind the active tab to a Hearth chat (Telegram/Discord/iMessage)",
+    category: "System",
+    tags: ["bind", "telegram", "mirror"],
+  },
+  {
+    cmd: "/hearth unbind",
+    ic: "link",
+    desc: "Clear all active tab ↔ chat bindings",
+    category: "System",
+    tags: ["unbind"],
+  },
+  {
+    cmd: "/hearth docs",
+    ic: "book",
+    desc: "Open Hearth documentation",
+    category: "System",
+    tags: ["help", "docs"],
+  },
+];
+
 export function getCommandDefs(): CommandDef[] {
-  return COMMAND_DEFS;
+  return [...COMMAND_DEFS, ...HEARTH_COMMAND_DEFS];
 }
 
 export type { CommandContext, CommandHandler };

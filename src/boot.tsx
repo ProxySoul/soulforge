@@ -2,6 +2,16 @@
 
 globalThis.AI_SDK_LOG_WARNINGS = false;
 
+// Replace Bun's native fetch with undici before any provider/module loads.
+// See src/core/llm/http-agent.ts for rationale.
+import { installGlobalFetch } from "./core/llm/http-agent.js";
+// Reap orphaned LSP processes from previous sessions BEFORE anything else.
+// Synchronous so a crashed-during-boot run still cleans up its predecessors.
+import { reapOrphanedLspProcesses } from "./core/intelligence/backends/lsp/pid-tracker.js";
+
+installGlobalFetch();
+reapOrphanedLspProcesses();
+
 const cliArgs = process.argv.slice(2);
 const hasCli =
   cliArgs.includes("--headless") ||
@@ -12,6 +22,23 @@ const hasCli =
   cliArgs.includes("-v") ||
   cliArgs.includes("--help") ||
   cliArgs.includes("-h");
+
+// `soulforge hearth <sub>` takes precedence over the TUI boot path.
+if (cliArgs[0] === "hearth") {
+  const { parseHearthArgs, runHearthCli } = await import("./hearth/cli.js");
+  const action = parseHearthArgs(cliArgs.slice(1));
+  const code = await runHearthCli(action);
+  process.exit(code);
+}
+
+// `soulforge remote <sub>` re-exports the permission CLI so users don't need
+// the separate `soulforge-remote` bin on their PATH.
+if (cliArgs[0] === "remote") {
+  process.argv = [process.argv[0] ?? "bun", process.argv[1] ?? "soulforge", ...cliArgs.slice(1)];
+  await import("./hearth/approve-cli.js");
+  // approve-cli calls process.exit itself
+  process.exit(0);
+}
 
 if (hasCli) {
   const { parseHeadlessArgs, runHeadless } = await import("./headless/index.js");
@@ -418,27 +445,27 @@ if (!getVendoredPath("lazygit")) {
 }
 
 status("Reaching out to the LLM gods", "Negotiating API keys");
-const { checkProviders } = await import("./core/llm/provider.js");
+const { checkProviders, notifyProviderSwitch } = await import("./core/llm/provider.js");
 const { checkPrerequisites } = await import("./core/setup/prerequisites.js");
 const { prewarmAllModels } = await import("./core/llm/models.js");
 const [bootProviders, bootPrereqs] = await Promise.all([
   checkProviders(),
   Promise.resolve(checkPrerequisites()),
 ]);
-// Pre-warm model caches AFTER boot-critical work completes.
-// Kill orphaned LSP processes from previous sessions (crashes, SIGKILL, etc.)
-import("./core/intelligence/backends/lsp/pid-tracker.js")
-  .then(({ reapOrphanedLspProcesses }) => {
-    const killed = reapOrphanedLspProcesses();
-    if (killed > 0) {
+
+// Auto-activate the saved provider (starts proxy if defaultModel is proxy/*).
+// Without this the proxy stays dormant until the user re-selects it in /model.
+{
+  const bootModel = projectConfig?.defaultModel ?? config.defaultModel;
+  if (bootModel && bootModel !== "none") {
+    notifyProviderSwitch(bootModel).catch((err) => {
       logBackgroundError(
         "boot",
-        `Reaped ${String(killed)} orphaned LSP process(es) from previous session`,
+        `provider activation failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    }
-  })
-  .catch(() => {});
-
+    });
+  }
+}
 // Fire-and-forget — populates caches in background so Ctrl+L opens instantly.
 prewarmAllModels();
 
