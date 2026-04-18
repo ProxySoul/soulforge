@@ -3,6 +3,7 @@ import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
 import { ToolLoopAgent } from "ai";
 import { z } from "zod";
+import { loadConfig } from "../../config/index.js";
 import type {
   AgentFeatures,
   EditorIntegration,
@@ -21,6 +22,7 @@ import {
   supportsTemperature,
 } from "../llm/provider-options.js";
 import { getMCPManager } from "../mcp/index.js";
+import { resolveRetrySettings } from "../retry/settings.js";
 import {
   buildInteractiveTools,
   buildTools,
@@ -733,9 +735,12 @@ export function createForgeAgent({
     },
   } as ProviderOptions;
 
+  const { maxRetries: retryMaxRetries } = resolveRetrySettings(loadConfig().retry);
+
   return new ToolLoopAgent({
     id: "forge",
     model,
+    maxRetries: retryMaxRetries,
     ...(supportsTemperature(fullModelId ?? getModelId(model)) ? { temperature: 0 } : {}),
     // maxOutputTokens: 16384,
     tools: allTools,

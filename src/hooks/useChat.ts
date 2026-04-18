@@ -2018,7 +2018,9 @@ export function useChat({
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             const isTransient =
-              /overloaded|529|429|rate.?limit|too many requests|503|502|timeout/i.test(msg);
+              /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
+                msg,
+              );
             if (!isTransient || retry === MAX_TRANSIENT_RETRIES || abortController.signal.aborted) {
               throw err;
             }

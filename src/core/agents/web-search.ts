@@ -1,7 +1,9 @@
 import type { LanguageModel } from "ai";
 import { stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
+import { loadConfig } from "../../config/index.js";
 import { getModelId, supportsTemperature } from "../llm/provider-options.js";
+import { resolveRetrySettings } from "../retry/settings.js";
 import { fetchPageTool } from "../tools/fetch-page.js";
 import { webSearchScraper } from "../tools/web-search-scraper.js";
 import { repairToolCall, sanitizeToolInputsStep } from "./stream-options.js";
@@ -24,9 +26,14 @@ export function createWebSearchAgent(
   model: LanguageModel,
   opts?: { onApproveFetchPage?: (url: string) => Promise<boolean> },
 ) {
+  const { maxRetries: retryMaxRetries } = resolveRetrySettings(loadConfig().retry, {
+    agent: true,
+  });
+
   return new ToolLoopAgent({
     id: "web-search",
     model,
+    maxRetries: retryMaxRetries,
     ...(supportsTemperature(getModelId(model)) ? { temperature: 0 } : {}),
     tools: {
       web_search: tool({
