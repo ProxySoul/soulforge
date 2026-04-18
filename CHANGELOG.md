@@ -2,6 +2,21 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.13.0] — 2026-04-18
+
+### Bug Fixes
+
+- validate restored core messages and preserve tool prototype chains
+### Documentation
+
+- **prompts**: drop outdated absolute-paths rule
+### Features
+
+- **landing**: stronger tint, flame stays alive at breath trough
+- **landing**: wordmark breath pulse, deeper flame lighting
+- **landing**: animated flame+wordmark logo
+- **proxy**: add Opus 4.7 support, auto-upgrade stale proxy binary
+- **splash**: hand-drawn ASCII wordmark with animated boot/shutdown
 ## [2.12.3] — 2026-04-16
 
 ### Features
