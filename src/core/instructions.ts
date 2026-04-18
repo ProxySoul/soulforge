@@ -16,7 +16,7 @@ export const INSTRUCTION_SOURCES: InstructionSource[] = [
   {
     id: "soulforge",
     label: "SOULFORGE.md",
-    files: ["SOULFORGE.md", ".soulforge/instructions.md"],
+    files: ["SOULFORGE.md", ".soulforge/SOULFORGE.md", ".soulforge/instructions.md"],
     defaultEnabled: true,
   },
   {

@@ -39,14 +39,14 @@ describe("instruction loading", () => {
 
   it("loads global instructions from the home directory", () => {
     mkdirSync(join(homeDir, ".soulforge"), { recursive: true });
-    writeFileSync(join(homeDir, ".soulforge", "instructions.md"), "global soulforge");
+    writeFileSync(join(homeDir, ".soulforge", "SOULFORGE.md"), "global soulforge");
 
     const loaded = loadInstructions(projectDir, ["soulforge"], { homeDir });
 
     expect(loaded).toHaveLength(1);
     expect(loaded[0]).toMatchObject({
       source: "soulforge",
-      file: ".soulforge/instructions.md",
+      file: ".soulforge/SOULFORGE.md",
       scope: "global",
       content: "global soulforge",
     });
@@ -78,20 +78,21 @@ describe("instruction loading", () => {
   it("keeps both scopes when project and global instructions share source", () => {
     writeFileSync(join(projectDir, "SOULFORGE.md"), "project soulforge");
     mkdirSync(join(homeDir, ".soulforge"), { recursive: true });
-    writeFileSync(join(homeDir, ".soulforge", "instructions.md"), "global soulforge");
+    writeFileSync(join(homeDir, ".soulforge", "SOULFORGE.md"), "global soulforge");
 
     const loaded = loadInstructions(projectDir, ["soulforge"], { homeDir });
     const prompt = buildInstructionPrompt(loaded);
 
     expect(loaded.map((inst) => inst.scope)).toEqual(["project", "global"]);
     expect(loaded.map((inst) => inst.content)).toEqual(["project soulforge", "global soulforge"]);
+    expect(loaded.map((inst) => inst.file)).toEqual(["SOULFORGE.md", ".soulforge/SOULFORGE.md"]);
     expect(prompt.indexOf("global soulforge")).toBeGreaterThan(prompt.indexOf("project soulforge"));
   });
 
   it("loads global instructions from homedir() by default", () => {
     const actualHome = process.env.HOME ?? tmpdir();
     const homeInstructionsDir = join(actualHome, ".soulforge");
-    const instructionsFile = join(homeInstructionsDir, "instructions.md");
+    const instructionsFile = join(homeInstructionsDir, "SOULFORGE.md");
     let previousContent: string | null = null;
     let hadPrevious = false;
 
@@ -109,7 +110,7 @@ describe("instruction loading", () => {
       expect(loaded).toHaveLength(1);
       expect(loaded[0]).toMatchObject({
         source: "soulforge",
-        file: ".soulforge/instructions.md",
+        file: ".soulforge/SOULFORGE.md",
         scope: "global",
         content: "global soulforge",
       });
@@ -138,7 +139,7 @@ describe("instruction loading", () => {
   it("dedupes symlinked global file targeting project instruction", () => {
     writeFileSync(join(projectDir, "SOULFORGE.md"), "project soulforge");
     mkdirSync(join(homeDir, ".soulforge"), { recursive: true });
-    symlinkSync(join(projectDir, "SOULFORGE.md"), join(homeDir, ".soulforge", "instructions.md"));
+    symlinkSync(join(projectDir, "SOULFORGE.md"), join(homeDir, ".soulforge", "SOULFORGE.md"));
 
     const loaded = loadInstructions(projectDir, ["soulforge"], { homeDir });
 
