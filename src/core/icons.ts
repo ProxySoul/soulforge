@@ -117,6 +117,7 @@ const NERD: Record<string, string> = {
   cloud: "󰒍",
   rewind: "󰕌",
   checkpoint: "󰜉",
+  morph: "",
 };
 
 const ASCII: Record<string, string> = {
@@ -236,6 +237,7 @@ const ASCII: Record<string, string> = {
   cloud: "☁",
   rewind: "↶",
   checkpoint: "◆",
+  morph: "✦",
 };
 
 let _nerdFont: boolean | null = null;

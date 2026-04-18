@@ -1,11 +1,12 @@
-import { readFile, stat as statAsync, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, stat as statAsync, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import type { SurgicalOperation } from "../intelligence/backends/ts-morph.js";
 import { TsMorphBackend } from "../intelligence/backends/ts-morph.js";
 import { isForbidden } from "../security/forbidden.js";
+import { displayPath } from "../utils/path-display.js";
 import { formatMetricDelta } from "./edit-file.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
@@ -81,11 +82,18 @@ function getBackend(cwd: string): TsMorphBackend {
 export const astEditTool = {
   name: "ast_edit",
   description:
-    "[Experimental] AST-addressed edit for TS/JS files. Locates symbols by target+name, replaces entire body with newCode. " +
-    "No oldString needed — ts-morph AST finds the exact location and handles replacement. " +
-    "Single symbol: pass target, name, newCode. " +
-    "Multiple symbols (atomic): pass symbols array [{target, name, newCode}, ...]. " +
-    "All-or-nothing: if any symbol lookup fails, zero edits are applied.",
+    "[TIER-1, PREFER FOR TS/JS] AST-addressed edit for TS/JS files (.ts, .tsx, .js, .jsx, .mts, .cts, .mjs, .cjs). " +
+    "First-choice tool over edit_file/multi_edit when the project is TS/JS — locates symbols by target+name via ts-morph AST, " +
+    "no oldString, no whitespace/escape failures, no line-offset drift. " +
+    'Creates new files: action="create_file", newCode=<full file content>. ' +
+    "Single op: pass action, target, name, newCode/value. " +
+    "Multi-op (atomic, single file): pass operations array [{action, target, name, ...}, ...] — all-or-nothing rollback. " +
+    "Idempotent: add_import / add_named_import / add_named_reexport merge into existing declarations, add_constructor modifies if one exists. " +
+    "Safe defaults: rename = declaration-only (use rename_global for project-wide). " +
+    "AST-anchored text fallback: replace_in_body for substring tweaks inside a symbol's body. " +
+    "CANNOT target: anonymous callbacks (inline arrows/IIFEs/object-literal methods without names), discriminated-union members inside a type alias (use `replace` on target:'type' + name=AliasName + newCode=<full alias text>). " +
+    "For arrow-functions stored in `const foo = async (…) => {…}` use target:'arrow_function' + name='foo'. " +
+    "insert_text REQUIRES an anchor: index=0 top, index=-1 bottom, value='after-imports'|'before-exports', or numeric slot. No silent default.",
   execute: async (args: AstEditArgs): Promise<ToolResult> => {
     try {
       const filePath = resolve(args.path);
@@ -123,6 +131,55 @@ export const astEditTool = {
         return { success: false, output: msg, error: "missing parameters" };
       }
 
+      // ── Fast path: create_file ────────────────────────────────────────
+      // Must be the sole operation — creating a file that already exists is an
+      // error (use a regular ast_edit for modifications).
+      if (ops.length === 1 && ops[0]?.action === "create_file") {
+        const op = ops[0];
+        const content = op.newCode ?? "";
+        let exists = false;
+        try {
+          await statAsync(filePath);
+          exists = true;
+        } catch {
+          exists = false;
+        }
+        if (exists) {
+          const msg = `File already exists: ${filePath}. Use ast_edit with a non-create_file action to modify it.`;
+          return { success: false, output: msg, error: "file exists" };
+        }
+        try {
+          await mkdir(dirname(filePath), { recursive: true });
+          const beforeMetrics = analyzeFile("");
+          const afterMetrics = analyzeFile(content);
+          const diagsPromise = startPreEditDiagnostics(filePath);
+
+          pushEdit(filePath, "", content, args.tabId);
+          await writeFile(filePath, content, "utf-8");
+          markToolWrite(filePath);
+          emitFileEdited(filePath, content);
+          reloadBuffer(filePath, 1).catch(() => {});
+
+          const deltas = [
+            formatMetricDelta("lines", beforeMetrics.lineCount, afterMetrics.lineCount),
+            formatMetricDelta("imports", beforeMetrics.importCount, afterMetrics.importCount),
+          ].filter(Boolean);
+
+          let output = `Created ${displayPath(filePath)} (${String(content.split("\n").length)} lines)`;
+          if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
+          output = await appendAutoFormatResult(filePath, content, output, args.tabId);
+          output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
+          return { success: true, output };
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            success: false,
+            output: `Failed to create ${displayPath(filePath)}: ${msg}`,
+            error: msg,
+          };
+        }
+      }
+
       try {
         await statAsync(filePath);
       } catch (err: unknown) {
@@ -130,7 +187,7 @@ export const astEditTool = {
         const msg =
           code === "EACCES" || code === "EPERM"
             ? `Permission denied: ${filePath}`
-            : `File not found: ${filePath}`;
+            : `File not found: ${filePath}. Use ast_edit with action="create_file" and newCode=<content> to create it.`;
         return { success: false, output: msg, error: msg };
       }
 
@@ -184,9 +241,9 @@ export const astEditTool = {
 
       let output: string;
       if (details.length === 1) {
-        output = `Edited ${filePath} → ${details[0]}`;
+        output = `Edited ${displayPath(filePath)} → ${details[0]}`;
       } else {
-        output = `Applied ${String(details.length)} AST operations to ${filePath}:\n${details.map((d: string) => `  • ${d}`).join("\n")}`;
+        output = `Applied ${String(details.length)} AST operations to ${displayPath(filePath)}:\n${details.map((d: string) => `  • ${d}`).join("\n")}`;
       }
       if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
 

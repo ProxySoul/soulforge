@@ -17,6 +17,87 @@ import type {
   UnusedItem,
 } from "../types.js";
 
+/**
+ * Valid `target` kinds for each symbol-targeted action.
+ * Powers missing-target hints and "Cannot X on Y" redirects so agents never
+ * see a generic "requires target and name" without knowing which kinds apply.
+ *
+ * Absent from this map = action is file-level (no target required) OR accepts
+ * any target with a duck-typed ts-morph method check.
+ */
+const ACTION_VALID_TARGETS: Record<string, readonly string[]> = {
+  // body-bearing callables
+  set_body: ["function", "method", "arrow_function", "constructor"],
+  add_statement: ["function", "method", "arrow_function", "constructor"],
+  insert_statement: ["function", "method", "arrow_function", "constructor"],
+  remove_statement: ["function", "method", "arrow_function", "constructor"],
+  set_return_type: ["function", "method", "arrow_function"],
+  set_async: ["function", "method", "arrow_function"],
+  set_generator: ["function", "method"],
+  add_parameter: ["function", "method", "arrow_function", "constructor"],
+  remove_parameter: ["function", "method", "arrow_function", "constructor"],
+  add_overload: ["function", "method"],
+  // type-bearing
+  set_type: ["variable", "constant", "property", "parameter"],
+  set_initializer: ["variable", "constant", "property"],
+  remove_initializer: ["variable", "constant", "property"],
+  set_declaration_kind: ["variable", "constant"],
+  // structural
+  add_property: ["class", "interface", "property"],
+  remove_property: ["class", "interface"],
+  add_method: ["class", "interface", "method"],
+  remove_method: ["class", "interface"],
+  add_member: ["class", "interface", "enum"],
+  remove_member: ["class", "interface", "enum"],
+  add_constructor: ["class"],
+  add_getter: ["class"],
+  add_setter: ["class"],
+  set_extends: ["class"],
+  remove_extends: ["class"],
+  add_extends: ["interface"],
+  add_implements: ["class"],
+  remove_implements: ["class"],
+  extract_interface: ["class"],
+  set_value: ["enum"],
+  set_const_enum: ["enum"],
+  // modifiers
+  set_export: ["function", "class", "interface", "type", "enum", "variable", "constant"],
+  set_default_export: ["function", "class", "interface", "variable"],
+  set_abstract: ["class", "method"],
+  set_static: ["property", "method"],
+  set_readonly: ["property"],
+  set_scope: ["property", "method", "constructor"],
+  set_optional: ["property", "parameter", "method"],
+  set_overrides: ["method", "property"],
+  set_ambient: ["function", "class", "interface", "type", "enum", "variable"],
+  // shared
+  add_decorator: ["class", "method", "property"],
+  remove_decorator: ["class", "method", "property"],
+  add_type_parameter: ["function", "class", "interface", "type", "method"],
+  add_jsdoc: ["function", "class", "interface", "type", "enum", "method", "property", "variable"],
+  remove_jsdoc: [
+    "function",
+    "class",
+    "interface",
+    "type",
+    "enum",
+    "method",
+    "property",
+    "variable",
+  ],
+  unwrap: ["function", "namespace"],
+};
+
+function validTargetsFor(action: string): readonly string[] | undefined {
+  return ACTION_VALID_TARGETS[action];
+}
+
+function targetsHint(action: string): string {
+  const valid = validTargetsFor(action);
+  if (!valid || valid.length === 0) return "";
+  return ` Valid targets for ${action}: ${valid.map((t) => `"${t}"`).join(", ")}.`;
+}
+
 // Lazy import to avoid loading ts-morph until needed
 type TsMorphModule = typeof import("ts-morph");
 type Project = import("ts-morph").Project;
@@ -44,6 +125,51 @@ export type SurgicalResult =
   | { ok: false; error: string };
 
 let tsMorphModule: TsMorphModule | null = null;
+
+/** Damerau-Levenshtein-ish distance — small, good enough for "did you mean" hints. */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const prev: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const curr = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const del = (prev[j] ?? 0) + 1;
+      const ins = (curr[j - 1] ?? 0) + 1;
+      const sub = (prev[j - 1] ?? 0) + cost;
+      curr.push(Math.min(del, ins, sub));
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j] ?? 0;
+  }
+  return prev[b.length] ?? 0;
+}
+
+/**
+ * Pick the closest symbol name (case-insensitive) from a list of listing strings
+ * produced by `listSymbolsOfKind`. Returns null if none are within threshold.
+ */
+function closestSymbolName(needle: string, listings: string[]): string | null {
+  if (!needle || listings.length === 0) return null;
+  // Listings look like: `function "foo" (line 42)` — extract the quoted name.
+  const candidates: string[] = [];
+  for (const line of listings) {
+    const m = /"([^"]+)"/.exec(line);
+    if (m?.[1]) candidates.push(m[1]);
+  }
+  if (candidates.length === 0) return null;
+  const target = needle.toLowerCase();
+  const threshold = Math.max(2, Math.ceil(needle.length * 0.4));
+  let best: { name: string; d: number } | null = null;
+  for (const c of candidates) {
+    // Strip dot-notation prefix for matching so "getUser" matches "UserService.getUser".
+    const bare = c.includes(".") ? (c.split(".").pop() ?? c) : c;
+    const d = editDistance(target, bare.toLowerCase());
+    if (d <= threshold && (!best || d < best.d)) best = { name: c, d };
+  }
+  return best?.name ?? null;
+}
 
 async function getTsMorph(): Promise<TsMorphModule> {
   if (!tsMorphModule) {
@@ -881,6 +1007,7 @@ export class TsMorphBackend implements IntelligenceBackend {
     "set_ambient",
     "set_const_enum",
     "rename",
+    "rename_global",
     "remove",
     "add_parameter",
     "remove_parameter",
@@ -915,13 +1042,16 @@ export class TsMorphBackend implements IntelligenceBackend {
     "extract_interface",
     // ── Tier 3: Full replacement ──
     "replace",
+    "replace_in_body",
     // ── File-level operations ──
+    "create_file",
     "add_import",
     "remove_import",
     "add_named_import",
     "remove_named_import",
     "set_module_specifier",
     "add_export_declaration",
+    "add_named_reexport",
     "add_namespace",
     "organize_imports",
     "fix_missing_imports",
@@ -966,8 +1096,15 @@ export class TsMorphBackend implements IntelligenceBackend {
 
     const after = sourceFile.getFullText();
 
-    // If nothing changed, report it
+    // If nothing changed, distinguish "idempotent success" (every op explicitly
+    // reported a no-op) from "buggy operation that produced no diff".
     if (before === after) {
+      const allIdempotent = details.every((d) =>
+        /already present|nothing to add|nothing to do|no-op/i.test(d),
+      );
+      if (allIdempotent) {
+        return { ok: true, before, after, details };
+      }
       return { ok: false, error: "No changes produced by the operations." };
     }
 
@@ -1003,17 +1140,53 @@ export class TsMorphBackend implements IntelligenceBackend {
         return "Fixed unused identifiers";
 
       case "add_import": {
-        if (!op.value) throw new Error("add_import requires value (module specifier)");
-        const namedImports = op.newCode
-          ?.split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
+        if (!op.value)
+          throw new Error(
+            'add_import requires value (module specifier, e.g. "node:fs"). ' +
+              "Pass named imports via newCode (comma-separated), default import via name. " +
+              'Example: { action:"add_import", value:"node:fs", newCode:"readFile, writeFile" }',
+          );
+        const desiredNamed =
+          op.newCode
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean) ?? [];
+        const desiredDefault = op.name?.trim();
+
+        // Idempotent: merge into existing import of the same module specifier so
+        // calling add_import repeatedly (or after edit_file) is safe.
+        const existing = sf.getImportDeclaration(op.value);
+        if (existing) {
+          const addedNamed: string[] = [];
+          const existingNames = new Set(existing.getNamedImports().map((n) => n.getName()));
+          for (const n of desiredNamed) {
+            if (!existingNames.has(n)) {
+              existing.addNamedImport(n);
+              addedNamed.push(n);
+            }
+          }
+          let addedDefault = "";
+          if (desiredDefault && !existing.getDefaultImport()) {
+            existing.setDefaultImport(desiredDefault);
+            addedDefault = desiredDefault;
+          }
+          if (addedNamed.length === 0 && !addedDefault) {
+            return `Import from "${op.value}" already present — nothing to add`;
+          }
+          const parts: string[] = [];
+          if (addedDefault) parts.push(addedDefault);
+          if (addedNamed.length) parts.push(`{ ${addedNamed.join(", ")} }`);
+          return `Merged import ${parts.join(", ")} into existing "${op.value}"`;
+        }
+
         sf.addImportDeclaration({
           moduleSpecifier: op.value,
-          ...(namedImports && namedImports.length > 0 ? { namedImports } : {}),
-          ...(op.name ? { defaultImport: op.name } : {}),
+          ...(desiredNamed.length > 0 ? { namedImports: desiredNamed } : {}),
+          ...(desiredDefault ? { defaultImport: desiredDefault } : {}),
         });
-        const specDesc = namedImports?.length ? `{ ${namedImports.join(", ")} }` : (op.name ?? "*");
+        const specDesc = desiredNamed.length
+          ? `{ ${desiredNamed.join(", ")} }`
+          : (desiredDefault ?? "*");
         return `Added import ${specDesc} from "${op.value}"`;
       }
 
@@ -1064,15 +1237,32 @@ export class TsMorphBackend implements IntelligenceBackend {
       case "add_named_import": {
         if (!op.value) throw new Error("add_named_import requires value (module specifier)");
         if (!op.newCode)
-          throw new Error("add_named_import requires newCode (import names, comma-separated)");
-        const imp = sf.getImportDeclaration(op.value);
-        if (!imp) throw new Error(`Import from "${op.value}" not found — use add_import first`);
+          throw new Error(
+            "add_named_import requires newCode (import names, comma-separated). " +
+              "Tip: add_import is also idempotent and creates the declaration if missing — prefer it.",
+          );
+        let imp = sf.getImportDeclaration(op.value);
+        if (!imp) {
+          // Auto-create the import declaration so the agent doesn't have to chain
+          // add_import + add_named_import for what is logically one operation.
+          imp = sf.addImportDeclaration({ moduleSpecifier: op.value });
+        }
         const names = op.newCode
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean);
-        for (const n of names) imp.addNamedImport(n);
-        return `Added { ${names.join(", ")} } to import from "${op.value}"`;
+        const existing = new Set(imp.getNamedImports().map((n) => n.getName()));
+        const added: string[] = [];
+        for (const n of names) {
+          if (!existing.has(n)) {
+            imp.addNamedImport(n);
+            added.push(n);
+          }
+        }
+        if (added.length === 0) {
+          return `All requested named imports already present in "${op.value}" — nothing to add`;
+        }
+        return `Added { ${added.join(", ")} } to import from "${op.value}"`;
       }
 
       case "remove_named_import": {
@@ -1100,22 +1290,92 @@ export class TsMorphBackend implements IntelligenceBackend {
 
       case "insert_text": {
         if (!op.newCode) throw new Error("insert_text requires newCode");
-        const insertIdx = op.index ?? 0;
+        // Anchor resolution:
+        //   index omitted  → throw (no silent default) — forces explicit placement
+        //   index  =  -1   → append (bottom of file)
+        //   index  =   0   → prepend (top of file)
+        //   value  = "after-imports" → immediately after the last import
+        //   value  = "before-exports" → immediately before the first export
+        //   numeric index  → that statement slot
+        let insertIdx: number;
+        let anchorDesc: string;
+        if (op.value === "after-imports") {
+          const imports = sf.getImportDeclarations();
+          insertIdx = imports.length;
+          anchorDesc = `after imports (index ${String(insertIdx)})`;
+        } else if (op.value === "before-exports") {
+          const stmts = sf.getStatements();
+          const firstExportIdx = stmts.findIndex(
+            (s) =>
+              s.getKindName() === "ExportDeclaration" || s.getKindName() === "ExportAssignment",
+          );
+          insertIdx = firstExportIdx === -1 ? stmts.length : firstExportIdx;
+          anchorDesc = `before exports (index ${String(insertIdx)})`;
+        } else if (op.index === -1) {
+          const stmts = sf.getStatements();
+          insertIdx = stmts.length;
+          anchorDesc = `bottom (index ${String(insertIdx)})`;
+        } else if (op.index == null) {
+          throw new Error(
+            "insert_text requires an anchor: pass index (0 = top, -1 = bottom, N = slot), " +
+              'or value ("after-imports" | "before-exports"). ' +
+              "Silent default removed to prevent accidental top-of-file insertion.",
+          );
+        } else {
+          insertIdx = op.index;
+          anchorDesc = `index ${String(insertIdx)}`;
+        }
         sf.insertStatements(insertIdx, op.newCode);
-        return `Inserted text at statement index ${String(insertIdx)}`;
+        return `Inserted text at ${anchorDesc}`;
       }
 
-      case "add_export_declaration": {
-        if (!op.value) throw new Error("add_export_declaration requires value (module specifier)");
-        const namedExports = op.newCode
-          ?.split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
+      case "add_export_declaration":
+      case "add_named_reexport": {
+        if (!op.value)
+          throw new Error(`${action} requires value (module specifier, e.g. "./bridge.js")`);
+        const desiredNames =
+          op.newCode
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean) ?? [];
+
+        // Idempotent: merge into any existing export declaration with the same
+        // moduleSpecifier so repeated calls (or mixing with edit_file) don't
+        // produce duplicate `export { … } from "./x"` blocks.
+        const existingExport = sf
+          .getExportDeclarations()
+          .find((e) => e.getModuleSpecifierValue() === op.value);
+
+        if (existingExport) {
+          // Re-export-all: `export * from "./x"` — nothing to merge into.
+          if (existingExport.isNamespaceExport()) {
+            if (desiredNames.length === 0) {
+              return `Namespace re-export from "${op.value}" already present — nothing to add`;
+            }
+            throw new Error(
+              `Cannot merge named exports into existing \`export * from "${op.value}"\`. ` +
+                `Remove the namespace re-export first or use a different module specifier.`,
+            );
+          }
+          const existingNames = new Set(existingExport.getNamedExports().map((n) => n.getName()));
+          const added: string[] = [];
+          for (const n of desiredNames) {
+            if (!existingNames.has(n)) {
+              existingExport.addNamedExport(n);
+              added.push(n);
+            }
+          }
+          if (added.length === 0) {
+            return `All requested re-exports already present in "${op.value}" — nothing to add`;
+          }
+          return `Merged { ${added.join(", ")} } into existing re-export from "${op.value}"`;
+        }
+
         sf.addExportDeclaration({
           moduleSpecifier: op.value,
-          ...(namedExports && namedExports.length > 0 ? { namedExports } : {}),
+          ...(desiredNames.length > 0 ? { namedExports: desiredNames } : {}),
         });
-        const expDesc = namedExports?.length ? `{ ${namedExports.join(", ")} }` : "*";
+        const expDesc = desiredNames.length ? `{ ${desiredNames.join(", ")} }` : "*";
         return `Added export ${expDesc} from "${op.value}"`;
       }
 
@@ -1128,18 +1388,42 @@ export class TsMorphBackend implements IntelligenceBackend {
 
     // ── Symbol-targeted operations (require target + name) ──
     if (!op.target || !op.name) {
-      throw new Error(`Action "${action}" requires target and name`);
+      throw new Error(`Action "${action}" requires target and name.${targetsHint(action)}`);
     }
 
-    // Locate the symbol
-    const node = this.findSymbolNode(sf, op.target, op.name, ts);
+    // Locate the symbol — enrich did-you-mean with inherited members for classes/interfaces
+    let node = this.findSymbolNode(sf, op.target, op.name, ts);
+
+    // Pre-resolve for "add a new member" operations: when the member doesn't
+    // exist yet, findSymbolNode returns null, but the agent's intent is clear
+    // from the dotted name ("Owner.newMember"). Walk up to the owner so the
+    // operation handler sees the container, not a null.
+    const ADD_MEMBER_ACTIONS = new Set(["add_property", "add_method"]);
+    if (!node && ADD_MEMBER_ACTIONS.has(action) && op.name.includes(".")) {
+      const [ownerName] = op.name.split(".");
+      if (ownerName) {
+        const owner = sf.getClass(ownerName) ?? sf.getInterface(ownerName) ?? null;
+        if (owner) node = owner;
+      }
+    }
+
     if (!node) {
       const available = this.listSymbolsOfKind(sf, op.target, ts);
-      const hint =
+      const inherited = this.listInheritedMembers(sf, op.target, op.name, ts);
+      const allCandidates = [...available, ...inherited];
+      const closest = closestSymbolName(op.name, allCandidates);
+      const didYouMean = closest ? `\nDid you mean: "${closest}"?` : "";
+      const availBlock =
         available.length > 0
           ? `\nAvailable ${op.target}s:\n${available.map((s) => `  ${s}`).join("\n")}`
-          : `\nNo ${op.target}s found.`;
-      throw new Error(`Symbol not found: ${op.target} "${op.name}".${hint}`);
+          : `\nNo ${op.target}s found in this file.`;
+      const inheritedBlock =
+        inherited.length > 0
+          ? `\nInherited ${op.target}s (from base class/interface):\n${inherited.map((s) => `  ${s}`).join("\n")}`
+          : "";
+      throw new Error(
+        `Symbol not found: ${op.target} "${op.name}".${didYouMean}${availBlock}${inheritedBlock}`,
+      );
     }
 
     switch (action) {
@@ -1159,7 +1443,13 @@ export class TsMorphBackend implements IntelligenceBackend {
             return `Set type of variable "${op.name}" → ${op.value}`;
           }
         }
-        throw new Error(`Cannot set type on ${op.target} "${op.name}"`);
+        // Type aliases don't support setType — they need full replacement.
+        if (ts.Node.isTypeAliasDeclaration(node)) {
+          throw new Error(
+            `set_type not supported on type aliases. Use: { action:"replace", target:"type", name:"${op.name}", newCode:"type ${op.name} = …" } to rewrite the whole alias.`,
+          );
+        }
+        throw new Error(`Cannot set type on ${op.target} "${op.name}".${targetsHint("set_type")}`);
       }
 
       case "set_return_type": {
@@ -1239,22 +1529,55 @@ export class TsMorphBackend implements IntelligenceBackend {
         throw new Error(`Cannot set default export on ${op.target} "${op.name}"`);
       }
 
-      case "rename": {
-        if (!op.value) throw new Error("rename requires value (new name)");
-        if ("rename" in node && typeof node.rename === "function") {
-          (node as { rename: (n: string) => void }).rename(op.value);
-          return `Renamed ${op.target} "${op.name}" → "${op.value}"`;
-        }
-        // For variable statements, rename the declaration
-        if (ts.Node.isVariableStatement(node)) {
-          const decl = node.getDeclarations().find((d) => d.getName() === op.name);
-          if (decl) {
-            const nameNode = decl.getNameNode();
-            if (ts.Node.isIdentifier(nameNode)) {
-              nameNode.rename(op.value);
-              return `Renamed variable "${op.name}" → "${op.value}"`;
+      case "rename":
+      case "rename_global": {
+        if (!op.value) throw new Error(`${action} requires value (new name)`);
+        // `node.rename()` and `setName()` both go through the LanguageService and
+        // propagate across references project-wide. That is correct for a refactor
+        // (rename_global) but wrong for the default micro-edit where the agent only
+        // expects to touch the declaration. Default `rename` mutates the identifier
+        // token via `replaceWithText`; `rename_global` keeps the propagating call.
+        const isGlobal = action === "rename_global";
+        const newName = op.value;
+
+        type WithNameNode = {
+          getNameNode?: () => { replaceWithText: (s: string) => unknown } | undefined;
+        };
+        const localRename = (n: Node & WithNameNode): boolean => {
+          const nameNode = n.getNameNode?.();
+          if (nameNode && typeof nameNode.replaceWithText === "function") {
+            nameNode.replaceWithText(newName);
+            return true;
+          }
+          return false;
+        };
+
+        if (isGlobal) {
+          if (ts.Node.isVariableStatement(node)) {
+            const decl = node.getDeclarations().find((d) => d.getName() === op.name);
+            const nameNode = decl?.getNameNode();
+            if (nameNode && ts.Node.isIdentifier(nameNode)) {
+              nameNode.rename(newName);
+              return `Renamed (global) variable "${op.name}" → "${newName}"`;
             }
           }
+          if ("rename" in node && typeof node.rename === "function") {
+            (node as { rename: (n: string) => void }).rename(newName);
+            return `Renamed (global) ${op.target} "${op.name}" → "${newName}"`;
+          }
+          throw new Error(`Cannot rename ${op.target} "${op.name}" (global)`);
+        }
+
+        // Local rename — declaration only.
+        if (ts.Node.isVariableStatement(node)) {
+          const decl = node.getDeclarations().find((d) => d.getName() === op.name);
+          if (!decl) throw new Error(`Variable "${op.name}" not found in declaration`);
+          if (localRename(decl as unknown as Node & WithNameNode)) {
+            return `Renamed variable "${op.name}" → "${newName}" (declaration only — references untouched)`;
+          }
+        }
+        if (localRename(node as unknown as Node & WithNameNode)) {
+          return `Renamed ${op.target} "${op.name}" → "${newName}" (declaration only — references untouched)`;
         }
         throw new Error(`Cannot rename ${op.target} "${op.name}"`);
       }
@@ -1314,22 +1637,69 @@ export class TsMorphBackend implements IntelligenceBackend {
 
       case "set_body": {
         if (!op.newCode) throw new Error("set_body requires newCode");
+
+        // Arrow expression body: `(x) => x + 1` — setBodyText converts to block body.
+        // ts-morph handles this via setBodyText on the arrow, but if we received
+        // the VariableStatement wrapper (target:"variable"), redirect.
+        if (ts.Node.isVariableStatement(node)) {
+          const decl = node.getDeclarations().find((d) => d.getName() === op.name);
+          const init = decl?.getInitializer();
+          if (
+            init &&
+            (init.getKindName() === "ArrowFunction" || init.getKindName() === "FunctionExpression")
+          ) {
+            throw new Error(
+              `Cannot set body on variable "${op.name}" directly — the initializer is an arrow/function expression. Use: { action:"set_body", target:"arrow_function", name:"${op.name}", newCode:"…" }.`,
+            );
+          }
+        }
+
         if ("setBodyText" in node && typeof node.setBodyText === "function") {
           (node as { setBodyText: (t: string) => void }).setBodyText(op.newCode);
           return `Set body of ${op.target} "${op.name}"`;
         }
         throw new Error(
-          `Cannot set body on ${op.target} "${op.name}" — no body (arrow fn? interface?)`,
+          `Cannot set body on ${op.target} "${op.name}" — no body (interface signature? type alias? use replace instead).${targetsHint("set_body")}`,
         );
       }
 
       case "add_statement": {
         if (!op.newCode) throw new Error("add_statement requires newCode");
+
+        // Variable statement wrapping an arrow/function expression — redirect to arrow_function target.
+        if (ts.Node.isVariableStatement(node)) {
+          const decl = node.getDeclarations().find((d) => d.getName() === op.name);
+          const init = decl?.getInitializer();
+          if (
+            init &&
+            (init.getKindName() === "ArrowFunction" || init.getKindName() === "FunctionExpression")
+          ) {
+            throw new Error(
+              `Cannot add statement to variable "${op.name}" directly — the initializer is an arrow/function expression. Use: { action:"add_statement", target:"arrow_function", name:"${op.name}", newCode:"…" }.`,
+            );
+          }
+        }
+
+        // Arrow function with expression body: `(x) => x + 1` — addStatements would fail.
+        // Auto-convert to block body, then add the statement. setBodyText replaces
+        // the body subtree, so we apply newCode directly inside the new block to
+        // avoid operating on stale descendants.
+        if (ts.Node.isArrowFunction(node)) {
+          const body = node.getBody();
+          if (!ts.Node.isBlock(body)) {
+            const exprText = body.getText();
+            node.setBodyText(`return ${exprText};\n${op.newCode}`);
+            return `Added statement to arrow_function "${op.name}" (expression body wrapped into block)`;
+          }
+        }
+
         if ("addStatements" in node && typeof node.addStatements === "function") {
-          (node as { addStatements: (s: string) => void }).addStatements(op.newCode);
+          (node as { addStatements: (s: string) => unknown[] }).addStatements(op.newCode);
           return `Added statement to ${op.target} "${op.name}"`;
         }
-        throw new Error(`Cannot add statement to ${op.target} "${op.name}"`);
+        throw new Error(
+          `Cannot add statement to ${op.target} "${op.name}".${targetsHint("add_statement")}`,
+        );
       }
 
       case "insert_statement": {
@@ -1357,27 +1727,50 @@ export class TsMorphBackend implements IntelligenceBackend {
       case "add_property": {
         if (!op.newCode)
           throw new Error("add_property requires newCode (name: type or name = value)");
-        if (ts.Node.isInterfaceDeclaration(node)) {
+
+        // Smart-resolve: if target="property" + dotted name, the user means
+        // "add a property to the owner of <Dotted.Name>". Walk up to the owner.
+        // This matches the natural addressing other agents reached for.
+        let container: Node = node;
+        if (op.target === "property" && op.name.includes(".")) {
+          const parent = node.getParent();
+          if (
+            parent &&
+            (ts.Node.isClassDeclaration(parent) || ts.Node.isInterfaceDeclaration(parent))
+          ) {
+            container = parent;
+          }
+        }
+
+        if (ts.Node.isInterfaceDeclaration(container)) {
           // Parse "propName: propType" or "propName?: propType"
           const optional = op.newCode.includes("?:");
           const [pName, pType] = op.newCode
             .replace("?:", ":")
             .split(":")
             .map((s) => s.trim());
-          node.addProperty({ name: pName ?? op.newCode, type: pType, hasQuestionToken: optional });
-          return `Added property "${pName}" to interface "${op.name}"`;
+          container.addProperty({
+            name: pName ?? op.newCode,
+            type: pType,
+            hasQuestionToken: optional,
+          });
+          return `Added property "${pName ?? op.newCode}" to interface "${container.getName() ?? op.name}"`;
         }
-        if (ts.Node.isClassDeclaration(node)) {
-          node.addProperty({
+        if (ts.Node.isClassDeclaration(container)) {
+          container.addProperty({
             name: op.newCode.split(/[=:]/)[0]?.trim() ?? op.newCode,
-          } as Parameters<typeof node.addProperty>[0]);
+          } as Parameters<typeof container.addProperty>[0]);
           // Use replaceWithText on the last property to set the full declaration
-          const props = node.getProperties();
+          const props = container.getProperties();
           const last = props[props.length - 1];
           if (last) last.replaceWithText(op.newCode);
-          return `Added property to class "${op.name}"`;
+          return `Added property to class "${container.getName() ?? op.name}"`;
         }
-        throw new Error(`Cannot add property to ${op.target} "${op.name}"`);
+        throw new Error(
+          `Cannot add property to ${op.target} "${op.name}". ` +
+            `For classes/interfaces pass target:"class"|"interface" with name=ContainerName, ` +
+            `or pass target:"property" with a dotted name like "Container.prop" to auto-resolve the owner.`,
+        );
       }
 
       case "remove_property": {
@@ -1399,34 +1792,50 @@ export class TsMorphBackend implements IntelligenceBackend {
 
       case "add_method": {
         if (!op.newCode) throw new Error("add_method requires newCode");
-        if (ts.Node.isClassDeclaration(node)) {
+
+        // Smart-resolve: if target="method" + dotted name, the user means
+        // "add a method to the owner of <Class.method>". Walk up to the owner.
+        // Mirrors the add_property smart-resolve — dotted names point at the
+        // container when the method doesn't exist yet.
+        let container: Node = node;
+        if ((op.target === "method" || op.target === "function") && op.name.includes(".")) {
+          const parent = node.getParent();
+          if (
+            parent &&
+            (ts.Node.isClassDeclaration(parent) || ts.Node.isInterfaceDeclaration(parent))
+          ) {
+            container = parent;
+          }
+        }
+
+        if (ts.Node.isClassDeclaration(container)) {
           // Parse method name from newCode for structured insertion (fixes indentation)
-          // Try to extract "methodName(" pattern from the raw text
           const methodMatch = op.newCode.match(/(?:async\s+)?(\w+)\s*\(/);
           if (methodMatch) {
-            // Use structured addMethod for correct indentation, then replace body
             const methodName = methodMatch[1] ?? "method";
-            const method = node.addMethod({ name: methodName });
+            const method = container.addMethod({ name: methodName });
             method.replaceWithText(op.newCode);
           } else {
-            // Fallback: raw member insertion
-            node.addMember(op.newCode);
+            container.addMember(op.newCode);
           }
-          return `Added method to class "${op.name}"`;
+          return `Added method to class "${container.getName() ?? op.name}"`;
         }
-        if (ts.Node.isInterfaceDeclaration(node)) {
-          // For interfaces, use structured addMethod then replace for correct indentation
+        if (ts.Node.isInterfaceDeclaration(container)) {
           const sigMatch = op.newCode.match(/(\w+)\s*\(/);
           if (sigMatch) {
             const sigName = sigMatch[1] ?? "method";
-            const sig = node.addMethod({ name: sigName });
+            const sig = container.addMethod({ name: sigName });
             sig.replaceWithText(op.newCode);
           } else {
-            node.addMember(op.newCode);
+            container.addMember(op.newCode);
           }
-          return `Added method signature to interface "${op.name}"`;
+          return `Added method signature to interface "${container.getName() ?? op.name}"`;
         }
-        throw new Error(`Cannot add method to ${op.target} "${op.name}"`);
+        throw new Error(
+          `Cannot add method to ${op.target} "${op.name}". ` +
+            `For classes/interfaces pass target:"class"|"interface" with name=ContainerName, ` +
+            `or pass target:"method" with a dotted name like "Container.methodName" to auto-resolve the owner.`,
+        );
       }
 
       case "add_member": {
@@ -1520,12 +1929,41 @@ export class TsMorphBackend implements IntelligenceBackend {
       }
 
       case "add_constructor": {
+        // Resolve the owning class regardless of how the agent addressed the op:
+        //   target:"class"       name:"Foo"            → node is the class
+        //   target:"constructor" name:"Foo"            → node is the existing constructor (or null → smart-resolved)
+        //   target:"method"      name:"Foo.constructor" → node is the existing constructor
+        let cls: ReturnType<typeof sf.getClass> | undefined;
+        let existingCtor: import("ts-morph").ConstructorDeclaration | undefined;
+
         if (ts.Node.isClassDeclaration(node)) {
-          const ctor = node.addConstructor({});
-          if (op.newCode) ctor.setBodyText(op.newCode);
-          return `Added constructor to class "${op.name}"`;
+          cls = node;
+          existingCtor = node.getConstructors()[0];
+        } else if (ts.Node.isConstructorDeclaration(node)) {
+          existingCtor = node;
+          const parent = node.getParent();
+          if (parent && ts.Node.isClassDeclaration(parent)) cls = parent;
+        } else if (op.target === "method" && op.name.includes(".")) {
+          const [className] = op.name.split(".");
+          if (className) cls = sf.getClass(className);
+          existingCtor = cls?.getConstructors()[0];
         }
-        throw new Error(`Cannot add constructor to ${op.target} "${op.name}"`);
+
+        if (!cls) {
+          throw new Error(
+            `Cannot add constructor to ${op.target} "${op.name}". Use target:"class" with name=ClassName.${targetsHint("add_constructor")}`,
+          );
+        }
+
+        // Idempotent: if a constructor already exists, modify its body instead of
+        // throwing "duplicate constructor".
+        if (existingCtor) {
+          if (op.newCode) existingCtor.setBodyText(op.newCode);
+          return `Modified existing constructor of class "${cls.getName() ?? op.name}"`;
+        }
+        const ctor = cls.addConstructor({});
+        if (op.newCode) ctor.setBodyText(op.newCode);
+        return `Added constructor to class "${cls.getName() ?? op.name}"`;
       }
 
       case "add_getter": {
@@ -1845,6 +2283,53 @@ export class TsMorphBackend implements IntelligenceBackend {
         return `Replaced ${op.target} "${op.name}" (lines ${String(startLine)}-${String(endLine)} → ${String(startLine)}-${String(startLine + newLineCount - 1)})`;
       }
 
+      case "replace_in_body": {
+        // AST-anchored string replacement scoped to a symbol's text range.
+        // Inputs: target+name (locates the node), value (substring to find — must be unique
+        // within the node's text), newCode (replacement). Resolves the "arbitrary text
+        // tweak inside a function body" case where AST has no dedicated mutator.
+        if (!op.value) throw new Error("replace_in_body requires value (substring to find)");
+        if (op.newCode === undefined)
+          throw new Error("replace_in_body requires newCode (replacement text)");
+        const nodeStart = node.getStart();
+        const nodeEnd = node.getEnd();
+        const nodeText = node.getFullText();
+        const haystack = nodeText;
+        const needle = op.value;
+        const firstIdx = haystack.indexOf(needle);
+        if (firstIdx === -1) {
+          throw new Error(
+            `replace_in_body: substring not found inside ${op.target} "${op.name}". ` +
+              `Check exact spacing/quotes. Body preview:\n${haystack.slice(0, 400)}${
+                haystack.length > 400 ? "\n…(truncated)" : ""
+              }`,
+          );
+        }
+        const secondIdx = haystack.indexOf(needle, firstIdx + needle.length);
+        if (secondIdx !== -1) {
+          throw new Error(
+            `replace_in_body: substring is ambiguous (found at least twice) inside ${op.target} "${op.name}". ` +
+              `Include more surrounding context in 'value' to make the match unique.`,
+          );
+        }
+        // Compute absolute file positions and apply via source-file level replaceText
+        // so ts-morph keeps the AST consistent and invalidates descendants correctly.
+        const absStart =
+          nodeStart - (nodeEnd - nodeStart) + (nodeText.length - haystack.length) + firstIdx;
+        // Use getFullStart offset math: node.getFullText() starts at node.getFullStart()
+        const absFullStart = node.getFullStart();
+        const from = absFullStart + firstIdx;
+        const to = from + needle.length;
+        // Guard rail: the range must sit inside the node's text span.
+        if (from < absFullStart || to > absFullStart + nodeText.length) {
+          throw new Error("replace_in_body: computed range outside node — aborting");
+        }
+        sf.replaceText([from, to], op.newCode);
+        // Silence unused-variable — kept for clarity during review of the math above.
+        void absStart;
+        return `Replaced substring in ${op.target} "${op.name}" (${String(needle.length)} → ${String(op.newCode.length)} chars)`;
+      }
+
       default:
         throw new Error(`Unknown action: ${action}`);
     }
@@ -1876,11 +2361,23 @@ export class TsMorphBackend implements IntelligenceBackend {
     }
     if (target === "method") {
       // Support "ClassName.methodName" or just "methodName"
+      // "ClassName.constructor" resolves to the constructor (not a regular method)
       if (name.includes(".")) {
         const [className, methodName] = name.split(".");
         const cls = sf.getClass(className ?? "");
         if (!cls) return null;
+        if (methodName === "constructor") {
+          return cls.getConstructors()[0] ?? null;
+        }
         return cls.getMethod(methodName ?? "") ?? cls.getProperty(methodName ?? "") ?? null;
+      }
+      if (name === "constructor") {
+        // "constructor" alone is ambiguous — return the first constructor found
+        for (const cls of sf.getClasses()) {
+          const ctor = cls.getConstructors()[0];
+          if (ctor) return ctor;
+        }
+        return null;
       }
       // Search all classes for the method
       for (const cls of sf.getClasses()) {
@@ -1888,6 +2385,14 @@ export class TsMorphBackend implements IntelligenceBackend {
         if (method) return method;
       }
       return null;
+    }
+    if (target === "constructor") {
+      // name is the class name (constructor itself has no name).
+      // Returns the first (implementation) constructor, or null if the class has none.
+      const cls = sf.getClass(name);
+      if (!cls) return null;
+      const ctors = cls.getConstructors();
+      return ctors[0] ?? null;
     }
     if (target === "property") {
       // Support "ClassName.propName" or "InterfaceName.propName" or just "propName"
@@ -1928,6 +2433,22 @@ export class TsMorphBackend implements IntelligenceBackend {
           if (decl.getName() === name) return stmt;
         }
       }
+    }
+    if (target === "arrow_function") {
+      // `const fetchUser = async (…) => {…}` — resolve the arrow/function-expression
+      // initializer so set_return_type / set_async / set_body target the callable,
+      // not the variable statement wrapper.
+      for (const stmt of sf.getVariableStatements()) {
+        for (const decl of stmt.getDeclarations()) {
+          if (decl.getName() !== name) continue;
+          const init = decl.getInitializer();
+          if (!init) return null;
+          const kind = init.getKindName();
+          if (kind === "ArrowFunction" || kind === "FunctionExpression") return init;
+          return null;
+        }
+      }
+      return null;
     }
     return null;
   }
@@ -1980,6 +2501,20 @@ export class TsMorphBackend implements IntelligenceBackend {
       for (const c of sourceFile.getClasses()) {
         const n = c.getName();
         if (n) names.push(`${kind} "${n}" (line ${String(c.getStartLineNumber())})`);
+      }
+    }
+    if (kind === "constructor") {
+      for (const cls of sourceFile.getClasses()) {
+        const className = cls.getName() ?? "anonymous";
+        const ctors = cls.getConstructors();
+        if (ctors.length > 0) {
+          const ctor = ctors[0];
+          if (ctor) {
+            names.push(`constructor "${className}" (line ${String(ctor.getStartLineNumber())})`);
+          }
+        } else {
+          names.push(`class "${className}" (no constructor — add_constructor will create one)`);
+        }
       }
     }
     if (kind === "interface") {
@@ -2044,7 +2579,10 @@ export class TsMorphBackend implements IntelligenceBackend {
     return this.project;
   }
 
-  private async getSourceFile(file: string): Promise<SourceFile | null> {
+  private async getSourceFile(
+    file: string,
+    opts?: { refresh?: boolean },
+  ): Promise<SourceFile | null> {
     const project = await this.ensureProject();
     const absPath = resolve(file);
 
@@ -2054,6 +2592,21 @@ export class TsMorphBackend implements IntelligenceBackend {
         sourceFile = project.addSourceFileAtPath(absPath);
       } catch {
         return null;
+      }
+    } else if (opts?.refresh !== false) {
+      // Always refresh cached source files from disk so external edits (edit_file,
+      // multi_edit, TAB-N writes) don't leave the ts-morph AST stale.
+      // `refreshFromFileSystemSync` is cheap when the file is unchanged.
+      try {
+        sourceFile.refreshFromFileSystemSync();
+      } catch {
+        // If refresh fails (e.g. file was deleted), drop the cached node and re-add.
+        try {
+          project.removeSourceFile(sourceFile);
+          sourceFile = project.addSourceFileAtPath(absPath);
+        } catch {
+          return null;
+        }
       }
     }
 
@@ -2109,5 +2662,71 @@ export class TsMorphBackend implements IntelligenceBackend {
     if ([".ts", ".tsx", ".mts", ".cts"].includes(ext)) return "typescript";
     if ([".js", ".jsx", ".mjs", ".cjs"].includes(ext)) return "javascript";
     return "unknown";
+  }
+
+  private listInheritedMembers(
+    sf: SourceFile,
+    target: string,
+    name: string,
+    ts: TsMorphModule,
+  ): string[] {
+    // Only meaningful for member-kind targets addressed via dotted name
+    if (!name.includes(".")) return [];
+    if (target !== "method" && target !== "property") return [];
+    const [ownerName] = name.split(".");
+    if (!ownerName) return [];
+
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (kind: string, owner: string, memberName: string) => {
+      const key = `${kind}:${owner}.${memberName}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(`${kind} "${owner}.${memberName}" (inherited from ${owner})`);
+    };
+
+    const cls = sf.getClass(ownerName);
+    if (cls) {
+      // Walk up the extends chain — in-project classes only (ts-morph returns undefined for unresolvable bases)
+      let base = cls.getBaseClass();
+      while (base) {
+        const baseName = base.getName() ?? "anonymous";
+        if (target === "method") {
+          for (const m of base.getMethods()) push("method", baseName, m.getName());
+        }
+        if (target === "property") {
+          for (const p of base.getProperties()) push("property", baseName, p.getName());
+        }
+        base = base.getBaseClass();
+      }
+      // Also surface members from implemented interfaces so add_method/add_property hints feel complete
+      for (const impl of cls.getImplements()) {
+        const exprText = impl.getExpression().getText();
+        const iface = sf.getInterface(exprText);
+        if (!iface) continue;
+        if (target === "method") {
+          for (const m of iface.getMethods()) push("method", iface.getName(), m.getName());
+        }
+        if (target === "property") {
+          for (const p of iface.getProperties()) push("property", iface.getName(), p.getName());
+        }
+      }
+      return out;
+    }
+
+    const iface = sf.getInterface(ownerName);
+    if (iface) {
+      for (const ext of iface.getBaseDeclarations()) {
+        if (!ts.Node.isInterfaceDeclaration(ext)) continue;
+        const extName = ext.getName();
+        if (target === "method") {
+          for (const m of ext.getMethods()) push("method", extName, m.getName());
+        }
+        if (target === "property") {
+          for (const p of ext.getProperties()) push("property", extName, p.getName());
+        }
+      }
+    }
+    return out;
   }
 }

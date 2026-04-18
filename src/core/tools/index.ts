@@ -649,16 +649,22 @@ export function buildTools(
             "Tier 1 (micro, 1-10 tokens): set_type, set_return_type, set_initializer, remove_initializer, set_value, " +
             "set_async, set_generator, set_export, set_default_export, set_abstract, set_static, set_readonly, " +
             "set_scope, set_optional, set_overrides, set_ambient, set_const_enum, " +
-            "rename, remove, add_parameter, remove_parameter, set_declaration_kind. " +
+            "rename (declaration-only — safe default, won't touch references), " +
+            "rename_global (project-wide rename — use only when you actually want references updated), " +
+            "remove, add_parameter, remove_parameter, set_declaration_kind. " +
             "Tier 2 (body, 10-100 tokens): set_body, add_statement, insert_statement, remove_statement, " +
             "add_property, remove_property, add_method, remove_method, add_member, remove_member, " +
             "add_constructor, add_getter, add_setter, add_decorator, remove_decorator, add_overload, " +
             "set_extends, remove_extends, add_implements, remove_implements, add_extends, " +
             "add_type_parameter, add_jsdoc, remove_jsdoc, unwrap, set_structure, extract_interface. " +
-            "Tier 3 (full): replace. " +
-            "File-level: add_import, remove_import, add_named_import, remove_named_import, set_module_specifier, " +
-            "add_export_declaration, add_namespace, organize_imports, fix_missing_imports, fix_unused, " +
-            "add_function, add_class, add_interface, add_type_alias, add_enum, add_variable, insert_text.",
+            "Tier 3 (full): replace, " +
+            "replace_in_body (AST-anchored string replace — scoped to a symbol's text: value=unique substring, newCode=replacement; fails on ambiguous match). " +
+            "File-level: create_file (pass newCode as the full file content — file must not yet exist), " +
+            "add_import, remove_import, add_named_import, remove_named_import, set_module_specifier, " +
+            'add_export_declaration, add_named_reexport (idempotent — merges into existing `export { … } from "./x"`), ' +
+            "add_namespace, organize_imports, fix_missing_imports, fix_unused, " +
+            "add_function, add_class, add_interface, add_type_alias, add_enum, add_variable, " +
+            'insert_text (REQUIRES anchor: index=0 top, index=-1 bottom, value="after-imports"|"before-exports", or numeric slot).',
         ),
         target: z
           .enum([
@@ -671,14 +677,19 @@ export function buildTools(
             "constant",
             "method",
             "property",
+            "constructor",
+            "arrow_function",
           ])
           .nullable()
           .optional()
           .transform(nullToUndef)
           .describe(
             "Symbol kind to target. Use 'method' for class methods (name as 'ClassName.methodName' or just 'methodName'). " +
-              "Use 'property' for class/interface properties (same dot notation). " +
-              "'function' also finds class methods as fallback.",
+              "Use 'property' for class/interface properties (same dot notation). add_property also accepts dotted 'Owner.prop' and auto-resolves the container. " +
+              "Use 'constructor' with name=ClassName to modify an existing class constructor's body. " +
+              "Use 'arrow_function' for `const fn = async (…) => {…}` — targets the initializer (supports set_return_type, set_async, set_body, etc.). " +
+              "'function' also finds class methods as fallback. " +
+              "CANNOT TARGET: anonymous callbacks (inline arrows, IIFEs, object-literal methods without names), union members of a type alias (use `replace` on the whole type). For these, use `replace_in_body` on the enclosing named symbol, or fall back to multi_edit.",
           ),
         name: optStr().describe(
           "Symbol name. For methods/properties use 'ClassName.memberName' or just 'memberName' to search all classes.",

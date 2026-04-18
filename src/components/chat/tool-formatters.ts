@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { classifyPath, type OutsideKind } from "../../core/security/outside-cwd.js";
 import { getThemeTokens } from "../../core/theme/index.js";
+import { canonicalizePath, isInsideCwd } from "../../core/utils/path-display.js";
 import { SUBAGENT_NAMES } from "./ToolCallDisplay.js";
 
 const ABS_PATH_RE = /(?:^|\s)(\/[\w./-]+)/g;
@@ -512,7 +513,8 @@ export function detectOutsideCwd(toolName: string, args?: string): OutsideKind |
     for (const val of Object.values(parsed)) {
       if (typeof val === "string" && (val.startsWith("/") || val.startsWith("~"))) {
         const resolved = resolve(val);
-        const kind = classifyPath(resolved, process.cwd());
+        if (isInsideCwd(resolved, process.cwd())) continue;
+        const kind = classifyPath(canonicalizePath(resolved), process.cwd());
         if (kind) return kind;
       }
     }
@@ -520,7 +522,8 @@ export function detectOutsideCwd(toolName: string, args?: string): OutsideKind |
       for (const match of parsed.command.matchAll(ABS_PATH_RE)) {
         const p = match[1];
         if (p) {
-          const kind = classifyPath(p, process.cwd());
+          if (isInsideCwd(p, process.cwd())) continue;
+          const kind = classifyPath(canonicalizePath(p), process.cwd());
           if (kind) return kind;
         }
       }

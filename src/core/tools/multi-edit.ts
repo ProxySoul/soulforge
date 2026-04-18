@@ -4,6 +4,7 @@ import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import { isForbidden } from "../security/forbidden.js";
+import { displayPath } from "../utils/path-display.js";
 import { buildRichEditError, fuzzyWhitespaceMatch } from "./edit-file.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
@@ -215,7 +216,7 @@ export const multiEditTool = {
         );
       }
 
-      let output = `Applied ${String(args.edits.length)} edits to ${args.path}`;
+      let output = `Applied ${String(args.edits.length)} edits to ${displayPath(filePath)}`;
       if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
 
       output = await appendAutoFormatResult(filePath, content, output, args.tabId);

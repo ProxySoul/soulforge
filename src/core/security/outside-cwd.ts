@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { relative } from "node:path";
+import { canonicalizePath, isInsideCwd } from "../utils/path-display.js";
 
 export type OutsideKind = "config" | "tmp" | "outside";
 
@@ -9,12 +9,14 @@ const CONFIG_DIR = `${HOME}/.soulforge`;
 const WHITELISTED_PREFIXES = [CONFIG_DIR, "/tmp", "/private/tmp"];
 
 export function classifyPath(resolvedPath: string, cwd: string): OutsideKind | null {
-  const rel = relative(cwd, resolvedPath);
-  if (!rel.startsWith("..") && !rel.startsWith("/")) return null;
+  if (isInsideCwd(resolvedPath, cwd)) return null;
 
+  const canon = canonicalizePath(resolvedPath);
   for (const prefix of WHITELISTED_PREFIXES) {
-    if (resolvedPath.startsWith(prefix)) {
-      return resolvedPath.startsWith(CONFIG_DIR) ? "config" : "tmp";
+    const canonPrefix = canonicalizePath(prefix);
+    if (canon === canonPrefix || canon.startsWith(`${canonPrefix}/`)) {
+      const canonConfig = canonicalizePath(CONFIG_DIR);
+      return canon === canonConfig || canon.startsWith(`${canonConfig}/`) ? "config" : "tmp";
     }
   }
 

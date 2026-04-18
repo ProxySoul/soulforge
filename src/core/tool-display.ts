@@ -7,6 +7,7 @@ export type ToolCategory =
   | "lsp"
   | "tree-sitter"
   | "ts-morph"
+  | "morph"
   | "regex"
   | "code"
   | "web"
@@ -44,7 +45,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   project: "shell",
   test_scaffold: "code",
   discover_pattern: "code",
-  ast_edit: "ts-morph",
+  ast_edit: "morph",
 
   // Editor (neovim)
   editor: "editor",
@@ -91,6 +92,7 @@ function getCategoryColors(): Record<string, string> {
     lsp: t.brandAlt,
     "tree-sitter": t.warning,
     "ts-morph": t.info,
+    morph: t.brandAlt,
     regex: t.textSecondary,
     code: t.warning,
     web: t.info,
@@ -168,7 +170,7 @@ const TOOL_ICON_MAP: Record<string, string> = {
   soul_analyze: "repomap",
   soul_impact: "repomap",
   skills: "skills",
-  ast_edit: "pencil",
+  ast_edit: "morph",
   _nudge: "lightning",
 };
 
@@ -208,7 +210,7 @@ export const TOOL_LABELS: Record<string, string> = {
   project: "Project",
   test_scaffold: "Scaffolding tests",
   discover_pattern: "Discovering",
-  ast_edit: "AST editing",
+  ast_edit: "morph",
   editor_panel: "Opening editor",
   plan: "Planning",
   update_plan_step: "Updating plan",
@@ -249,7 +251,7 @@ export const TOOL_LABELS_DONE: Record<string, string> = {
   project: "Project",
   test_scaffold: "Scaffolded tests",
   discover_pattern: "Discovered",
-  ast_edit: "AST edited",
+  ast_edit: "morphed",
   editor_panel: "Opened editor",
   plan: "Planned",
   update_plan_step: "Updated plan",
@@ -312,7 +314,7 @@ function getToolIconColors(): Record<string, string> {
     soul_find: t.success,
     soul_analyze: t.success,
     soul_impact: t.success,
-    ast_edit: t.amber,
+    ast_edit: t.brandAlt,
     _nudge: t.warning,
   };
 }

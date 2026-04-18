@@ -4,6 +4,7 @@ import type { ToolResult } from "../../types";
 import { analyzeFile } from "../analysis/complexity";
 import { markToolWrite, reloadBuffer } from "../editor/instance";
 import { isForbidden } from "../security/forbidden.js";
+import { displayPath } from "../utils/path-display.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
 import {
@@ -184,7 +185,7 @@ async function applyEdit(
     formatMetricDelta("imports", beforeMetrics.importCount, afterMetrics.importCount),
   ].filter(Boolean);
 
-  let output = `Edited ${filePath}${label}`;
+  let output = `Edited ${displayPath(filePath)}${label}`;
   if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
 
   output = await appendAutoFormatResult(filePath, updated, output, tabId);
@@ -243,7 +244,7 @@ export const editFileTool = {
         emitFileEdited(filePath, newStr);
         const openedInEditor = await reloadBuffer(filePath);
         const metrics = analyzeFile(newStr);
-        let out = `Created ${filePath} (lines: ${String(metrics.lineCount)}, imports: ${String(metrics.importCount)})`;
+        let out = `Created ${displayPath(filePath)} (lines: ${String(metrics.lineCount)}, imports: ${String(metrics.importCount)})`;
         if (dirCreated) out += ` [directory created: ${dir}]`;
         if (openedInEditor) out += " → opened in editor";
         out = await appendCloneHints(filePath, out);
