@@ -1243,14 +1243,13 @@ export class ContextManager {
 
     return [
       "",
-      "## Cross-Tab File Coordination",
-      "Files being edited by other tabs:",
+      "## Cross-Tab File Coordination (passive FYI — do not reply to this)",
+      "Files currently claimed by other tabs:",
       ...otherClaims,
-      "When your edit_file/multi_edit returns a ⚠️ conflict warning:",
-      "1. Tell the user which file conflicts and which tab owns it",
-      "2. Proceed with the edit (edits are never blocked)",
-      "3. If multiple files conflict, ask the user whether to continue or wait",
-      "Do NOT silently wait, retry, or skip edits without informing the user.",
+      "Rules:",
+      "- This block is context only. Do not acknowledge it, summarize it, or state how it does/doesn't affect your plan. Silence = received.",
+      "- Only speak up when edit_file/multi_edit returns a ⚠️ conflict warning on a file you just edited. Then: note the conflict once (file + owning tab), proceed with the edit, and do not repeat the notice on subsequent edits in the same turn.",
+      "- If multiple files you need to edit conflict, ask the user once whether to continue or wait.",
     ].join("\n");
   }
 
