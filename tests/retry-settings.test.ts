@@ -5,7 +5,6 @@ import {
 	DEFAULT_CHAT_BASE_DELAY_MS,
 	DEFAULT_MAX_RETRIES,
 	MAX_BASE_DELAY_MS,
-	MAX_MAX_ATTEMPTS,
 	MIN_BASE_DELAY_MS,
 	MIN_MAX_ATTEMPTS,
 	resolveRetrySettings,
@@ -89,10 +88,12 @@ describe("resolveRetrySettings — happy path within range", () => {
 		});
 	});
 
-	test("range maximums preserved", () => {
-		expect(resolveRetrySettings({ maxAttempts: MAX_MAX_ATTEMPTS })).toMatchObject({
-			maxRetries: MAX_MAX_ATTEMPTS,
-		});
+	test("large maxAttempts passes through (no upper cap)", () => {
+		expect(resolveRetrySettings({ maxAttempts: 99 }).maxRetries).toBe(99);
+		expect(resolveRetrySettings({ maxAttempts: 500 }).maxRetries).toBe(500);
+	});
+
+	test("baseDelayMs range maximum preserved", () => {
 		expect(resolveRetrySettings({ baseDelayMs: MAX_BASE_DELAY_MS })).toMatchObject({
 			baseDelayMs: MAX_BASE_DELAY_MS,
 		});
@@ -104,14 +105,6 @@ describe("resolveRetrySettings — clamps out-of-range numbers", () => {
 		expect(resolveRetrySettings({ maxAttempts: 0 }).maxRetries).toBe(MIN_MAX_ATTEMPTS);
 		expect(resolveRetrySettings({ maxAttempts: -1 }).maxRetries).toBe(MIN_MAX_ATTEMPTS);
 		expect(resolveRetrySettings({ maxAttempts: -9999 }).maxRetries).toBe(MIN_MAX_ATTEMPTS);
-	});
-
-	test("maxAttempts above max clamps down", () => {
-		expect(resolveRetrySettings({ maxAttempts: 11 }).maxRetries).toBe(MAX_MAX_ATTEMPTS);
-		expect(resolveRetrySettings({ maxAttempts: 999 }).maxRetries).toBe(MAX_MAX_ATTEMPTS);
-		expect(resolveRetrySettings({ maxAttempts: Number.MAX_SAFE_INTEGER }).maxRetries).toBe(
-			MAX_MAX_ATTEMPTS,
-		);
 	});
 
 	test("baseDelayMs below min clamps up", () => {
@@ -223,7 +216,7 @@ describe("resolveRetrySettings — garbage inputs never throw and fall back", ()
 				expect(Number.isFinite(r.maxRetries)).toBe(true);
 				expect(Number.isFinite(r.baseDelayMs)).toBe(true);
 				expect(r.maxRetries).toBeGreaterThanOrEqual(MIN_MAX_ATTEMPTS);
-				expect(r.maxRetries).toBeLessThanOrEqual(MAX_MAX_ATTEMPTS);
+				expect(r.maxRetries).toBeGreaterThanOrEqual(MIN_MAX_ATTEMPTS);
 				expect(r.baseDelayMs).toBeGreaterThanOrEqual(MIN_BASE_DELAY_MS);
 				expect(r.baseDelayMs).toBeLessThanOrEqual(MAX_BASE_DELAY_MS);
 			}).not.toThrow();
@@ -235,12 +228,12 @@ describe("resolveRetrySettings — backoff math stays bounded", () => {
 	test("worst-case exponential delay at maxRetries never overflows", () => {
 		// The retry loop computes: baseDelayMs * 2^attempt + jitter.
 		// With our clamps, the final retry's delay is bounded.
-		const { maxRetries, baseDelayMs } = resolveRetrySettings({
-			maxAttempts: 10 ** 6,
+		const { baseDelayMs } = resolveRetrySettings({
+			maxAttempts: 100,
 			baseDelayMs: 10 ** 9,
 		});
-		const worstCase = baseDelayMs * 2 ** (maxRetries - 1);
-		// 60s * 2^9 = ~30720s ~= 8.5h. Huge but finite, deterministic, not Infinity/NaN.
+		// baseDelayMs clamped to 60s, maxAttempts passes through as 100
+		const worstCase = baseDelayMs * 2 ** 99;
 		expect(Number.isFinite(worstCase)).toBe(true);
 		expect(worstCase).toBeGreaterThan(0);
 	});

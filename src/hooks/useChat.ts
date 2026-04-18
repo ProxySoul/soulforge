@@ -1671,7 +1671,7 @@ export function useChat({
 
       // Stream stall watchdog — hoisted so catch/finally can access.
       // Initialized after stream starts; no-ops if stream never starts.
-      const STALL_MAX_RETRIES = 2;
+      const STALL_MAX_RETRIES = resolveRetrySettings(effectiveConfig.retry).maxRetries;
       let stallWatchdog: ReturnType<typeof setInterval> | null = null;
       let unsubStallWatch1: (() => void) | null = null;
       let unsubStallWatch2: (() => void) | null = null;
