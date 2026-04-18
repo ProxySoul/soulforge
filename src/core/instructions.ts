@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { marked } from "marked";
@@ -10,6 +10,8 @@ interface InstructionSource {
   defaultEnabled: boolean;
 }
 
+// Unlike skills, global instruction files are user-authored personal steering.
+// Keep global content later in prompt so it overrides repo-local guidance on conflicts.
 export const INSTRUCTION_SOURCES: InstructionSource[] = [
   {
     id: "soulforge",
@@ -134,6 +136,35 @@ interface LoadInstructionOptions {
   homeDir?: string;
 }
 
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function readInstructionFromRoot(
+  rootDir: string,
+  source: InstructionSource,
+  scope: LoadedInstruction["scope"],
+): LoadedInstruction | null {
+  for (const file of source.files) {
+    const fullPath = join(rootDir, file);
+    if (!existsSync(fullPath)) continue;
+
+    try {
+      const content = readFileSync(fullPath, "utf-8").trim();
+      if (content.length > 0) {
+        return { source: source.id, file, content, scope };
+      }
+    } catch {}
+    break;
+  }
+
+  return null;
+}
+
 export function loadInstructions(
   cwd: string,
   enabledIds?: string[],
@@ -144,31 +175,25 @@ export function loadInstructions(
   );
 
   const results: LoadedInstruction[] = [];
-  const roots: Array<{ scope: LoadedInstruction["scope"]; dir: string }> = [
-    { scope: "project", dir: cwd },
-  ];
+  const projectRoot = cwd;
   const globalRoot = opts?.homeDir ?? homedir();
-  if (globalRoot !== cwd) {
-    roots.push({ scope: "global", dir: globalRoot });
-  }
+  const hasDistinctGlobalRoot = canonicalPath(globalRoot) !== canonicalPath(projectRoot);
 
   for (const source of INSTRUCTION_SOURCES) {
     if (!enabled.has(source.id)) continue;
 
-    for (const root of roots) {
-      for (const file of source.files) {
-        const fullPath = join(root.dir, file);
-        if (!existsSync(fullPath)) continue;
+    const projectMatch = readInstructionFromRoot(projectRoot, source, "project");
+    const globalMatch = hasDistinctGlobalRoot
+      ? readInstructionFromRoot(globalRoot, source, "global")
+      : null;
+    const sameInstructionFile =
+      projectMatch &&
+      globalMatch &&
+      canonicalPath(join(projectRoot, projectMatch.file)) ===
+        canonicalPath(join(globalRoot, globalMatch.file));
 
-        try {
-          const content = readFileSync(fullPath, "utf-8").trim();
-          if (content.length > 0) {
-            results.push({ source: source.id, file, content, scope: root.scope });
-          }
-        } catch {}
-        break;
-      }
-    }
+    if (projectMatch) results.push(projectMatch);
+    if (globalMatch && !sameInstructionFile) results.push(globalMatch);
   }
 
   return results;
@@ -179,32 +204,37 @@ export function buildInstructionPrompt(instructions: LoadedInstruction[]): strin
 
   const projectInstructions = instructions.filter((inst) => inst.scope === "project");
   const globalInstructions = instructions.filter((inst) => inst.scope === "global");
+  const parts: string[] = [];
 
-  if (globalInstructions.length === 0) {
-    const parts: string[] = [];
-    for (const inst of projectInstructions) {
-      parts.push(`[${inst.file}]\n${inst.content}`);
-    }
-    return `Project instructions:\n${parts.join("\n\n")}`;
+  if (globalInstructions.length > 0) {
+    parts.push(
+      "Global instruction files apply across all projects and take priority over project-local instruction files when they conflict.",
+    );
   }
 
-  const parts: string[] = [];
   if (projectInstructions.length > 0) {
     const projectParts: string[] = [];
     for (const inst of projectInstructions) {
-      projectParts.push(`[project:${inst.file}]\n${inst.content}`);
+      projectParts.push(
+        globalInstructions.length > 0
+          ? `[project:${inst.file}]\n${inst.content}`
+          : `[${inst.file}]\n${inst.content}`,
+      );
     }
-    parts.push(`Project-local instruction files:\n${projectParts.join("\n\n")}`);
+    parts.push(
+      globalInstructions.length > 0
+        ? `Project-local instruction files:\n${projectParts.join("\n\n")}`
+        : projectParts.join("\n\n"),
+    );
   }
 
-  const globalParts: string[] = [];
-  for (const inst of globalInstructions) {
-    globalParts.push(`[global:${inst.file}]\n${inst.content}`);
+  if (globalInstructions.length > 0) {
+    const globalParts: string[] = [];
+    for (const inst of globalInstructions) {
+      globalParts.push(`[global:${inst.file}]\n${inst.content}`);
+    }
+    parts.push(`Global instruction files:\n${globalParts.join("\n\n")}`);
   }
-  parts.push(
-    "Global instruction files apply across all projects and take priority over project-local instruction files when they conflict.",
-  );
-  parts.push(`Global instruction files:\n${globalParts.join("\n\n")}`);
 
   return `Project instructions:\n${parts.join("\n\n")}`;
 }
