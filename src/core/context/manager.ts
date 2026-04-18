@@ -84,6 +84,7 @@ export class ContextManager {
   private semanticModeExplicit = false;
   private isChild = false;
   private projectInstructions = "";
+  private projectInstructionsVersion = 0;
   private static readonly REPO_MAP_TTL = 5_000; // 5s — covers getContextBreakdown + buildSystemPrompt in same prompt
 
   private static readonly FILE_TREE_TTL = 30_000; // 30s
@@ -280,7 +281,9 @@ export class ContextManager {
   }
 
   setProjectInstructions(content: string): void {
+    if (this.projectInstructions === content) return;
     this.projectInstructions = content;
+    this.projectInstructionsVersion++;
   }
 
   setForgeMode(mode: ForgeMode): void {
@@ -493,7 +496,7 @@ export class ContextManager {
     const skillNames = [...this.skills.keys()].sort().join(",");
     const memGen = this.memoryManager.generation;
     const mode = this.forgeMode;
-    return `${String(gen)}|${modelId}|${mode}|${String(skillCount)}:${skillNames}|m${String(memGen)}`;
+    return `${String(gen)}|${modelId}|${mode}|${String(skillCount)}:${skillNames}|m${String(memGen)}|pi${String(this.projectInstructionsVersion)}`;
   }
 
   waitForRepoMap(timeoutMs = 120_000, signal?: AbortSignal): Promise<boolean> {
