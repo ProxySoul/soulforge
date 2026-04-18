@@ -22,7 +22,7 @@ The system prompt is assembled from these sections:
 1. **Family base prompt** — identity, tone, style, workflow (per-model)
 2. **Shared rules** — tool policy, conventions, commit restrictions (same for all)
 3. **Tool guidance** — priority list, editing rules, dispatch rules
-4. **Project context** — cwd, toolchain, project instructions (SOULFORGE.md, CLAUDE.md, etc.)
+4. **Project context** — cwd, toolchain, project instructions (project-local plus home-scoped instruction files such as `SOULFORGE.md`, `~/.soulforge/instructions.md`, `AGENTS.md`, etc.)
 5. **Forbidden files** — security patterns
 6. **Editor context** — open file, cursor position, visual selection
 7. **Git context** — branch, status, conflicts

@@ -86,7 +86,7 @@ Graph-powered code intelligence — multi-agent coding with codebase-aware AI.
 - Custom providers use `createOpenAI({ baseURL, apiKey })` pattern (same as Ollama)
 - Config is layered: global (`~/.soulforge/config.json`) > project (`.soulforge/config.json`)
 - Skills scan: `~/.soulforge/skills/`, `~/.agents/skills/`, `~/.claude/skills/` (+ project-local)
-- Instruction files: SOULFORGE.md on by default, others toggled via `/instructions` or config
+- Instruction files: enabled sources load from the project root and matching home-scoped files, with `SOULFORGE.md` / `~/.soulforge/instructions.md` on by default
 
 ### Tool Suite
 

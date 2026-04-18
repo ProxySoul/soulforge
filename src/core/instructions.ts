@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { marked } from "marked";
 
@@ -70,6 +71,7 @@ interface LoadedInstruction {
   source: string;
   file: string;
   content: string;
+  scope: "project" | "global";
 }
 
 interface InstructionSection {
@@ -128,27 +130,44 @@ export function parseInstructionStructure(content: string): InstructionStructure
   return { sections, codeBlocks, raw: content };
 }
 
-export function loadInstructions(cwd: string, enabledIds?: string[]): LoadedInstruction[] {
+interface LoadInstructionOptions {
+  homeDir?: string;
+}
+
+export function loadInstructions(
+  cwd: string,
+  enabledIds?: string[],
+  opts?: LoadInstructionOptions,
+): LoadedInstruction[] {
   const enabled = new Set(
     enabledIds ?? INSTRUCTION_SOURCES.filter((s) => s.defaultEnabled).map((s) => s.id),
   );
 
   const results: LoadedInstruction[] = [];
+  const roots: Array<{ scope: LoadedInstruction["scope"]; dir: string }> = [
+    { scope: "project", dir: cwd },
+  ];
+  const globalRoot = opts?.homeDir ?? homedir();
+  if (globalRoot !== cwd) {
+    roots.push({ scope: "global", dir: globalRoot });
+  }
 
   for (const source of INSTRUCTION_SOURCES) {
     if (!enabled.has(source.id)) continue;
 
-    for (const file of source.files) {
-      const fullPath = join(cwd, file);
-      if (!existsSync(fullPath)) continue;
+    for (const root of roots) {
+      for (const file of source.files) {
+        const fullPath = join(root.dir, file);
+        if (!existsSync(fullPath)) continue;
 
-      try {
-        const content = readFileSync(fullPath, "utf-8").trim();
-        if (content.length > 0) {
-          results.push({ source: source.id, file, content });
-        }
-      } catch {}
-      break;
+        try {
+          const content = readFileSync(fullPath, "utf-8").trim();
+          if (content.length > 0) {
+            results.push({ source: source.id, file, content, scope: root.scope });
+          }
+        } catch {}
+        break;
+      }
     }
   }
 
@@ -158,9 +177,34 @@ export function loadInstructions(cwd: string, enabledIds?: string[]): LoadedInst
 export function buildInstructionPrompt(instructions: LoadedInstruction[]): string {
   if (instructions.length === 0) return "";
 
-  const parts: string[] = [];
-  for (const inst of instructions) {
-    parts.push(`[${inst.file}]\n${inst.content}`);
+  const projectInstructions = instructions.filter((inst) => inst.scope === "project");
+  const globalInstructions = instructions.filter((inst) => inst.scope === "global");
+
+  if (globalInstructions.length === 0) {
+    const parts: string[] = [];
+    for (const inst of projectInstructions) {
+      parts.push(`[${inst.file}]\n${inst.content}`);
+    }
+    return `Project instructions:\n${parts.join("\n\n")}`;
   }
+
+  const parts: string[] = [];
+  if (projectInstructions.length > 0) {
+    const projectParts: string[] = [];
+    for (const inst of projectInstructions) {
+      projectParts.push(`[project:${inst.file}]\n${inst.content}`);
+    }
+    parts.push(`Project-local instruction files:\n${projectParts.join("\n\n")}`);
+  }
+
+  const globalParts: string[] = [];
+  for (const inst of globalInstructions) {
+    globalParts.push(`[global:${inst.file}]\n${inst.content}`);
+  }
+  parts.push(
+    "Global instruction files apply across all projects and take priority over project-local instruction files when they conflict.",
+  );
+  parts.push(`Global instruction files:\n${globalParts.join("\n\n")}`);
+
   return `Project instructions:\n${parts.join("\n\n")}`;
 }
