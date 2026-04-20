@@ -1260,16 +1260,29 @@ export function useChat({
     effectiveConfig.compaction?.strategy,
   ]);
 
+  interface RemoteApprovalPayload {
+    tool: string;
+    summary: string;
+  }
   function createPermissionPrompt(
     autoApproveRef: React.MutableRefObject<boolean>,
     mutexRef: React.MutableRefObject<Promise<void>>,
     questionFn: (...args: string[]) => string,
+    remotePayload?: (...args: string[]) => RemoteApprovalPayload,
   ) {
     return (...args: string[]): Promise<boolean> => {
       if (autoApproveRef.current) return Promise.resolve(true);
       const result = mutexRef.current.then(() => {
         if (autoApproveRef.current) return true;
         return new Promise<boolean>((resolve) => {
+          let done = false;
+          const settle = (allowed: boolean, fromLocal: boolean, isAlways: boolean): void => {
+            if (done) return;
+            done = true;
+            if (fromLocal) setPendingQuestion(null);
+            if (isAlways) autoApproveRef.current = true;
+            resolve(allowed);
+          };
           setPendingQuestion({
             id: crypto.randomUUID(),
             question: questionFn(...args),
@@ -1280,12 +1293,35 @@ export function useChat({
             ],
             allowSkip: false,
             resolve: (answer: string) => {
-              setPendingQuestion(null);
               const allowed = answer === "allow" || answer === "always";
-              if (answer === "always") autoApproveRef.current = true;
-              resolve(allowed);
+              settle(allowed, true, answer === "always");
             },
           });
+          if (remotePayload) {
+            const payload = remotePayload(...args);
+            void import("../hearth/bridge.js").then(({ askRemote }) => {
+              if (done) return;
+              void askRemote<string>(
+                tabId,
+                (callbackId) => ({
+                  type: "approval-request",
+                  callbackId,
+                  tool: payload.tool,
+                  summary: payload.summary,
+                }),
+                "",
+              ).then((answer) => {
+                if (done) return;
+                if (answer === "allow") {
+                  setPendingQuestion(null);
+                  settle(true, false, false);
+                } else if (answer === "deny") {
+                  setPendingQuestion(null);
+                  settle(false, false, false);
+                }
+              });
+            });
+          }
         });
       });
       mutexRef.current = result.then(() => {});
@@ -1294,11 +1330,29 @@ export function useChat({
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const promptWebAccess = useCallback(
+  const promptWebSearchApproval = useCallback(
     createPermissionPrompt(
       autoApproveWebAccessRef,
       webAccessMutexRef,
-      (label) => `Forge wants to access the web:\n\n${label}`,
+      (query) => `Forge wants to access the web:\n\nSearch: "${query}"`,
+      (query) => ({
+        tool: "web_search",
+        summary: `Web search: ${query.slice(0, 120)}`,
+      }),
+    ),
+    [],
+  );
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const promptFetchPageApproval = useCallback(
+    createPermissionPrompt(
+      autoApproveWebAccessRef,
+      webAccessMutexRef,
+      (url) => `Forge wants to access the web:\n\nFetch: ${url}`,
+      (url) => ({
+        tool: "fetch_page",
+        summary: `Fetch page: ${url.slice(0, 140)}`,
+      }),
     ),
     [],
   );
@@ -1466,62 +1520,18 @@ export function useChat({
           openEditor();
         }
       },
-      onWebSearchApproval: (query: string) => {
-        return new Promise<boolean>((resolve) => {
-          let done = false;
-          const settle = (v: boolean): void => {
-            if (done) return;
-            done = true;
-            resolve(v);
-          };
-          void promptWebAccess(`Search: "${query}"`).then((ok) => settle(ok));
-          void import("../hearth/bridge.js").then(({ askRemote }) => {
-            if (done) return;
-            void askRemote<string>(
-              tabId,
-              (callbackId) => ({
-                type: "approval-request",
-                callbackId,
-                tool: "web_search",
-                summary: `Web search: ${query.slice(0, 120)}`,
-              }),
-              "",
-            ).then((answer) => {
-              if (answer === "allow") settle(true);
-              else if (answer === "deny") settle(false);
-            });
-          });
-        });
-      },
-      onFetchPageApproval: (url: string) => {
-        return new Promise<boolean>((resolve) => {
-          let done = false;
-          const settle = (v: boolean): void => {
-            if (done) return;
-            done = true;
-            resolve(v);
-          };
-          void promptWebAccess(`Fetch: ${url}`).then((ok) => settle(ok));
-          void import("../hearth/bridge.js").then(({ askRemote }) => {
-            if (done) return;
-            void askRemote<string>(
-              tabId,
-              (callbackId) => ({
-                type: "approval-request",
-                callbackId,
-                tool: "fetch_page",
-                summary: `Fetch page: ${url.slice(0, 140)}`,
-              }),
-              "",
-            ).then((answer) => {
-              if (answer === "allow") settle(true);
-              else if (answer === "deny") settle(false);
-            });
-          });
-        });
-      },
+      onWebSearchApproval: (query: string) => promptWebSearchApproval(query),
+      onFetchPageApproval: (url: string) => promptFetchPageApproval(url),
     }),
-    [openEditor, openEditorWithFile, cwd, setActivePlan, promptWebAccess, tabId],
+    [
+      openEditor,
+      openEditorWithFile,
+      cwd,
+      setActivePlan,
+      promptWebSearchApproval,
+      promptFetchPageApproval,
+      tabId,
+    ],
   );
 
   const handleSubmit = useCallback(
