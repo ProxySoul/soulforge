@@ -2,12 +2,12 @@
 
 globalThis.AI_SDK_LOG_WARNINGS = false;
 
-// Replace Bun's native fetch with undici before any provider/module loads.
-// See src/core/llm/http-agent.ts for rationale.
-import { installGlobalFetch } from "./core/llm/http-agent.js";
 // Reap orphaned LSP processes from previous sessions BEFORE anything else.
 // Synchronous so a crashed-during-boot run still cleans up its predecessors.
 import { reapOrphanedLspProcesses } from "./core/intelligence/backends/lsp/pid-tracker.js";
+// Replace Bun's native fetch with undici before any provider/module loads.
+// See src/core/llm/http-agent.ts for rationale.
+import { installGlobalFetch } from "./core/llm/http-agent.js";
 
 installGlobalFetch();
 reapOrphanedLspProcesses();
