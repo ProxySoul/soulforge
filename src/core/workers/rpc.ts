@@ -107,6 +107,11 @@ export function createWorkerHandler(
   const allHandlers: Record<string, HandlerFn> = {
     ...handlers,
     __memoryUsage: () => {
+      // Force GC before reporting so heapUsed reflects live objects,
+      // not the allocator high-water mark from hours ago.
+      try {
+        Bun.gc(true);
+      } catch {}
       const usage = process.memoryUsage();
       return { heapUsed: usage.heapUsed, rss: usage.rss };
     },
@@ -240,7 +245,7 @@ export class WorkerClient {
     return w;
   }
 
-  private tryRestart(): boolean {
+  protected tryRestart(): boolean {
     if (this.disposed || this.restartCount >= WorkerClient.MAX_RESTARTS) return false;
     this.restartCount++;
     this.onStatusChange?.("restarting");

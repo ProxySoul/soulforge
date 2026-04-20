@@ -2558,7 +2558,8 @@ export class TsMorphBackend implements IntelligenceBackend {
     try {
       this.project = new ts.Project({
         tsConfigFilePath: tsconfigPath,
-        skipAddingFilesFromTsConfig: false,
+        skipAddingFilesFromTsConfig: true,
+        skipFileDependencyResolution: true,
       });
     } catch {
       // No tsconfig — create a standalone project

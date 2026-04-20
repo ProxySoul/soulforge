@@ -2572,6 +2572,11 @@ export class RepoMap {
     const language = INDEXABLE_EXTENSIONS[ext];
     if (!language) return;
 
+    // Config/data files (json, yaml, md, etc.) produce zero symbols, imports,
+    // or call edges — reindexing them on every edit is pure cost and a major
+    // contributor to heap bloat during doc-rewrite sessions.
+    if (language === "unknown") return;
+
     this.pendingReindex.set(absPath, { relPath, language });
     if (this.reindexTimer) clearTimeout(this.reindexTimer);
     this.reindexTimer = setTimeout(() => this.flushReindex(), 150);

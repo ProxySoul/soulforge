@@ -60,6 +60,11 @@ export class IntelligenceClient extends WorkerClient {
     string,
     Array<{ name: string; kind: string; isExported: boolean; line: number; endLine: number }>
   >();
+  private _heapWatchdog: ReturnType<typeof setInterval> | null = null;
+
+  /** Heap threshold in bytes. When the worker exceeds this, it gets recycled. */
+  private static readonly HEAP_LIMIT = 6 * 1024 * 1024 * 1024; // 6 GB
+  private static readonly HEAP_CHECK_INTERVAL = 30_000; // 30s
 
   onProgress: ((indexed: number, total: number) => void) | null = null;
   onScanComplete: ((success: boolean) => void) | null = null;
@@ -117,6 +122,8 @@ export class IntelligenceClient extends WorkerClient {
       const d = data as { message: string };
       useWorkerStore.getState().setWorkerError("intelligence", d.message);
     });
+
+    this.startHeapWatchdog();
 
     this.on("progress", (data) => {
       const d = data as {
@@ -202,12 +209,54 @@ export class IntelligenceClient extends WorkerClient {
   }
 
   async close(): Promise<void> {
+    if (this._heapWatchdog) {
+      clearInterval(this._heapWatchdog);
+      this._heapWatchdog = null;
+    }
     try {
       await this.call<void>("close");
     } catch {
       // Worker may already be dead — still need to dispose
     }
     this.dispose();
+  }
+
+  /**
+   * Periodically check worker heap. If it exceeds HEAP_LIMIT, recycle the
+   * worker. RepoMap state lives in SQLite — survives restart. ts-morph and
+   * shiki rebuild lazily on next use. Users see a brief "restarting" status
+   * instead of 20+ GB memory and a warm laptop.
+   */
+  private startHeapWatchdog(): void {
+    this._heapWatchdog = setInterval(async () => {
+      try {
+        // Only recycle when idle — never kill mid-operation.
+        const wk = useWorkerStore.getState().intelligence;
+        if (wk.rpcInFlight > 0) return;
+
+        const mem = await this.queryMemory();
+        if (mem.heapUsed > IntelligenceClient.HEAP_LIMIT) {
+          // Re-check idle after the async queryMemory round-trip
+          if (useWorkerStore.getState().intelligence.rpcInFlight > 0) return;
+
+          logBackgroundError(
+            "Intelligence",
+            `Worker heap ${Math.round(mem.heapUsed / 1024 / 1024)}MB exceeds ${Math.round(IntelligenceClient.HEAP_LIMIT / 1024 / 1024)}MB limit — recycling`,
+          );
+          this.recycleWorker();
+        }
+      } catch {
+        // Worker might be mid-restart or crashed — skip this cycle
+      }
+    }, IntelligenceClient.HEAP_CHECK_INTERVAL);
+  }
+
+  /** Force-restart the worker to reclaim memory. Safe — SQLite state persists. */
+  private recycleWorker(): void {
+    this._symbolCache.clear();
+    this._isReady = false;
+    this.resetRestartCount();
+    this.tryRestart();
   }
 
   clear(): Promise<void> {

@@ -75,11 +75,22 @@ function normalizeLang(lang: string): string {
 async function ensureHighlighter() {
   if (highlighter) return highlighter;
   const { createHighlighter } = await import("shiki");
+  // Start with zero languages — load on demand via loadLanguage() below.
+  // Eagerly loading 38 grammars costs ~300-400 MB that stays resident forever.
   highlighter = await createHighlighter({
     themes: ["catppuccin-mocha"],
-    langs: [...SHIKI_LANGS],
+    langs: [],
   });
   return highlighter;
+}
+
+async function loadLanguage(hl: Awaited<ReturnType<typeof ensureHighlighter>>, lang: string) {
+  if (hl.getLoadedLanguages().includes(lang)) return;
+  try {
+    await hl.loadLanguage(lang as import("shiki").BundledLanguage);
+  } catch {
+    // Unknown language — fall back to "text" at call site
+  }
 }
 
 function requireRepoMap() {
@@ -495,6 +506,7 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
   codeToAnsi: async (code: unknown, lang: unknown) => {
     const hl = await ensureHighlighter();
     const normalized = lang ? normalizeLang(lang as string) : "text";
+    if (normalized !== "text") await loadLanguage(hl, normalized);
     const langId = hl.getLoadedLanguages().includes(normalized) ? normalized : "text";
     try {
       const RST = "\x1b[0m";
@@ -527,6 +539,7 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
   codeToStyledTokens: async (code: unknown, lang: unknown) => {
     const hl = await ensureHighlighter();
     const normalized = lang ? normalizeLang(lang as string) : "text";
+    if (normalized !== "text") await loadLanguage(hl, normalized);
     const langId = hl.getLoadedLanguages().includes(normalized) ? normalized : "text";
     try {
       const result = hl.codeToTokens(code as string, {
@@ -545,9 +558,8 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
   },
 
   isShikiLanguage: async (lang: unknown) => {
-    const hl = await ensureHighlighter();
     const normalized = normalizeLang(lang as string);
-    return hl.getLoadedLanguages().includes(normalized);
+    return (SHIKI_LANGS as readonly string[]).includes(normalized);
   },
 };
 
