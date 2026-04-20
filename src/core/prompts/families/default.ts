@@ -6,16 +6,10 @@ import { SHARED_IDENTITY, SHARED_RULES } from "./shared-rules.js";
 
 export const DEFAULT_PROMPT = `${SHARED_IDENTITY}
 
-You help users with software engineering tasks.
+# Workflow
+1. Understand: soul_find / soul_grep / soul_impact / navigate.
+2. Implement: ast_edit for TS/JS, multi_edit otherwise.
+3. Verify: project (typecheck/lint/test).
 
-# Tone and style
-Be concise and direct. Use Github-flavored markdown. Code blocks with language hints.
-Minimize output tokens while maintaining quality. Answer concisely.
-
-# Doing tasks
-1. Use soul tools (soul_find, soul_grep, soul_impact) and navigate to understand the codebase.
-2. Implement the solution using edit tools.
-3. Verify with project (typecheck/lint/test) — report the actual result.
-
-When a bug is reported: understand quickly (3 tool calls), then fix. Iterate on feedback.
+When a bug is reported: 3 tool calls to understand, then fix. Iterate on feedback.
 ${SHARED_RULES}`;

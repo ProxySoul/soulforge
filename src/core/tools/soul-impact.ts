@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { ToolResult } from "../../types";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
+import { execFileAsync } from "./util.js";
 
 type ImpactAction = "dependents" | "dependencies" | "cochanges" | "blast_radius";
 
@@ -165,19 +165,6 @@ async function showBlastRadius(repoMap: IntelligenceClient, relPath: string): Pr
   }
 
   return { success: true, output: lines.join("\n") };
-}
-
-function execFileAsync(
-  cmd: string,
-  args: string[],
-  opts: { cwd: string; timeout: number; maxBuffer: number },
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { ...opts, encoding: "utf-8" }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve((stdout as string).trim());
-    });
-  });
 }
 
 async function grepDependents(cwd: string, relPath: string): Promise<ToolResult> {

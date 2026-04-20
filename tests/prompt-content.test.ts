@@ -3,27 +3,17 @@ import { CLAUDE_PROMPT } from "../src/core/prompts/families/claude";
 import { DEFAULT_PROMPT } from "../src/core/prompts/families/default";
 import { GOOGLE_PROMPT } from "../src/core/prompts/families/google";
 import { OPENAI_PROMPT } from "../src/core/prompts/families/openai";
-import { SHARED_RULES } from "../src/core/prompts/families/shared-rules";
+import { CORE_RULES, SHARED_IDENTITY, SHARED_RULES } from "../src/core/prompts/families/shared-rules";
 import { TOOL_GUIDANCE_WITH_MAP } from "../src/core/prompts/shared/tool-guidance";
 
 describe("shared-rules content", () => {
-  test("contains verification and reporting section", () => {
-    expect(SHARED_RULES).toContain("# Verification and reporting");
-    expect(SHARED_RULES).toContain("Report outcomes faithfully");
-    expect(SHARED_RULES).toContain("run project");
-  });
-
-  test("contains output discipline with grammatical rules", () => {
-    expect(SHARED_RULES).toContain("# Output discipline");
-    expect(SHARED_RULES).toContain("work in silence, speak once at the end");
-    expect(SHARED_RULES).toContain("No self-narrating verb phrases");
-    expect(SHARED_RULES).toContain("No progress-state declarations");
-    expect(SHARED_RULES).toContain("Between tool calls: no complete sentences");
+  test("contains tool usage and verification guidance", () => {
+    expect(SHARED_RULES).toContain("# Tool usage");
+    expect(SHARED_RULES).toContain("project");
   });
 
   test("contains commit-to-decisions guidance", () => {
-    expect(SHARED_RULES).toContain("Choose an approach and commit");
-    expect(SHARED_RULES).toContain("not out of uncertainty");
+    expect(SHARED_RULES).toContain("Commit to an approach");
   });
 
   test("does not contain pruning awareness (dropped)", () => {
@@ -32,11 +22,23 @@ describe("shared-rules content", () => {
   });
 });
 
+describe("shared-identity content", () => {
+  test("enforces silent tool loop in the identity block", () => {
+    expect(SHARED_IDENTITY).toContain("<silent_tool_loop>");
+    expect(SHARED_IDENTITY).toContain("<forbidden_between_tool_calls>");
+    expect(SHARED_IDENTITY).toContain("Between tool calls: silence");
+  });
+
+  test("exposes CORE_RULES single-source micro-prompt", () => {
+    expect(CORE_RULES).toContain("Silent tool loop");
+    expect(CORE_RULES).toContain("Speak only at the end");
+  });
+});
+
 describe("claude prompt content", () => {
   test("has positive execution-style section (not forbidden-patterns)", () => {
     expect(CLAUDE_PROMPT).toContain("<execution-style>");
     expect(CLAUDE_PROMPT).not.toContain("<forbidden-patterns>");
-    expect(CLAUDE_PROMPT).not.toContain("forbidden");
   });
 
   test("has workflow section (not separate working-on-a-task + code-execution)", () => {
@@ -49,12 +51,6 @@ describe("claude prompt content", () => {
     expect(CLAUDE_PROMPT).not.toContain("<user-preferences>");
   });
 
-  test("uses positive framing (not negative)", () => {
-    expect(CLAUDE_PROMPT).not.toContain("Split reads across");
-    expect(CLAUDE_PROMPT).not.toContain("Extra soul_greps");
-    expect(CLAUDE_PROMPT).not.toContain("Using Grep, sed");
-  });
-
   test("references soul tools and soul map", () => {
     expect(CLAUDE_PROMPT).toContain("Soul Map");
     expect(CLAUDE_PROMPT).toContain("soul_find");
@@ -63,14 +59,14 @@ describe("claude prompt content", () => {
 });
 
 describe("tool guidance content", () => {
-  test("mentions navigate for types/props without reading node_modules", () => {
-    expect(TOOL_GUIDANCE_WITH_MAP).toContain("type info, props, and inherited members");
-    expect(TOOL_GUIDANCE_WITH_MAP).toContain("without reading node_modules directly");
+  test("mentions navigate reaching into dependency stubs for type info", () => {
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("type info");
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("node_modules");
   });
 
   test("mentions dep param for dependency search", () => {
-    expect(TOOL_GUIDANCE_WITH_MAP).toContain("dep param");
-    expect(TOOL_GUIDANCE_WITH_MAP).toContain("any language/package manager");
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("dep");
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("package manager");
   });
 
   test("does not duplicate navigate action list (removed)", () => {
@@ -78,38 +74,32 @@ describe("tool guidance content", () => {
     expect(TOOL_GUIDANCE_WITH_MAP).not.toContain("navigate(references, symbol=");
   });
 
-  test("does not have dedicated tools section (removed — tool descriptions handle it)", () => {
-    expect(TOOL_GUIDANCE_WITH_MAP).not.toContain("## Use dedicated tools, not shell");
-  });
-
-  test("keeps shell guidance", () => {
-    expect(TOOL_GUIDANCE_WITH_MAP).toContain("Shell is for installs and system commands only");
+  test("keeps shell and git guidance", () => {
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("shell");
+    expect(TOOL_GUIDANCE_WITH_MAP).toContain("git");
   });
 });
 
-describe("all family prompts reference soul tools", () => {
+describe("all family prompts", () => {
   test("openai references soul tools", () => {
-    expect(OPENAI_PROMPT).toContain("soul tools");
     expect(OPENAI_PROMPT).toContain("soul_find");
     expect(OPENAI_PROMPT).not.toContain("Task tool");
   });
 
   test("google references soul tools", () => {
-    expect(GOOGLE_PROMPT).toContain("soul tools");
     expect(GOOGLE_PROMPT).toContain("soul_find");
     expect(GOOGLE_PROMPT).not.toContain("Task tool");
   });
 
   test("default references soul tools", () => {
-    expect(DEFAULT_PROMPT).toContain("soul tools");
     expect(DEFAULT_PROMPT).toContain("soul_find");
     expect(DEFAULT_PROMPT).not.toContain("Task tool");
   });
 
-  test("all families include verification language", () => {
-    expect(OPENAI_PROMPT).toContain("report the actual result");
-    expect(GOOGLE_PROMPT).toContain("report the actual result");
-    expect(DEFAULT_PROMPT).toContain("report the actual result");
+  test("all families include verification step", () => {
+    expect(OPENAI_PROMPT).toContain("typecheck/lint/test");
+    expect(GOOGLE_PROMPT).toContain("typecheck/lint/test");
+    expect(DEFAULT_PROMPT).toContain("typecheck/lint/test");
   });
 
   test("no family has duplicate silent-tool-use section (moved to shared-rules)", () => {

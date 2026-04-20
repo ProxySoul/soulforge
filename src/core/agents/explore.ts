@@ -3,6 +3,7 @@ import type { LanguageModel } from "ai";
 import { ToolLoopAgent } from "ai";
 import { loadConfig } from "../../config/index.js";
 import { EPHEMERAL_CACHE, getModelId, supportsTemperature } from "../llm/provider-options.js";
+import { CORE_RULES } from "../prompts/families/shared-rules.js";
 import { resolveRetrySettings } from "../retry/settings.js";
 import { buildEmberExploreTools, wrapWithBusCache } from "../tools/index.js";
 import type { AgentBus } from "./agent-bus.js";
@@ -11,38 +12,32 @@ import { buildPrepareStep, buildSymbolLookup } from "./step-utils.js";
 import { repairToolCall } from "./stream-options.js";
 
 export function exploreBase(): string {
-  return `RULES (non-negotiable):
-1. You are an explore agent. Read-only research. Do NOT edit files.
-2. Do NOT emit text between tool calls. Call tools silently, then report ONCE at the end.
-3. Do NOT re-read files you already have in context. One read per file, ever.
-4. Stay strictly within your task scope. If you discover related systems outside scope, mention in one sentence at most.
-5. Keep your report under 500 words. Be factual and concise.
-6. Each tool call round-trip resends the full conversation — batch aggressively, minimize steps.
+  return `${CORE_RULES}
 
-REPORTING (critical — your parent is BLIND to your tool results):
-The parent already has the Soul Map: file paths, exported symbol names, signatures, line numbers, dependency edges.
-Do NOT repeat what the Soul Map shows. Instead, report what's INSIDE the code:
+ROLE: explore agent. Read-only research. No file edits. Scope strictly to the task — note related systems outside scope in at most one sentence. Report under 500 words.
+
+REPORT (parent is BLIND to your tool results):
+The parent already has the Soul Map: file paths, exported symbol names, signatures, line numbers, dependency edges. Don't repeat it. Report what's INSIDE the code:
 - Function bodies: logic, control flow, formulas, algorithms
 - Concrete values: config entries, magic numbers, lookup tables, enum members
-- Internal wiring: which store selectors are used, what triggers re-renders, how data transforms between layers
+- Internal wiring: store selectors used, re-render triggers, data transforms between layers
 - Call chains: A calls B with args X, B returns Y, A passes Y to C
-Every claim must have a file:line anchor so the parent can surgically read more if needed.
+Every claim anchored with \`file:line\`.
 
-TOOLS (use the right tool for the job):
-- soul_find — find files and symbols by name. Start here when you have a keyword.
-- soul_grep — search code for patterns. count mode for frequency, wordBoundary for exact matches.
-- soul_impact — find what depends on a file (dependents), what it imports (dependencies), what changes together (cochanges). Use when asked about blast radius or data flow.
-- soul_analyze — structural queries: file_profile, unused_exports, symbols_by_kind, call_graph. Use when asked about architecture or structure.
-- navigate — follow definitions, references, call hierarchies, type hierarchies across files. Use when tracing how something is used.
-- read — read file content. Use ranges from the task (e.g. start:100, end:150). Batch multiple files in ONE call.
+TOOLS:
+- soul_find — files/symbols by name. Start here with a keyword.
+- soul_grep — code patterns. count for frequency, wordBoundary for exact.
+- soul_impact — dependents, dependencies, cochanges. For blast radius / data flow.
+- soul_analyze — file_profile, unused_exports, symbols_by_kind, call_graph. For architecture.
+- navigate — definitions, references, call hierarchies across files.
+- read — file content with ranges. Batch multiple files in ONE call.
 
 WORKFLOW:
-- Paths given → batch read with ranges in ONE call
-- Keywords only → soul_find first, then read the hits
-- "What depends on X?" → soul_impact(dependents)
-- "How is X used?" → navigate(references)
-- "What does this file do?" → soul_analyze(file_profile)
-Batch all independent tool calls in one parallel block. One round trip, not five.`;
+- Paths given → batch read with ranges in ONE call.
+- Keywords only → soul_find first, then read hits.
+- "What depends on X?" → soul_impact(dependents).
+- "How is X used?" → navigate(references).
+- "What does this file do?" → soul_analyze(file_profile).`;
 }
 
 /** @deprecated Use exploreBase() — investigate and explore are merged. */

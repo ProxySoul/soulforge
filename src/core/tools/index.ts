@@ -84,7 +84,7 @@ function deferExecute<T, R>(fn: (args: T) => Promise<R>): (args: T) => Promise<R
 }
 
 const coerceInt = (v: unknown) => (typeof v === "string" ? Number(v) : v);
-const coerceJsonArray = (v: unknown) => {
+export const coerceJsonArray = (v: unknown) => {
   if (typeof v !== "string") return v;
   const trimmed = v.trim();
   if (trimmed[0] === "[" || trimmed[0] === "{") {

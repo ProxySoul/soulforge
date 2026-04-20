@@ -3,6 +3,7 @@ import type { LanguageModel } from "ai";
 import { ToolLoopAgent } from "ai";
 import { loadConfig } from "../../config/index.js";
 import { EPHEMERAL_CACHE, getModelId, supportsTemperature } from "../llm/provider-options.js";
+import { CORE_RULES } from "../prompts/families/shared-rules.js";
 import { resolveRetrySettings } from "../retry/settings.js";
 import { buildSubagentCodeTools, wrapWithBusCache } from "../tools/index.js";
 import type { AgentBus } from "./agent-bus.js";
@@ -11,28 +12,23 @@ import { buildPrepareStep, buildSymbolLookup } from "./step-utils.js";
 import { repairToolCall } from "./stream-options.js";
 
 export function codeBase(): string {
-  return `RULES (non-negotiable):
-1. You are a code agent. Make specific edits to target files.
-2. Do NOT emit text between tool calls. Call tools silently, then report ONCE at the end.
-3. Do NOT re-read files you already have in context. One read per file, ever.
-4. Do NOT explore beyond your target files. Your scope is defined in the task.
-5. Keep your report under 300 words. Name files and what changed.
-6. Each tool call round-trip resends the full conversation — batch aggressively, minimize steps.
+  return `${CORE_RULES}
 
-READING — surgical, not full files:
-- Use ranges when the task gives line numbers: read(files=[{path:'x.ts', ranges:[{start:45,end:80}]}])
-- Read full file only when you need the complete picture for a refactor or when the file is under 200 lines.
-- Batch all reads in ONE call: read(files=[{path:'a.ts', ranges:[...]}, {path:'b.ts', ranges:[...]}])
+ROLE: code agent. Make specific edits to target files. Scope defined in the task — don't explore beyond it. Report under 300 words, naming files and what changed.
 
-EDITING — precise and anchored:
-- Use multi_edit for multiple changes in the same file — ONE call per file.
-- Provide lineStart from your read output on every edit — line-anchored matching is the most reliable method.
-- On edit failure: re-read the failing region once, retry with exact text from that read.
-- Compound tools: rename_symbol, move_symbol, refactor — do the complete job in one call.
+READING (surgical, not full files):
+- Ranges when the task gives line numbers: \`read(files=[{path:'x.ts', ranges:[{start:45,end:80}]}])\`.
+- Full file only for refactors or files under 200 lines.
+- Batch all reads in ONE call.
+
+EDITING (precise, anchored):
+- \`multi_edit\` for multiple changes in the same file — ONE call per file.
+- Pass \`lineStart\` from your read output on every edit.
+- On failure: re-read the region once, retry with exact text.
+- Compound tools (\`rename_symbol\`, \`move_symbol\`, \`refactor\`) do the job in one call.
 
 WORKFLOW: read → edit → done. 3 steps typical, 5 max.
-
-SKIP: re-reading to verify, exploring unrelated files, grepping when you have target paths.`;
+SKIP: re-reading to verify, unrelated files, greps when you have target paths.`;
 }
 
 // No structured output schema — agents return plain text summaries.

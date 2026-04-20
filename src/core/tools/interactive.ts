@@ -2,21 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-
-const coerceJsonArray = (v: unknown) => {
-  if (typeof v !== "string") return v;
-  const trimmed = v.trim();
-  if (trimmed[0] === "[" || trimmed[0] === "{") {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return v;
-    }
-  }
-  return v;
-};
-
 import type { InteractiveCallbacks, Plan, PlanDepth, PlanStepStatus } from "../../types/index.js";
+import { coerceJsonArray } from "./index.js";
 
 function planFileName(sessionId?: string): string {
   return sessionId ? `plan-${sessionId}.md` : "plan.md";

@@ -53,16 +53,15 @@ describe("family prompt content", () => {
     }
   });
 
-  test("all family prompts mention soul tools", () => {
-    for (const prompt of [OPENAI_PROMPT, GOOGLE_PROMPT, DEFAULT_PROMPT]) {
-      expect(prompt).toContain("soul tools");
+  test("all family prompts reference soul tools", () => {
+    for (const prompt of [CLAUDE_PROMPT, OPENAI_PROMPT, GOOGLE_PROMPT, DEFAULT_PROMPT]) {
+      expect(prompt).toContain("soul_find");
     }
-    expect(CLAUDE_PROMPT).toContain("soul_find");
   });
 
-  test("all family prompts mention conciseness", () => {
+  test("all family prompts include answer-voice compression rules", () => {
     for (const prompt of [CLAUDE_PROMPT, OPENAI_PROMPT, GOOGLE_PROMPT, DEFAULT_PROMPT]) {
-      expect(prompt.toLowerCase()).toContain("concis");
+      expect(prompt).toContain("<answer_voice>");
     }
   });
 
@@ -114,7 +113,7 @@ describe("buildSystemPrompt assembly", () => {
 
   test("includes no-map guidance when repo map not ready", () => {
     const prompt = buildSystemPrompt(baseOpts({ hasRepoMap: false }));
-    expect(prompt).toContain("minimize the number of steps");
+    expect(prompt).toContain("dedicated tools over shell");
     expect(prompt).not.toContain("Decision flow");
   });
 

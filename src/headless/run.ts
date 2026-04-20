@@ -410,20 +410,6 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
   env.contextManager.updateConversationContext(prompt, 0);
 
   // Header
-  const workerInfo = () => {
-    try {
-      const { useWorkerStore } =
-        require("../stores/workers.js") as typeof import("../stores/workers.js");
-      const wk = useWorkerStore.getState();
-      return {
-        intelligence: wk.intelligence.status,
-        io: wk.io.status,
-      };
-    } catch {
-      return null;
-    }
-  };
-
   if (isEvents) {
     writeEvent({
       type: "start",
@@ -436,7 +422,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
             symbols: env.repoMap.getStatsCached().symbols,
           }
         : null,
-      workers: workerInfo(),
+      workers: getWorkerInfo(),
     });
   } else if (showProgress) {
     stderrLabel("Model", env.modelId);
@@ -445,7 +431,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
       const stats = env.repoMap.getStatsCached();
       stderrLabel("Repo", `${String(stats.files)} files, ${String(stats.symbols)} symbols`);
     }
-    const wk = workerInfo();
+    const wk = getWorkerInfo();
     if (wk) stderrDim(`Workers: intelligence=${wk.intelligence}, io=${wk.io}`);
     separator();
   }
@@ -664,20 +650,6 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   }
 
   // Header
-  const workerInfo = () => {
-    try {
-      const { useWorkerStore } =
-        require("../stores/workers.js") as typeof import("../stores/workers.js");
-      const wk = useWorkerStore.getState();
-      return {
-        intelligence: wk.intelligence.status,
-        io: wk.io.status,
-      };
-    } catch {
-      return null;
-    }
-  };
-
   if (isEvents) {
     emit({
       type: "start",
@@ -690,7 +662,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
             symbols: env.repoMap.getStatsCached().symbols,
           }
         : null,
-      workers: workerInfo(),
+      workers: getWorkerInfo(),
     });
   } else if (showProgress) {
     stderrLabel("Model", env.modelId);
@@ -699,7 +671,7 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
       const stats = env.repoMap.getStatsCached();
       stderrLabel("Repo", `${String(stats.files)} files, ${String(stats.symbols)} symbols`);
     }
-    const wk = workerInfo();
+    const wk = getWorkerInfo();
     if (wk) stderrDim(`Workers: intelligence=${wk.intelligence}, io=${wk.io}`);
     stderrDim(
       "Chat mode — type a prompt and hit Enter (backslash \\ for multiline, Ctrl+C to exit)",
@@ -864,4 +836,17 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   }
 
   await cleanupAndExit(aborted ? EXIT_ABORT : EXIT_OK);
+}
+function getWorkerInfo(): { intelligence: string; io: string } | null {
+  try {
+    const { useWorkerStore } =
+      require("../stores/workers.js") as typeof import("../stores/workers.js");
+    const wk = useWorkerStore.getState();
+    return {
+      intelligence: wk.intelligence.status,
+      io: wk.io.status,
+    };
+  } catch {
+    return null;
+  }
 }

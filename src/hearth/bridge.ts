@@ -630,33 +630,27 @@ export function releaseBridgeLock(): void {
  *
  * If no surface is bound to this tab, the emitter is a no-op.
  */
-export class BridgeStreamEmitter {
-  private buffers = new Map<string, string>();
-  private timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly flushMs: number;
+/**
+ * Shared buffer/flush machinery for per-tab text coalescing. Subclasses
+ * supply the emit event type; this base owns timers, buffers, and the
+ * flush/discard/schedule lifecycle.
+ */
+abstract class BufferedTabEmitter {
+  protected buffers = new Map<string, string>();
+  protected timers = new Map<string, ReturnType<typeof setTimeout>>();
+  protected readonly flushMs: number;
 
-  constructor(flushMs = 350) {
+  constructor(flushMs: number) {
     this.flushMs = flushMs;
   }
 
-  stream(tabId: string, event: HeadlessEvent): void {
-    if (event.type === "text") {
-      const prev = this.buffers.get(tabId) ?? "";
-      this.buffers.set(tabId, prev + event.content);
-      this.scheduleFlush(tabId);
-      return;
-    }
-    // Any non-text event flushes pending text first \u2014 preserves chronology.
-    this.flushNow(tabId);
-    hearthBridge.emitTabEvent(tabId, event);
-  }
+  protected abstract buildEvent(content: string): HeadlessEvent;
 
-  /** Force-flush buffered text for this tab. */
   flushNow(tabId: string): void {
     const buf = this.buffers.get(tabId);
     if (buf && buf.length > 0) {
       this.buffers.delete(tabId);
-      hearthBridge.emitTabEvent(tabId, { type: "text", content: buf });
+      hearthBridge.emitTabEvent(tabId, this.buildEvent(buf));
     }
     const timer = this.timers.get(tabId);
     if (timer) {
@@ -665,7 +659,6 @@ export class BridgeStreamEmitter {
     }
   }
 
-  /** Discard buffered text for this tab (e.g. on abort). */
   discard(tabId: string): void {
     this.buffers.delete(tabId);
     const timer = this.timers.get(tabId);
@@ -675,13 +668,35 @@ export class BridgeStreamEmitter {
     }
   }
 
-  private scheduleFlush(tabId: string): void {
+  protected scheduleFlush(tabId: string): void {
     if (this.timers.has(tabId)) return;
     const timer = setTimeout(() => {
       this.timers.delete(tabId);
       this.flushNow(tabId);
     }, this.flushMs);
     this.timers.set(tabId, timer);
+  }
+}
+
+export class BridgeStreamEmitter extends BufferedTabEmitter {
+  constructor(flushMs = 350) {
+    super(flushMs);
+  }
+
+  protected buildEvent(content: string): HeadlessEvent {
+    return { type: "text", content };
+  }
+
+  stream(tabId: string, event: HeadlessEvent): void {
+    if (event.type === "text") {
+      const prev = this.buffers.get(tabId) ?? "";
+      this.buffers.set(tabId, prev + event.content);
+      this.scheduleFlush(tabId);
+      return;
+    }
+    // Any non-text event flushes pending text first — preserves chronology.
+    this.flushNow(tabId);
+    hearthBridge.emitTabEvent(tabId, event);
   }
 }
 
@@ -762,50 +777,19 @@ export function hasPendingCallbackForTab(tabId: string): boolean {
  * thinking tokens don't interleave with visible text on the bridge. Flushes
  * on any non-reasoning event, on abort, or after 800ms of silence.
  */
-export class ReasoningStreamEmitter {
-  private buffers = new Map<string, string>();
-  private timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly flushMs: number;
-
+export class ReasoningStreamEmitter extends BufferedTabEmitter {
   constructor(flushMs = 800) {
-    this.flushMs = flushMs;
+    super(flushMs);
+  }
+
+  protected buildEvent(content: string): HeadlessEvent {
+    return { type: "reasoning", content };
   }
 
   append(tabId: string, text: string): void {
     const prev = this.buffers.get(tabId) ?? "";
     this.buffers.set(tabId, prev + text);
     this.scheduleFlush(tabId);
-  }
-
-  flushNow(tabId: string): void {
-    const buf = this.buffers.get(tabId);
-    if (buf && buf.length > 0) {
-      this.buffers.delete(tabId);
-      hearthBridge.emitTabEvent(tabId, { type: "reasoning", content: buf });
-    }
-    const timer = this.timers.get(tabId);
-    if (timer) {
-      clearTimeout(timer);
-      this.timers.delete(tabId);
-    }
-  }
-
-  discard(tabId: string): void {
-    this.buffers.delete(tabId);
-    const timer = this.timers.get(tabId);
-    if (timer) {
-      clearTimeout(timer);
-      this.timers.delete(tabId);
-    }
-  }
-
-  private scheduleFlush(tabId: string): void {
-    if (this.timers.has(tabId)) return;
-    const timer = setTimeout(() => {
-      this.timers.delete(tabId);
-      this.flushNow(tabId);
-    }, this.flushMs);
-    this.timers.set(tabId, timer);
   }
 }
 

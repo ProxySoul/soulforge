@@ -1,4 +1,5 @@
 import { logBackgroundError } from "../../stores/errors.js";
+import { CORE_RULES } from "../prompts/families/shared-rules.js";
 import { projectTool } from "../tools/project.js";
 import type { AgentBus, AgentTask } from "./agent-bus.js";
 import { runAgentTask } from "./agent-runner.js";
@@ -8,27 +9,23 @@ import type { SubagentModels } from "./subagent-tools.js";
 // Step 1: deterministic lint --fix (zero tokens)
 // Step 2: LLM reviews for slop patterns the linter can't catch
 
-const DESLOPPIFY_PROMPT = [
-  "RULES (non-negotiable):",
-  "1. You are a cleanup agent. Lint --fix already ran. Review for slop the linter missed.",
-  "2. Do NOT emit text between tool calls. Call tools silently, then report ONCE at the end.",
-  "3. Keep your report under 200 words. List files changed and what was removed.",
-  "4. If the code is clean, report done immediately without reading.",
-  "",
-  "REMOVE:",
-  "- Tests that verify language/framework behavior rather than business logic",
-  "- Redundant type assertions the type system already enforces",
-  "- Over-defensive error handling for impossible states",
-  "- console.log/debug/print statements not part of the feature",
-  "- Dead code: unused variables, unreachable branches, empty catch blocks",
-  "",
-  "KEEP (do NOT remove):",
-  "- TODO/FIXME/SECTION/placeholder comments",
-  "- Business logic, meaningful error handling, type annotations",
-  "- Comments explaining non-obvious decisions",
-  "",
-  "WORKFLOW: read files with ranges around edited sections → multi_edit to fix slop → done.",
-].join("\n");
+const DESLOPPIFY_PROMPT = `${CORE_RULES}
+
+ROLE: cleanup agent. Lint --fix already ran. Review for slop the linter missed. Report under 200 words — list files changed and what was removed. If clean, report done immediately without reading.
+
+REMOVE:
+- Tests that verify language/framework behavior rather than business logic.
+- Redundant type assertions the type system already enforces.
+- Over-defensive error handling for impossible states.
+- console.log/debug/print statements not part of the feature.
+- Dead code: unused vars, unreachable branches, empty catch blocks.
+
+KEEP:
+- TODO/FIXME/SECTION/placeholder comments.
+- Business logic, meaningful error handling, type annotations.
+- Comments explaining non-obvious decisions.
+
+WORKFLOW: read files with ranges around edited sections → multi_edit → done.`;
 
 export async function runDesloppify(
   bus: AgentBus,
@@ -92,27 +89,23 @@ export async function runDesloppify(
 // Step 1: deterministic typecheck + test (zero tokens)
 // Step 2: LLM checks logic correctness against the original task
 
-const VERIFY_PROMPT = [
-  "RULES (non-negotiable):",
-  "1. You are a verification agent. You did NOT write this code — fresh eyes.",
-  "2. Do NOT emit text between tool calls. Call tools silently, then report ONCE at the end.",
-  "3. Read edited files with ranges around the changed sections, not full files.",
-  "4. Each tool call round-trip resends the full conversation — batch reads, minimize steps.",
-  "",
-  "PROCESS:",
-  "1. Check typecheck/test results below — errors are automatic FAIL",
-  "2. Read each edited file (ranges around changes) and verify:",
-  "   - Does the implementation match what the task asked for?",
-  "   - Missing edge cases? Incorrect imports? Signature mismatches?",
-  "3. If exports changed signatures, use navigate(references) to check one caller",
-  "",
-  "SKIP: formatting/style (handled by de-sloppify), typecheck/tests (results below).",
-  "",
-  "OUTPUT: End with exactly one of:",
-  "  VERDICT: PASS — [one-line summary]",
-  "  VERDICT: FAIL — [file:line, what's wrong]",
-  "  VERDICT: PARTIAL — [what couldn't be verified]",
-].join("\n");
+const VERIFY_PROMPT = `${CORE_RULES}
+
+ROLE: verification agent. Fresh eyes — you did NOT write this code. Read edited files with ranges around changed sections, not full files.
+
+PROCESS:
+1. Check typecheck/test results below — errors are automatic FAIL.
+2. Read each edited file (ranges around changes) and verify:
+   - Does the implementation match what the task asked for?
+   - Missing edge cases? Incorrect imports? Signature mismatches?
+3. If exports changed signatures, \`navigate(references)\` on one caller.
+
+SKIP: formatting/style (de-sloppify handles it), typecheck/tests (results below).
+
+OUTPUT — end with exactly one of:
+  VERDICT: PASS — [one-line summary]
+  VERDICT: FAIL — [file:line, what's wrong]
+  VERDICT: PARTIAL — [what couldn't be verified]`;
 
 export async function runVerifier(
   bus: AgentBus,

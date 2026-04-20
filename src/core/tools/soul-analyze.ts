@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { extname, relative } from "node:path";
 import type { ToolResult } from "../../types";
 import {
@@ -7,19 +6,7 @@ import {
 } from "../intelligence/repo-map-utils.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
-
-function execFileAsync(
-  cmd: string,
-  args: string[],
-  opts: { cwd: string; timeout: number; maxBuffer: number },
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { ...opts, encoding: "utf-8" }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve((stdout as string).trim());
-    });
-  });
-}
+import { execFileAsync } from "./util.js";
 
 type AnalyzeAction =
   | "identifier_frequency"
