@@ -25,6 +25,15 @@ export interface RedactionRule {
  * before generic bearer/hex fallbacks.
  */
 export const DEFAULT_REDACTION_RULES: RedactionRule[] = [
+  // Telegram bot token embedded in a URL path: `/bot123456:AAA-BBB.../...`
+  // (appears in fetch errors and undici request logs before the tokenized
+  // bot:<id>:<token> form fires). Has to run BEFORE the bare-token rule so
+  // the path-form matches in full.
+  {
+    kind: "telegram-bot-url",
+    pattern: /\bbot(\d{6,12}):([A-Za-z0-9_-]{30,})\b/g,
+    replacement: "bot$1:***",
+  },
   // Telegram bot token: `123456:AAA-BBB...`
   { kind: "telegram-bot", pattern: /\b(\d{6,12}):([A-Za-z0-9_-]{30,})\b/g, replacement: "$1:***" },
   // Discord bot token: three dot-separated base64 segments
