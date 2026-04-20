@@ -52,16 +52,26 @@ export interface TelegramSurfaceOptions {
 interface TGUpdate {
   update_id: number;
   message?: TGMessage;
+  edited_message?: TGMessage;
+  channel_post?: TGMessage;
   callback_query?: TGCallbackQuery;
 }
 
 interface TGMessage {
   message_id: number;
   from?: { id: number; is_bot?: boolean; username?: string };
+  sender_chat?: { id: number; type: string };
   chat: { id: number; type: string };
   text?: string;
   date: number;
   caption?: string;
+  forward_origin?: {
+    type: "user" | "hidden_user" | "chat" | "channel";
+    sender_user?: { id: number };
+    sender_chat?: { id: number };
+    chat?: { id: number };
+  };
+  via_bot?: { id: number; username?: string };
   photo?: Array<{
     file_id: string;
     file_unique_id: string;
@@ -107,6 +117,8 @@ export class TelegramSurface extends BaseSurface {
     string,
     { callbackId: string; options?: { label: string; value: string }[] }
   >();
+  /** Per-chat outbound throttle — enforces 1 msg/sec soft cap. */
+  private lastSendAt = new Map<ExternalChatId, number>();
   private fetchImpl: typeof fetch;
   private readToken: () => Promise<string | null>;
   private stopRequested = false;
@@ -178,7 +190,24 @@ export class TelegramSurface extends BaseSurface {
     if (!token) throw new Error("telegram bot token missing — set telegram.bot.<botId>");
     this.token = token;
     this.stopRequested = false;
+    // If a webhook was previously set on this bot, getUpdates fails with 409
+    // forever. Clear any webhook before polling. Idempotent when unset.
+    void this.clearWebhookIfSet();
     void this.pollLoop();
+  }
+
+  /** Defensive deleteWebhook — no-op if no webhook is configured. */
+  private async clearWebhookIfSet(): Promise<void> {
+    if (!this.token) return;
+    try {
+      await this.fetchImpl(this.apiUrl("deleteWebhook"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ drop_pending_updates: false }),
+      });
+    } catch {
+      // Non-fatal — if a webhook remains, the 409 loop self-logs.
+    }
   }
 
   protected async disconnect(): Promise<void> {
@@ -222,6 +251,24 @@ export class TelegramSurface extends BaseSurface {
             await sleep(backoffMs);
             continue;
           }
+          if (resp.status === 429) {
+            // Honor Retry-After — ignoring it triggers bans. Prefer the
+            // response body's parameters.retry_after (seconds), fall back
+            // to Retry-After header, then a 5s default.
+            let retryAfter = 5;
+            try {
+              const body = (await resp.json()) as {
+                parameters?: { retry_after?: number };
+              };
+              retryAfter = body.parameters?.retry_after ?? retryAfter;
+            } catch {
+              const hdr = resp.headers.get("retry-after");
+              if (hdr) retryAfter = Number.parseInt(hdr, 10) || retryAfter;
+            }
+            this.log(redact(`tg getUpdates 429 — retry after ${String(retryAfter)}s`));
+            await sleep(retryAfter * 1000);
+            continue;
+          }
           if (!resp.ok) {
             if (conflictStreak > 0) {
               this.log(redact(`tg getUpdates recovered after ${String(conflictStreak)} conflicts`));
@@ -259,6 +306,10 @@ export class TelegramSurface extends BaseSurface {
       this.handleCallback(update.callback_query);
       return;
     }
+    // Drop edited_message and channel_post — we only accept fresh direct
+    // messages. An edited update carries a new update_id but the same logical
+    // content; replaying it could double-submit a prompt.
+    if (update.edited_message || update.channel_post) return;
     const msg = update.message;
     if (!msg?.from) return;
 
@@ -268,6 +319,28 @@ export class TelegramSurface extends BaseSurface {
     const allowed = this.allowedUserIdsByChat[chatId] ?? [];
     if (allowed.length > 0 && !allowed.includes(msg.from.id)) {
       // Silent drop — no reply. Never disclose the bot's presence to strangers.
+      return;
+    }
+    // Spoof detection — drop forwarded / bot-proxied / anonymous-admin
+    // messages. A legitimate user-at-keyboard doesn't set any of these.
+    if (msg.forward_origin) {
+      this.log(
+        redact(`tg dropped forwarded msg from ${senderId} origin=${msg.forward_origin.type}`),
+      );
+      return;
+    }
+    if (msg.via_bot) {
+      this.log(redact(`tg dropped via_bot msg from ${senderId} via=${String(msg.via_bot.id)}`));
+      return;
+    }
+    if (msg.sender_chat) {
+      this.log(redact(`tg dropped sender_chat msg from ${senderId}`));
+      return;
+    }
+    // Replay guard — messages older than 60s are likely stale (Telegram clock
+    // is NTP-synced; legitimate updates arrive within seconds).
+    if (msg.date * 1000 < Date.now() - 60_000) {
+      this.log(redact(`tg dropped stale msg from ${senderId} age>60s`));
       return;
     }
 
@@ -327,6 +400,17 @@ export class TelegramSurface extends BaseSurface {
 
   private handleCallback(q: TGCallbackQuery): void {
     if (!q.data) return;
+    // H3/H4 — enforce the same allowlist on callback_query as we do on
+    // messages. Without this, a non-allowlisted user who discovers a
+    // callback_id can tap Approve on our tool-use prompts.
+    const chatIdForAllow = q.message ? String(q.message.chat.id) : null;
+    if (chatIdForAllow && q.from?.id != null) {
+      const allowed = this.allowedUserIdsByChat[chatIdForAllow] ?? [];
+      if (allowed.length > 0 && !allowed.includes(q.from.id)) {
+        this.sendAnswerCallback(q.id, "not authorised");
+        return;
+      }
+    }
     const parts = q.data.split(":");
     const kind = parts[0];
     // Legacy approval keyboards: apr:<approvalId>:a|d
@@ -517,6 +601,7 @@ export class TelegramSurface extends BaseSurface {
     // and paragraph boundaries so a long diff/log never gets silently truncated.
     const pages = splitForTelegram(text);
     for (const page of pages) {
+      await this.enforcePerChatPace(chatId);
       try {
         const body: Record<string, unknown> = {
           chat_id: chatId,
@@ -531,6 +616,16 @@ export class TelegramSurface extends BaseSurface {
         this.log(redact(`tg send failed: ${err instanceof Error ? err.message : String(err)}`));
       }
     }
+  }
+
+  /** Per-chat token-bucket — max 1 outbound msg/sec per chat (Telegram soft
+   *  cap). Blocks just long enough to stay under the ban threshold. */
+  private async enforcePerChatPace(chatId: ExternalChatId): Promise<void> {
+    const MIN_INTERVAL_MS = 1000;
+    const last = this.lastSendAt.get(chatId) ?? 0;
+    const wait = last + MIN_INTERVAL_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    this.lastSendAt.set(chatId, Date.now());
   }
 
   /**
@@ -657,13 +752,35 @@ export class TelegramSurface extends BaseSurface {
 
   private async postMethod(method: string, body: unknown): Promise<void> {
     if (!this.token) return;
-    const resp = await this.fetchImpl(this.apiUrl(method), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) {
-      this.log(redact(`tg ${method} HTTP ${String(resp.status)}`));
+    // Retry once on 429 honoring parameters.retry_after. Further 429s bubble
+    // as a log line — we don't spin forever on a blocked bot.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const resp = await this.fetchImpl(this.apiUrl(method), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (resp.status === 429) {
+        let retryAfter = 5;
+        try {
+          const parsed = (await resp.json()) as {
+            parameters?: { retry_after?: number };
+          };
+          retryAfter = parsed.parameters?.retry_after ?? retryAfter;
+        } catch {
+          const hdr = resp.headers.get("retry-after");
+          if (hdr) retryAfter = Number.parseInt(hdr, 10) || retryAfter;
+        }
+        this.log(redact(`tg ${method} 429 — retry after ${String(retryAfter)}s`));
+        if (attempt === 0) {
+          await sleep(retryAfter * 1000);
+          continue;
+        }
+      }
+      if (!resp.ok) {
+        this.log(redact(`tg ${method} HTTP ${String(resp.status)}`));
+      }
+      return;
     }
   }
 }
