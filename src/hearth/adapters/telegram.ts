@@ -260,7 +260,7 @@ export class TelegramSurface extends BaseSurface {
       return;
     }
     const msg = update.message;
-    if (!msg || !msg.from) return;
+    if (!msg?.from) return;
 
     // Identity allowlist — numeric id only
     const senderId = String(msg.from.id);
