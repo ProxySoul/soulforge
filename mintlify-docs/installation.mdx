@@ -1,113 +1,94 @@
 ---
 title: "Installation"
-description: "Install SoulForge on macOS or Linux. Prebuilt binary, Homebrew, Bun, or source."
+description: "Install SoulForge on macOS or Linux."
 icon: "download"
 ---
 
-## Prerequisites
-
-| Dependency | Required | Notes |
-|-----------|----------|-------|
-| **Bun** >= 1.0 | Only for npm/Bun install method | Not needed for prebuilt binary or Homebrew |
-| **Neovim** >= 0.11 | Auto-installed on first launch | SoulForge offers to download it if missing |
-| **Nerd Font** | Auto-installed on first launch | SoulForge offers to download one if missing |
-| **API key** | At least one LLM provider | See below |
-
-### API key
-
-You need at least one LLM provider key:
-
-| Provider | Env Variable | Models |
-|----------|-------------|--------|
-| Anthropic | `ANTHROPIC_API_KEY` | Claude Opus 4, Sonnet 4, Haiku 3.5 |
-| OpenAI | `OPENAI_API_KEY` | GPT-4o, o3, o4-mini |
-| xAI | `XAI_API_KEY` | Grok |
-| Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini |
-| GitHub Copilot | OAuth token from IDE | Claude, GPT-4o/5.4, Gemini, o-series |
-| GitHub Models | `GITHUB_MODELS_API_KEY` | GPT-4o, Llama, DeepSeek, Mistral |
-| Ollama | *(none -- runs locally)* | Llama, Mistral, Qwen, etc. |
-| LM Studio | *(none -- runs locally)* | Any local model |
-
-Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Or use a single [AI Gateway](https://sdk.vercel.ai/docs/ai-sdk-core/provider-management) key for all providers, or the built-in **Proxy provider** to relay through a local CLIProxyAPI instance (no API key needed).
-
-### GitHub Copilot
-
-If you have a [GitHub Copilot](https://github.com/features/copilot) subscription, SoulForge can use it as a provider.
-
-**Setup:** Sign in to Copilot via your IDE (VS Code, JetBrains), then copy `oauth_token` from `~/.config/github-copilot/apps.json` and save with `/keys` or `soulforge --set-key copilot <token>`.
-
-Models available through Copilot: Claude Opus/Sonnet, GPT-4o, GPT-4.1, GPT-5.4, o4-mini, Gemini 2.5 Pro, and more. All included in your Copilot subscription.
-
-<Warning>
-This is an unofficial integration using the same internal API as VS Code. Not endorsed by GitHub. Use at your own risk. See [Copilot provider docs](/docs/copilot-provider) for our full legal review.
-</Warning>
-
 ## Install
 
+```bash
+brew tap proxysoul/tap && brew install soulforge
+```
+
+That's it. macOS and Linux. Neovim and a Nerd Font are auto-installed on first launch.
+
+<Accordion title="Other install methods">
+  <Tabs>
+    <Tab title="Prebuilt binary">
+      ```bash
+      # download from https://github.com/ProxySoul/soulforge/releases/latest
+      tar xzf soulforge-*.tar.gz && cd soulforge-*/ && ./install.sh
+      ```
+    </Tab>
+    <Tab title="Bun">
+      Requires [Bun](https://bun.sh) >= 1.2.
+      ```bash
+      bun install -g @proxysoul/soulforge
+      ```
+    </Tab>
+    <Tab title="Source">
+      ```bash
+      git clone https://github.com/ProxySoul/soulforge.git
+      cd soulforge && bun install && bun run dev
+      ```
+    </Tab>
+  </Tabs>
+</Accordion>
+
+## Add a key
+
+You need at least one LLM provider key. Pick one path:
+
 <Tabs>
-  <Tab title="Homebrew (recommended)">
+  <Tab title="One key, every model">
+    [LLM Gateway](https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK) — one key for Claude, GPT, Gemini, Grok, Llama, Qwen, and others. Up to 30% off frontier models.
+
     ```bash
-    brew tap proxysoul/tap
-    brew install soulforge
+    soulforge --set-key llmgateway sk-...
     ```
   </Tab>
-  <Tab title="Prebuilt binary">
-    Download the latest release from [GitHub Releases](https://github.com/ProxySoul/soulforge/releases/latest), extract, and run the installer:
-
+  <Tab title="Anthropic">
     ```bash
-    tar xzf soulforge-*.tar.gz
-    cd soulforge-*/
-    ./install.sh
+    soulforge --set-key anthropic sk-ant-...
     ```
-
-    Installs to `~/.soulforge/` and adds it to your PATH. Then run `soulforge` (or `sf`).
+    Get a key at [console.anthropic.com](https://console.anthropic.com).
   </Tab>
-  <Tab title="Bun (global install)">
-    Requires [Bun](https://bun.sh) >= 1.2 — SoulForge uses Bun-specific APIs (Workers, native modules, PTY).
-
+  <Tab title="OpenAI">
     ```bash
-    # Install Bun if you don't have it
-    curl -fsSL https://bun.sh/install | bash
-
-    # Install SoulForge globally
-    bun install -g @proxysoul/soulforge
-
-    soulforge   # or: sf
+    soulforge --set-key openai sk-...
     ```
+    Get a key at [platform.openai.com](https://platform.openai.com).
   </Tab>
-  <Tab title="Build from source">
-    Requires [Bun](https://bun.sh) >= 1.2.
-
+  <Tab title="Local (free)">
+    Run Ollama or LM Studio locally — no key needed.
     ```bash
-    git clone https://github.com/ProxySoul/soulforge.git
-    cd soulforge
-    bun install
-
-    # Run in development mode
-    bun run dev
-
-    # Or build and link globally
-    bun run build
-    bun link
-    soulforge
+    brew install ollama && ollama pull llama3.3
     ```
+    SoulForge auto-detects it on launch.
+  </Tab>
+  <Tab title="GitHub Copilot">
+    Use your existing Copilot subscription.
+    ```bash
+    # after signing in via VS Code:
+    soulforge --set-key copilot $(jq -r '.["github.com"].oauth_token' \
+      ~/.config/github-copilot/apps.json)
+    ```
+    See [Copilot setup](/providers/copilot) for the full guide.
   </Tab>
 </Tabs>
 
-## First launch
+Keys are stored in your OS keychain (macOS Keychain, Linux secret-tool). You can also `export ANTHROPIC_API_KEY=...` in your shell profile.
 
-On first launch, SoulForge checks for Neovim and Nerd Fonts. If either is missing, it offers to download and install them from official GitHub releases. This is optional -- you can install them manually if you prefer.
+[See all 20+ providers →](/providers)
 
-Run [`/setup`](/reference/commands) anytime to re-check prerequisites.
+## Launch
 
 ```bash
-soulforge                    # Launch -- select a model with Ctrl+L
-soulforge --set-key anthropic sk-ant-...   # Or save a key first
-soulforge --list-providers   # Check which providers are ready
+soulforge
 ```
+
+Press `Ctrl+L` to switch models. Type `/help` for commands.
+
+<Card title="Next: Quickstart" href="/quickstart" icon="rocket">
+  Five minutes to your first refactor.
+</Card>

@@ -1,129 +1,22 @@
 ---
 title: "AST editing"
-description: "Surgical AST edits for TypeScript and JavaScript. No oldString, no line math, 65+ operations from micro-edits to full replacement."
+description: "The first AST-native AI editor. Edits by symbol, not string."
 icon: "scalpel"
 ---
 
-`ast_edit` is SoulForge's **AST-native edit tool** for TypeScript and JavaScript. Instead of matching text, it addresses symbols directly — by kind and name — and mutates the AST.
+`ast_edit` is the first AI coding tool to edit TypeScript and JavaScript through the AST instead of text matching. It addresses symbols by kind and name, mutates them structurally, and writes the result back. Micro-edits cost a handful of tokens and never fail on whitespace.
 
-No `oldString`. No line math. No whitespace failures.
+You don't invoke `ast_edit` directly. The agent picks it automatically for TypeScript and JavaScript files. This page is a reference for what it can do.
 
-## Why
+## Origin
 
-Text-based editing breaks for predictable reasons:
+The AST-first approach comes from my own Master's thesis in Computer Science, [*Typed vs Untyped Programming Languages*](https://www.diva-portal.org/smash/record.jsf?pid=diva2%3A1690910&dswid=-6127) (co-authored with Artur Matusiak, 2022), and its reference implementation [JS Typer](https://github.com/proxysoul/Javascript-Typer). The thesis demonstrated that programmatic JavaScript-to-TypeScript conversion could be done entirely through ts-morph AST mutations rather than string manipulation. `ast_edit` is the direct descendant of that work, applied to AI coding.
 
-- `oldString` doesn't match because of tabs vs spaces, escape handling, trailing whitespace.
-- Ambiguous matches — pure text can't disambiguate identical patterns.
-- Sequential edits shift line numbers; tracking offsets is error-prone.
-- Every edit requires emitting the original code verbatim, even for tiny changes.
+## Examples
 
-For a 50-line function where only the return type changes, text-based edits force the agent to emit ~100 lines of `oldString` + `newString`. The actual change is five characters.
+Change a function's return type:
 
-`ast_edit` skips all of this. It locates symbols through the AST and mutates them with structured operations.
-
-## The one-liner
-
-```typescript
-// Make a function async
-ast_edit({ path: "src/api.ts", action: "set_async", target: "function", name: "fetchUser", value: "true" })
-
-// Change a return type
-ast_edit({ path: "src/api.ts", action: "set_return_type", target: "function", name: "fetchUser", value: "Promise<User>" })
-
-// Add a parameter
-ast_edit({ path: "src/api.ts", action: "add_parameter", target: "function", name: "fetchUser", value: "cache: boolean" })
-```
-
-One token of state + one token of type. Compare that to sending 50+ lines of context with `edit_file`.
-
-## Three tiers
-
-<Tabs>
-  <Tab title="Tier 1 — Micro-edits">
-    Surgical changes to a single attribute of a symbol. 1-10 tokens per operation.
-
-    | Action | Effect |
-    |--------|--------|
-    | `set_type` | Change a variable/property/parameter type annotation |
-    | `set_return_type` | Change a function's return type |
-    | `set_initializer` / `remove_initializer` | Set or clear an initializer |
-    | `set_value` | Set an enum member's value |
-    | `set_async` / `set_generator` | Toggle `async` / `generator` |
-    | `set_export` / `set_default_export` | Toggle `export` / `export default` |
-    | `set_abstract` / `set_static` / `set_readonly` | Toggle class-member modifiers |
-    | `set_scope` | Set `public` / `protected` / `private` |
-    | `set_optional` | Toggle `?` on parameters and properties |
-    | `set_overrides` | Toggle `override` |
-    | `set_ambient` | Toggle `declare` |
-    | `set_const_enum` | Toggle `const enum` |
-    | `rename` | Rename a symbol (references updated locally) |
-    | `remove` | Remove the entire declaration |
-    | `add_parameter` / `remove_parameter` | Function/method parameters |
-    | `set_declaration_kind` | `const` / `let` / `var` |
-  </Tab>
-  <Tab title="Tier 2 — Body surgery">
-    Structural changes to a symbol's contents. 10-100 tokens per operation.
-
-    | Action | Effect |
-    |--------|--------|
-    | `set_body` | Replace a function/method body (keeps signature and JSDoc) |
-    | `add_statement` / `insert_statement` / `remove_statement` | Statement-level edits |
-    | `add_property` / `remove_property` | Interface/class properties |
-    | `add_method` / `remove_method` | Class methods — correct indentation |
-    | `add_constructor` / `add_getter` / `add_setter` | Class members |
-    | `add_member` / `remove_member` | Enum members, type-literal members |
-    | `add_decorator` / `remove_decorator` | Decorators |
-    | `add_overload` | Function overload signatures |
-    | `set_extends` / `remove_extends` / `add_extends` | Class/interface inheritance |
-    | `add_implements` / `remove_implements` | `implements` list |
-    | `add_type_parameter` | Generic type parameters |
-    | `add_jsdoc` / `remove_jsdoc` | JSDoc blocks |
-    | `unwrap` | Replace a function/namespace with its body contents |
-    | `set_structure` | Declarative bulk mutation (merge a partial structure) |
-    | `extract_interface` | Auto-generate an interface from a class |
-  </Tab>
-  <Tab title="Tier 3 — Full replacement">
-    | Action | Effect |
-    |--------|--------|
-    | `replace` | Replace a whole symbol (body + signature) with new source |
-  </Tab>
-  <Tab title="File-level">
-    Operations that target the file, not a specific symbol.
-
-    | Action | Effect |
-    |--------|--------|
-    | `add_import` / `remove_import` | Import declarations |
-    | `add_named_import` / `remove_named_import` | Named imports on an existing import |
-    | `set_module_specifier` | Change an import path |
-    | `add_export_declaration` | `export { X } from "..."` |
-    | `add_namespace` | Namespace/module declarations |
-    | `organize_imports` | Sort and dedupe imports |
-    | `fix_missing_imports` | Auto-add imports for unresolved identifiers |
-    | `fix_unused` | Remove unused identifiers |
-    | `add_function` / `add_class` / `add_interface` / `add_type_alias` / `add_enum` / `add_variable` | Append a new top-level declaration |
-    | `insert_text` | Insert a statement at a specific index |
-  </Tab>
-</Tabs>
-
-## Targets
-
-Most operations take a `target` — the symbol kind to locate.
-
-| Target | Addressable by |
-|--------|----------------|
-| `function` | `name` — top-level functions. Falls through to class methods if no match. |
-| `class` | `name` |
-| `interface` | `name` |
-| `type` | `name` |
-| `enum` | `name` |
-| `variable` / `constant` | `name` |
-| `method` | `"ClassName.methodName"` or `"methodName"` (searches all classes) |
-| `property` | `"ClassName.propName"` or `"propName"` |
-
-## Single op vs atomic batch
-
-<CodeGroup>
-```typescript Single
+```ts
 ast_edit({
   path: "src/api.ts",
   action: "set_return_type",
@@ -133,60 +26,119 @@ ast_edit({
 })
 ```
 
-```typescript Atomic batch
+Make a function async and add a parameter — one atomic batch:
+
+```ts
 ast_edit({
   path: "src/api.ts",
   operations: [
     { action: "set_async", target: "function", name: "fetchUser", value: "true" },
-    { action: "set_return_type", target: "function", name: "fetchUser", value: "Promise<User>" },
     { action: "add_parameter", target: "function", name: "fetchUser", value: "cache: boolean" },
-    { action: "add_import", value: "./types", newCode: "User" },
+    { action: "add_named_import", value: "./types", newCode: "User" },
   ],
 })
 ```
-</CodeGroup>
 
-Atomic: all-or-nothing. If any operation fails, zero edits are applied.
+Rename a class method:
+
+```ts
+ast_edit({
+  path: "src/store.ts",
+  action: "rename",
+  target: "method",
+  name: "UserStore.fetch",
+  value: "load",
+})
+```
+
+Replace a whole function body:
+
+```ts
+ast_edit({
+  path: "src/util.ts",
+  action: "set_body",
+  target: "function",
+  name: "parseInput",
+  newCode: "return JSON.parse(raw);",
+})
+```
+
+Batch edits are all-or-nothing — if any fails, none are applied.
+
+## Targets
+
+| Target | Addressed by |
+|--------|-------------|
+| `function`, `class`, `interface`, `type`, `enum`, `variable`, `constant` | `name` |
+| `method`, `property` | `"ClassName.member"` or `"member"` |
+| `arrow_function` | `name` (targets `const fn = () => {}`) |
+| `constructor` | `ClassName` |
+
+## Action reference
+
+<AccordionGroup>
+<Accordion title="Tier 1 — Micro-edits (1-10 tokens)">
+| Action | Effect |
+|--------|--------|
+| `set_type` | Variable/property/parameter type annotation |
+| `set_return_type` | Function return type |
+| `set_initializer` / `remove_initializer` | Variable initializer |
+| `set_value` | Enum member value |
+| `set_async` / `set_generator` | Toggle `async` / `function*` |
+| `set_export` / `set_default_export` | Toggle export modifiers |
+| `set_abstract` / `set_static` / `set_readonly` / `set_scope` / `set_optional` / `set_overrides` / `set_ambient` | Class-member modifiers |
+| `set_const_enum` / `set_declaration_kind` | Misc modifiers |
+| `rename` | Declaration-only rename |
+| `remove` | Delete the declaration |
+| `add_parameter` / `remove_parameter` | Function/method parameters |
+</Accordion>
+
+<Accordion title="Tier 2 — Body surgery (10-100 tokens)">
+| Action | Effect |
+|--------|--------|
+| `set_body` | Replace function/method body |
+| `add_statement` / `insert_statement` / `remove_statement` | Statement-level |
+| `add_property` / `remove_property` | Interface/class properties |
+| `add_method` / `remove_method` / `add_constructor` / `add_getter` / `add_setter` | Class members |
+| `add_member` / `remove_member` | Enum / type-literal members |
+| `add_decorator` / `remove_decorator` | Decorators |
+| `add_overload` | Function overload signatures |
+| `set_extends` / `add_extends` / `remove_extends` / `add_implements` / `remove_implements` | Inheritance |
+| `add_type_parameter` | Generic type parameters |
+| `add_jsdoc` / `remove_jsdoc` | JSDoc blocks |
+| `unwrap`, `set_structure`, `extract_interface` | Structural rewrites |
+</Accordion>
+
+<Accordion title="Tier 3 — Full replacement">
+| Action | Effect |
+|--------|--------|
+| `replace` | Replace a whole symbol |
+| `replace_in_body` | AST-anchored substring replace (unique match only) |
+</Accordion>
+
+<Accordion title="File-level">
+| Action | Effect |
+|--------|--------|
+| `create_file` | New file (pass `newCode` as content) |
+| `add_import` / `remove_import` / `add_named_import` / `remove_named_import` | Imports |
+| `set_module_specifier` | Change import path |
+| `add_export_declaration` / `add_named_reexport` | Re-exports |
+| `add_namespace` | Namespace declarations |
+| `organize_imports` / `fix_missing_imports` / `fix_unused` | Cleanup |
+| `add_function` / `add_class` / `add_interface` / `add_type_alias` / `add_enum` / `add_variable` | Append top-level declarations |
+| `insert_text` | Insert at an anchor (`"after-imports"`, `"before-exports"`, index) |
+</Accordion>
+</AccordionGroup>
 
 ## Supported files
 
-`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`. For anything else, use `edit_file` or `multi_edit`.
+`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`. For other files the agent falls back to `edit_file` / `multi_edit`.
 
 ## Safety
 
-<CardGroup cols={2}>
-  <Card title="Concurrent modification" icon="shield">
-    If the file changed on disk since the tool snapshot, the edit is rejected with no write.
-  </Card>
-  <Card title="Atomic rollback" icon="rotate-left">
-    A failed operation in a batch reverts the entire batch.
-  </Card>
-  <Card title="Undo stack" icon="arrow-rotate-left">
-    `undo_edit` reverts `ast_edit` writes the same way it reverts `edit_file`.
-  </Card>
-  <Card title="Pre/post diagnostics" icon="triangle-exclamation">
-    New type errors or warnings introduced by the edit are reported back to the agent.
-  </Card>
-</CardGroup>
+- File snapshotted before the edit — rejects if changed on disk mid-flight.
+- Atomic batches: all or none.
+- `undo_edit` reverses `ast_edit` the same as `edit_file`.
+- Pre/post diagnostics — new type errors flow back to the agent immediately.
 
-## When to reach for `edit_file` / `multi_edit` instead
 
-- **Non-TS/JS files** — JSON, YAML, Markdown, config.
-- **Sub-statement text tweaks** — flipping a comparison operator, editing a string literal, adjusting a condition inside a function. These don't map to an AST action.
-- **Unusual shapes** — if `ast_edit` errors on a particular structure, fall back to text editing.
-
-## Relationship to other tools
-
-| Dimension | `ast_edit` | `edit_file` / `multi_edit` |
-|-----------|-----------|---------------------------|
-| **Languages** | TS/JS only | Any text file |
-| **Addressing** | AST: symbol kind + name | Text: `oldString` + `lineStart` |
-| **Micro-edit cost** | 1-10 tokens | 50+ tokens (must emit `oldString`) |
-| **Failure mode** | "Symbol not found" (clear) | "oldString mismatch" (fuzzy) |
-| **Atomic batch** | `operations` array | `edits` array |
-
-`ast_edit` complements [`rename_symbol` and `move_symbol`](/concepts/compound-tools): those operate across files, `ast_edit` operates within one file.
-
-## Credits
-
-The AST-first editing approach is inspired by Ouail Bni's Master's thesis in Computer Science [**Typed vs Untyped Programming Languages**](https://www.diva-portal.org/smash/record.jsf?pid=diva2%3A1690910&dswid=-6127) (co-authored with Artur Matusiak, 2022) and its reference implementation [JS Typer](https://github.com/proxysoul/Javascript-Typer), which demonstrated that programmatic JS→TS transformation could be done entirely through AST mutations rather than string manipulation.

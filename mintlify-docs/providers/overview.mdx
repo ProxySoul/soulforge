@@ -1,0 +1,66 @@
+---
+title: "Providers"
+description: "20+ built-in LLM providers, plus any OpenAI-compatible API."
+icon: "plug"
+---
+
+SoulForge works with 20+ providers out of the box. Set one key and go.
+
+## Cloud
+
+| Provider | Setup | Get a key |
+|----------|-------|-----------|
+| **Anthropic** | `soulforge --set-key anthropic sk-ant-...` | [console.anthropic.com](https://console.anthropic.com) |
+| **OpenAI** | `soulforge --set-key openai sk-...` | [platform.openai.com](https://platform.openai.com) |
+| **Google** | `soulforge --set-key google ...` | [aistudio.google.com](https://aistudio.google.com) |
+| **xAI** | `soulforge --set-key xai xai-...` | [console.x.ai](https://console.x.ai) |
+| **Groq** | `soulforge --set-key groq gsk_...` | [console.groq.com](https://console.groq.com) |
+| **DeepSeek** | `soulforge --set-key deepseek sk-...` | [platform.deepseek.com](https://platform.deepseek.com) |
+| **Mistral** | `soulforge --set-key mistral ...` | [console.mistral.ai](https://console.mistral.ai) |
+| **Fireworks** | `soulforge --set-key fireworks ...` | [fireworks.ai](https://fireworks.ai) |
+| **MiniMax** | `soulforge --set-key minimax ...` | [platform.minimaxi.com](https://platform.minimaxi.com) |
+
+## Gateways (one key, many models)
+
+| Provider | What you get | Get a key |
+|----------|--------------|-----------|
+| **LLM Gateway** | One key for every major model, up to 30% off frontier | [llmgateway.io](https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK) |
+| **OpenRouter** | 200+ models | [openrouter.ai](https://openrouter.ai) |
+| **Vercel AI Gateway** | Unified gateway | [vercel.com/ai-gateway](https://vercel.com/ai-gateway) |
+
+## Subscription-based
+
+| Provider | Use | Setup |
+|----------|-----|-------|
+| **[GitHub Copilot](/providers/copilot)** | Your Copilot subscription | OAuth token from IDE |
+| **Codex** | ChatGPT subscription | `/codex login` inside SoulForge |
+| **GitHub Models** | Free with any GitHub PAT | `soulforge --set-key github-models ghp_...` |
+
+## Local (free)
+
+| Provider | Setup |
+|----------|-------|
+| **Ollama** | Auto-detected at `localhost:11434`. Set `OLLAMA_HOST` to override. |
+| **LM Studio** | Auto-detected at `localhost:1234`. Set `LM_STUDIO_URL` to override. |
+| **OpenCode Go** | `soulforge --set-key opencode-go ...` |
+| **OpenCode Zen** | `soulforge --set-key opencode-zen ...` |
+
+## Enterprise
+
+| Provider | Setup |
+|----------|-------|
+| **Bedrock** | `export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1` |
+| **Proxy** | Local CLIProxyAPI relay. Run `/proxy install` inside SoulForge. |
+
+## Anything else
+
+Any OpenAI-compatible API works via [custom providers](/providers/custom) — one block of config, no code.
+
+## Switching models
+
+Inside SoulForge, press `Ctrl+L` to pick a provider and model. Assign different models to different tasks with `/router` (cheap model for search, strong for code).
+
+```bash
+soulforge --list-providers              # see what's configured
+soulforge --list-models anthropic       # see available models for one provider
+```

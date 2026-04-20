@@ -66,15 +66,15 @@ Add `mcpServers` to your global config (`~/.soulforge/config.json`) or project c
 | `transport` | "stdio" \| "http" \| "sse" | Transport type (default: "stdio") |
 | `command` | string | Command to spawn (stdio transport) |
 | `args` | string[] | Arguments for command |
-| `env` | Record<string,string> | Environment variables for subprocess |
+| `env` | `Record<string,string>` | Environment variables for subprocess |
 | `url` | string | URL for http/sse transports |
 | `timeout` | number | Per-tool-call timeout in ms (default: 30000) |
 | `disabled` | boolean | Disable without removing config |
-| `headers` | Record<string,string> | HTTP headers for http/sse transports |
+| `headers` | `Record<string,string>` | HTTP headers for http/sse transports |
 
 ## Tool namespacing
 
-MCP tools are namespaced as `mcp__<server>__<tool>` to prevent collisions with built-in tools. A server named "github" with tool "create_issue" becomes `mcp__github__create_issue`.
+MCP tools are namespaced as `` mcp__<server>__<tool> `` to prevent collisions with built-in tools. A server named "github" with tool "create_issue" becomes `mcp__github__create_issue`.
 
 ## Transport types
 

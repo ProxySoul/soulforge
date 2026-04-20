@@ -1,42 +1,29 @@
 ---
-title: "User steering"
-description: "Type messages while the agent is running — they queue up and inject into the next agent step."
+title: "Steering"
+description: "Redirect the agent mid-flight without aborting."
 icon: "compass"
 ---
 
-User steering lets you redirect the agent mid-execution without aborting. Messages are queued and injected at the next natural breakpoint.
+Type while the agent is working. Your message queues up and injects into the next agent step — no abort, no restart.
 
-## How it works
+## How to use it
 
-<Steps>
-  <Step title="Queue">
-    User types a message while the agent is busy (loading indicator visible). Message is queued (up to 5 messages, shown in UI with "queued" label).
-  </Step>
-  <Step title="Drain">
-    At the next step boundary, all queued messages are drained at once.
-  </Step>
-  <Step title="Flush">
-    Current assistant progress is committed, steering messages are appended.
-  </Step>
-  <Step title="Inject">
-    Combined steering text is injected as a user message into the AI conversation.
-  </Step>
-  <Step title="Adjust">
-    Agent sees the steering and adjusts its approach on the next step.
-  </Step>
-</Steps>
+Just keep typing. The chat input stays active even while the agent is busy:
 
-## Safety
+```
+> refactor the auth module
+Agent: [reads files, starts edits...]
+> actually, just do the middleware first, skip the handlers
+```
 
-| Guard | Purpose |
-|-------|---------|
-| **Abort gate** | Steering is blocked after Ctrl+X to prevent stale messages |
-| **Queue cap** | Maximum 5 queued messages (6th rejected, not dropped) |
-| **Post-completion drain** | After stream ends, remaining queue auto-submitted as the next message |
-| **Plan-aware** | Queue survives across plan revision/execution continuations |
+At the next natural boundary, your message appears in the conversation and the agent adjusts.
 
-## UI
+## Limits
 
-Queued messages appear below the chat with a left rail border and "queued" label. They disappear as they're consumed by the agent or cleared on abort.
+- **Up to 5 messages queued** — the 6th is rejected (not dropped).
+- **Not after Ctrl+X** — abort clears the queue and blocks new steers until the next prompt.
+- **Visible as you queue** — queued messages show below the chat with a "queued" label.
 
-See also: [Multi-agent dispatch](/agents/dispatch) for the parallel agent system that steering messages can redirect.
+## Why it matters
+
+Watching the agent drift for 10 seconds and then aborting to restart is expensive. Steering redirects for the cost of one extra user message.

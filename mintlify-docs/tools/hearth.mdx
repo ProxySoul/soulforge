@@ -1,0 +1,130 @@
+---
+title: "Hearth — Remote control"
+description: "Reach your SoulForge from Telegram, Discord, or iMessage."
+icon: "mobile"
+---
+
+Hearth turns your running SoulForge into a remote coding agent. Send prompts from your phone, approve edits with inline buttons, keep coding from anywhere.
+
+Your code never leaves your host. Hearth only opens outbound connections to messaging platforms.
+
+## Start in 4 steps
+
+<Steps>
+  <Step title="Start the daemon">
+    ```bash
+    soulforge hearth start
+    ```
+    Leave this running. It listens on a UNIX socket (`0600` permissions, local only).
+  </Step>
+
+  <Step title="Create a bot and store the token">
+    Create a bot on [@BotFather](https://t.me/BotFather) (Telegram), [Discord Developer Portal](https://discord.com/developers/applications), or skip this for iMessage.
+
+    ```bash
+    # pipe the token — never appears in ps output:
+    cat token.txt | soulforge hearth login telegram:<botId>
+    ```
+  </Step>
+
+  <Step title="Pair your chat">
+    ```bash
+    soulforge hearth pair telegram:<botId> --issue
+    # prints a 6-character code
+    ```
+    DM your bot and type:
+    ```
+    /pair ABC123
+    ```
+  </Step>
+
+  <Step title="Talk">
+    Any message you send the bot now goes to your forge. Tool calls that need approval arrive as inline buttons — tap Approve or Deny.
+  </Step>
+</Steps>
+
+## Commands (in the chat)
+
+| Command | What it does |
+|---------|--------------|
+| `/pair <code>` | Redeem a pairing code |
+| `/new [label]` | Open a new tab (max 5) |
+| `/tab [id]` | List or switch tabs |
+| `/stop` | Abort the current turn |
+| `/close [id]` | Close a tab |
+| `/help` | Show commands |
+
+Plain text becomes a prompt to the active tab.
+
+## CLI reference
+
+```bash
+soulforge hearth start                               # run the daemon
+soulforge hearth status                              # daemon health + paired chats
+soulforge hearth login <surface>:<id> [token]        # store a bot token
+soulforge hearth pair <surface>:<id> --issue         # mint a pairing code
+soulforge hearth pair <surface>:<id> <code>          # redeem from CLI
+soulforge hearth unpair <surface>:<id> <chatId>      # revoke a chat
+soulforge hearth doctor                              # diagnose setup
+soulforge hearth logs [--follow]                     # tail daemon log
+```
+
+Inside SoulForge, `/hearth` opens the settings panel with the same controls.
+
+## Always-on (service)
+
+Run Hearth as a background service so your forge is reachable even after logout:
+
+```bash
+# macOS (launchd) / Linux (systemd) — auto-detected
+soulforge hearth install        # install service
+soulforge hearth install --now  # install and start
+```
+
+Check status and surface owner at any time: `soulforge hearth status`.
+
+## Surfaces
+
+| Surface | Platform | Identity |
+|---------|----------|----------|
+| **Telegram** | Any OS | Bot + numeric `from.id` allowlist |
+| **Discord** | Any OS | Bot + user `snowflake` allowlist |
+| **iMessage** | macOS only | Handle (`+15551234567` or email) — requires Full Disk Access |
+
+Unknown senders are silently dropped — their existence is not revealed.
+
+## Security
+
+Hearth layers several protections on top of SoulForge's existing hook system:
+
+<CardGroup cols={2}>
+  <Card title="Identity allowlist" icon="shield">
+    Only paired identities can send. Unknown senders are dropped.
+  </Card>
+  <Card title="Approval prompts" icon="hand">
+    Destructive tool calls (edit, shell, git) arrive as tap-to-approve buttons.
+  </Card>
+  <Card title="Secret redaction" icon="eye-slash">
+    Bot tokens, API keys, PATs, AWS keys, bearer tokens — auto-redacted from all logs.
+  </Card>
+  <Card title="Read denylist" icon="ban">
+    `.env`, `*.pem`, `~/.ssh/**`, `~/.aws/credentials` — blocked before every read.
+  </Card>
+  <Card title="Sandboxed caps" icon="box">
+    Optional: route destructive ops through Docker with `caps: "sandboxed"`.
+  </Card>
+  <Card title="Bot tokens in keychain" icon="key">
+    Tokens live in macOS Keychain / Linux secret-tool. Never in plain config.
+  </Card>
+</CardGroup>
+
+## Config
+
+Default config lives at `~/.soulforge/hearth.json`. Most users never edit it — the CLI manages everything. For advanced setups (multiple chats, read denylists, capability caps), see the [config schema](https://github.com/proxysoul/soulforge/blob/main/src/hearth/config.ts).
+
+## Non-goals
+
+- **No cloud.** Hearth is "reach your host" — not a hosted service. Your machine must be running.
+- **No WhatsApp.** Terms of service forbid it.
+- **No iMessage on Linux.** No safe path exists.
+- **No concurrent writers.** Reads ok across chats; writes are single-owner per tab.

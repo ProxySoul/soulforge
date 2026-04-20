@@ -1,84 +1,78 @@
 ---
-title: "Cross-tab coordination"
-description: "Advisory file claims, contention handling, and git blocking across up to 5 concurrent tabs."
+title: "Tabs"
+description: "Multiple independent workspaces with tab-aware file claims."
 icon: "table-columns"
 ---
 
-SoulForge supports up to 5 concurrent tabs editing the same codebase. The WorkspaceCoordinator manages advisory file claims so tabs are aware of what others are editing.
+Up to 5 tabs per project. Each is a fully independent workspace. Tabs are aware of each other, so parallel work does not collide, and git operations never capture partial changes.
 
-## How it works
+## Per-tab state
 
-When any tab edits a file (via `edit_file`, `multi_edit`, `rename_symbol`, `move_symbol`, `rename_file`, `refactor`, or shell writes), the file is automatically claimed for that tab. Other tabs see the claim and get advisory warnings.
+| What | Independent per tab |
+|------|---------------------|
+| Active model | Yes (`Ctrl+L` inside the tab) |
+| Forge mode | Yes (`Ctrl+D`: default, architect, socratic, challenge, plan, auto) |
+| Session and messages | Yes |
+| Checkpoint history | Yes (git tags namespaced by tab ID) |
+| Agent dispatches and findings | Yes |
+| Input history | Shared across tabs |
+| Repo map, LSP, MCP | Shared across tabs (one per project) |
 
-### Claim lifecycle
+Run Sonnet on tab 1 for a refactor while Haiku runs on tab 2 for documentation. One tab in plan mode, another in auto. Same project, independent agents.
 
-| Event | What happens |
-|-------|-------------|
-| Agent edits a file | File claimed for the tab via `checkAndClaim` |
-| Another tab edits the same file | Warning returned: "File X is being edited by Tab Y" |
-| Tab goes idle (prompt finishes) | Claims released after 5 seconds |
-| User aborts (Ctrl+X) | Claims released immediately |
-| Tab closes | Claims released + tab marked as closed |
-| Stale sweep (every 30s) | Claims older than 5 minutes released |
-| Leaked agents (15 min) | Agent counters cleared by sweep |
+## Tab awareness
 
-### Git blocking
+Every tab knows:
 
-Git operations that modify the working tree (`commit`, `stash`, `restore`, `branch switch`) are blocked while another tab has active dispatch agents. This prevents partial commits during concurrent edits.
+- Which other tabs are open, what they are named, and who is active.
+- Which files are claimed by which tab.
+- Whether another tab currently has agents dispatched.
 
-The block is per-tab --a tab's own agents don't block its own git operations. When blocked, the tool returns a terminal error instead of a retryable error, preventing token-burning retry loops.
+When your agent is about to edit a file another tab has claimed, it sees a warning before writing and can decide to skip or proceed.
 
-### Contention handling
+## File claims
 
-When `edit_file` fails with `old_string not found` AND the file is claimed by another tab, a terminal CONTENTION error is returned instead of the normal rich error. The agent stops and informs the user instead of retrying.
+A claim is created automatically the first time a tab touches a file with `edit_file`, `multi_edit`, `rename_symbol`, `move_symbol`, `rename_file`, `refactor`, or shell writes (`sed`, `>`, `tee`, etc).
+
+Other tabs see the claim and get an advisory warning if their agent tries to edit the same file. Edits still go through (advisory, not blocking), but the agent is told another tab owns it and usually skips to avoid stomping.
+
+Claims release automatically:
+
+- 5 seconds after the tab finishes its current prompt.
+- Immediately on `Ctrl+X` (abort).
+- When the tab closes.
+- After 5 minutes of inactivity (stale sweep).
+
+No persistent locks. No deadlocks. Nothing to clean up manually.
+
+## Git is hard-blocked mid-dispatch
+
+Git operations that modify the working tree (`commit`, `stash`, `restore`, `branch switch`) are blocked while another tab has active dispatch agents. This is the one hard gate: committing mid-dispatch in another tab would capture partial, half-written edits. Your changes stay intact.
+
+The block is per-tab. A tab's own agents do not block its own git. When blocked, the tool returns a terminal error so the agent stops retrying (no token-burning loops).
+
+## Contention handling
+
+If `edit_file` fails with `old_string not found` AND the target file is claimed by another tab, SoulForge returns a terminal CONTENTION error instead of the normal retry-friendly error. The agent stops and surfaces the conflict to you instead of guessing.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `/claim` | Show all active file claims across tabs |
-| `/claim release <path>` | Release a specific file claim from current tab |
-| `/claim release-all` | Release all claims from current tab |
-| `/claim force <path>` | Steal a file claim from another tab |
-
-## Architecture
-
 ```
-WorkspaceCoordinator (singleton)
-+-- claims: Map<path, FileClaim>        -- who owns what
-+-- activeAgents: Map<tabId, count>     -- dispatch agent tracking
-+-- closedTabs: Set<tabId>              -- ghost claim prevention
-+-- idleTimers: Map<tabId, timer>       -- auto-release on idle
-+-- agentStartedAt: Map<tabId, ts>      -- leaked agent sweep
-+-- listeners: Set<callback>            -- event subscribers
+/tab new                   open a new tab (Ctrl+T)
+/tab close                 close current tab (Ctrl+W)
+/tab rename                rename the active tab
+/claim                     show all active claims across tabs
+/claim release <path>      release one claim from this tab
+/claim release-all         release every claim from this tab
+/claim force <path>        steal a claim from another tab
 ```
 
-### Events
+## Shortcuts
 
-All claim state changes emit batched events via `queueMicrotask`:
-- `claim` --file claimed by a tab
-- `release` --file released
-- `conflict` --tab tried to claim a file owned by another tab
-
-### Tool integration
-
-Every file-modifying tool calls `checkAndClaim` before execution or `claimAfterCompoundEdit` after:
-
-- `edit_file`, `multi_edit` --`checkAndClaim` before edit
-- `rename_symbol`, `move_symbol`, `rename_file`, `refactor` --`checkAndClaim` before + `claimAfterCompoundEdit` after
-- `shell` (sed, cp, mv, tee, >) --`claimAfterCompoundEdit` after
-- `test_scaffold` --`claimAfterCompoundEdit` after
-
-## Design decisions
-
-<Note>
-**Advisory, not blocking.** Edits always proceed. The warning tells the agent another tab owns the file --the agent can choose to skip or proceed. This avoids deadlocks.
-</Note>
-
-<Note>
-**Git is the exception.** Git operations during active dispatch are hard-blocked because committing mid-dispatch produces garbage. This is the only hard gate.
-</Note>
-
-<Note>
-**Claims are transient.** Auto-released on idle (5s), on abort, on tab close. The stale sweep (5 min) is the safety net. Nothing persists forever.
-</Note>
+| Key | Action |
+|-----|--------|
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close tab |
+| `Ctrl+[` / `Ctrl+]` | Previous / next tab |
+| `Ctrl+1` through `Ctrl+9` | Jump to tab N |
+| `Tab` / `Shift+Tab` | Cycle tabs (from the input) |

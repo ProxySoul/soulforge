@@ -1,0 +1,65 @@
+---
+title: "LSP servers"
+description: "Install, manage, and inspect LSP servers from the TUI."
+icon: "brain"
+---
+
+SoulForge's code intelligence runs a full LSP layer. It ships a Mason-backed installer so you can add servers for any language from the TUI without touching your Neovim config.
+
+## Commands
+
+```
+/lsp                open the LSP status dashboard
+/lsp install        search and install servers (Mason registry, 576+ packages)
+/lsp status         attached servers with PID, language, capabilities
+/lsp restart        restart all, or filter by language
+```
+
+## What the agent uses
+
+Every [code intelligence](/concepts/intelligence) operation tries LSP first:
+
+- Go-to-definition
+- Find references
+- Workspace-wide rename
+- Diagnostics (errors, warnings, info)
+- Code actions (quick fixes, refactors)
+- Call hierarchy (incoming and outgoing)
+- Type hierarchy (super and subtypes)
+- Hover and type info
+- Format document and format range
+
+No manual setup required. The agent picks the right tool automatically.
+
+## Dual backend
+
+SoulForge runs LSP in two modes, whichever is available:
+
+| Mode | When |
+|------|------|
+| **Neovim bridge** | Editor panel open. Routes through your running Neovim LSP clients. Zero warm-up cost. |
+| **Standalone** | Editor panel closed, or Neovim not installed. SoulForge spawns LSP servers directly into `~/.soulforge/lsp-servers/`. |
+
+Both cover the same capabilities. Standalone servers stay warm as hot standby even when Neovim is open.
+
+## Supported languages
+
+LSP backend supports: TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Scala, C#, Swift, Dart, Elixir, OCaml, Lua, C, C++, Ruby, PHP, Zig, Bash, CSS, HTML, JSON, TOML, YAML, Dockerfile, Vue.
+
+For anything LSP doesn't cover, the intelligence router falls through to ts-morph (TypeScript/JavaScript AST), tree-sitter (33 languages), and regex.
+
+## Mason installer
+
+`/lsp install` opens a fuzzy-search browser over Mason's registry. Pick a package, press enter, SoulForge installs it:
+
+- **npm** packages to `~/.soulforge/lsp-servers/node_modules/`
+- **pypi** via `pip3`
+- **cargo** via `cargo install`
+- **golang** via `go install`
+- **github** releases downloaded and extracted
+
+Already installed locally or via your Neovim's Mason? SoulForge picks them up from the existing paths.
+
+## Check health
+
+`/diagnose` runs a full check: tree-sitter, LSP readiness, semantic indexing, repo map status. Use it when something doesn't feel right.

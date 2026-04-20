@@ -172,7 +172,7 @@ These are non-negotiable. PRs that break them will be asked to fix before merge.
 
 ## Architecture
 
-For the full technical reference, see [docs/architecture.md](docs/architecture.md).
+For the full technical reference, see [soulforge.proxysoul.com/concepts/architecture](https://soulforge.proxysoul.com/concepts/architecture).
 
 ### Agent System
 
@@ -192,7 +192,7 @@ Subagents are exposed to Forge as regular tool calls via `buildSubagentTools()`.
 - **Real-time findings** — agents post discoveries visible to peers within 1-2 steps
 - **Cache persistence** — warm starts across dispatch calls
 
-See [docs/agent-bus.md](docs/agent-bus.md) for the full coordination reference.
+See [soulforge.proxysoul.com/agents/dispatch](https://soulforge.proxysoul.com/agents/dispatch) for the full coordination reference.
 
 ### Task Router
 
@@ -210,7 +210,7 @@ The intelligence layer also powers:
 - **Repo map** — SQLite graph with PageRank ranking, git co-change analysis, LLM semantic summaries
 - **Post-edit diagnostics** — snapshots LSP errors before/after edits, reports only new errors
 
-See [docs/repo-map.md](docs/repo-map.md) for the ranking system.
+See [soulforge.proxysoul.com/concepts/repo-map](https://soulforge.proxysoul.com/concepts/repo-map) for the ranking system.
 
 ### Compound Tools
 
@@ -222,7 +222,7 @@ Tools that do the complete job in a single call — no agent guessing:
 - `navigate` — LSP-backed go-to-definition, references, call hierarchy
 - `read_code` — extracts a single symbol's source instead of the whole file
 
-See [docs/compound-tools.md](docs/compound-tools.md) for design principles and benchmarks.
+See [soulforge.proxysoul.com/concepts/compound-tools](https://soulforge.proxysoul.com/concepts/compound-tools) for design principles and benchmarks.
 
 ### How Neovim Works
 
@@ -300,7 +300,7 @@ export function buildMyTool(ctx: ToolContext) {
 
 **2. Register it** in `src/core/tools/index.ts`.
 
-**3. Design principles** (from [compound tools](docs/compound-tools.md)):
+**3. Design principles** (from [compound tools](https://soulforge.proxysoul.com/concepts/compound-tools)):
 - Tool finds things itself — don't make the agent locate/explore first
 - Confident output — state facts, never hedge
 - One call = complete job

@@ -1,0 +1,49 @@
+---
+title: "Sessions"
+description: "Save, resume, export, and branch conversations."
+icon: "clock"
+---
+
+Every conversation is a session. SoulForge auto-saves sessions as JSONL files to `~/.soulforge/sessions/` with crash-resilient incremental writes. You can resume any past session, export it, or start fresh.
+
+## Resume
+
+Press `Ctrl+P` to open the session picker. Filter by text, pick a session, continue where you left off.
+
+From the CLI:
+
+```bash
+soulforge --headless --session <prefix> "now add tests"
+```
+
+Session IDs match by short prefix, so `abc` finds `abc123...`.
+
+## Auto-save
+
+Sessions save after every turn. No manual save needed. If SoulForge crashes, the session reconstructs fully on relaunch, including mid-stream tool calls.
+
+## Export
+
+```
+/session export markdown
+/session export json
+/session export clipboard
+/session export all          full diagnostic dump (prompt + tools)
+/session export api          toggle per-step API request logging
+```
+
+## Checkpoint tags
+
+Sessions carry their [checkpoint](/tools/checkpoints) git tags. Restoring a session restores its undo history. Deleting a session cleans up its tags.
+
+## Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+P` | Browse sessions |
+| `Ctrl+N` | New session (saves current) |
+| `Ctrl+B` / `Ctrl+F` | Walk checkpoints within a session |
+
+## Multiple tabs
+
+Each tab inside a session keeps its own messages and checkpoint history. Tabs persist across saves and resumes.

@@ -1,160 +1,136 @@
 ---
 title: "SoulForge"
-description: "Graph-powered code intelligence — multi-agent coding with codebase-aware AI."
+description: "Code-aware terminal AI that works with symbols, not strings."
 icon: "terminal"
 ---
 
-<img src="/images/main-1.png" alt="SoulForge" />
-<img src="/images/main-2.png" alt="SoulForge" />
+<img src="/images/main.png" alt="SoulForge" />
 
-Your real Neovim — config, plugins, LSP — embedded in an AI agent that understands your codebase structurally. Graph-powered intelligence, multi-agent dispatch, 20 providers. Works over SSH.
+Most AI coding tools treat your codebase as text. They grep, they paste, they match strings. SoulForge treats code as code. It parses every file on launch, builds a live dependency graph, and addresses your work by symbol and line number. Rename a class, move a function, change a return type, the agent uses AST surgery and LSP rename, not find-and-replace.
 
-## How it compares
-
-| | SoulForge | Claude Code | Copilot CLI | Codex CLI | Aider |
-|---|---|---|---|---|---|
-| **Editor** | Embedded Neovim (your config) | No editor | No editor | No editor | No editor |
-| **Code graph** | SQLite graph — PageRank, blast radius, cochange, clone detection, FTS5 | None (file reads + grep) | None | None (MCP plugins) | Tree-sitter repo map + PageRank |
-| **Code intelligence** | 4-tier fallback: LSP, ts-morph, tree-sitter, regex. Dual LSP. 33+ languages | LSP via plugin marketplace | No agent LSP access | MCP-based LSP via plugins | Tree-sitter AST |
-| **Compound tools** | `rename_symbol`, `move_symbol`, `refactor` — compiler-guaranteed, atomic | Rename via LSP | — | — | — |
-| **Multi-agent** | Parallel dispatch with shared cache and edit coordination | Subagents + Agent Teams | Subagents + Fleet | Multi-agent v2 + subagents | Single agent |
-| **Providers** | 20 built-in + custom OpenAI-compatible | Anthropic (API, Bedrock, Vertex) | Multi-model | OpenAI models | 100+ LLMs |
-| **Task routing** | Per-task model assignment (spark, ember, web search, verify, compact) | Single model | Single model | Per-agent model | Single model |
-| **Context management** | Per-step pruning + V1/V2 compaction | Auto-compaction | Context window management | Server-side compaction | — |
-| **Hooks** | 13 lifecycle events, Claude Code compatible | Hooks (PreToolUse, etc.) | — | — | — |
-| **License** | BSL 1.1 (source-available) | Proprietary | Proprietary | Apache 2.0 | Apache 2.0 |
-
-<Note>Competitor capabilities verified as of March 29, 2026.</Note>
-
-## Highlights
-
-<CardGroup cols={2}>
-
-<Card title="Embedded Neovim" icon="code">
-  Your Neovim with LazyVim, LSP via Mason, treesitter highlighting. The AI edits through the same editor you use.
-</Card>
-
-<Card title="Multi-agent dispatch" icon="users">
-  Parallel explore, code, and web search agents with shared file cache and edit coordination.
-</Card>
-
-<Card title="Graph-powered repo map" icon="diagram-project">
-  SQLite codebase graph with PageRank, cochange analysis, blast radius, and clone detection.
-</Card>
-
-<Card title="4-tier code intelligence" icon="brain">
-  LSP, ts-morph, tree-sitter, regex fallback chain across 33+ languages with dual LSP backend.
-</Card>
-
-<Card title="Compound tools" icon="wrench">
-  `rename_symbol`, `move_symbol`, `refactor`, `project` do the complete job in one call.
-</Card>
-
-<Card title="Task router" icon="route">
-  Assign models per task: Opus for planning, Sonnet for coding, Haiku for search.
-</Card>
-
-<Card title="Context management" icon="layers">
-  Smart context pruning per step, plus V1/V2 compaction strategies.
-</Card>
-
-<Card title="User steering" icon="compass">
-  Type messages while the agent works -- they queue and inject into the next step.
-</Card>
-
-<Card title="Floating terminals" icon="terminal">
-  Spawn, resize, and manage terminal sessions alongside the chat. Powered by Ghostty's terminal emulator.
-</Card>
-
-<Card title="24 themes" icon="palette">
-  Catppuccin, Dracula, Gruvbox, Nord, Tokyo Night, Rose Pine, and more. Create custom themes with hot reload.
-</Card>
-
-<Card title="20 providers" icon="plug">
-  Anthropic, OpenAI, Google, xAI, Groq, DeepSeek, Mistral, Bedrock, Fireworks, MiniMax, Codex, Copilot, GitHub Models, Ollama, LM Studio, OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy, and custom OpenAI-compatible APIs.
-</Card>
-
-<Card title="Per-model cost tracking" icon="chart-line">
-  Cache-aware pricing across 30+ models. Per-task, per-agent, per-model breakdown with real-time display.
-</Card>
-
-<Card title="Cross-tab coordination" icon="table-columns">
-  Up to 5 concurrent tabs with per-tab model selection, advisory file claims, and git blocking during dispatch.
-</Card>
-
-<Card title="Project toolchain" icon="toolbox">
-  Auto-detects lint, typecheck, test, and build across 23 ecosystems with pre-commit enforcement.
-</Card>
-
-<Card title="Skills and approval gates" icon="shield-check">
-  Installable skills for domain-specific capabilities. Destructive actions individually prompted.
-</Card>
-
-<Card title="Lifecycle hooks" icon="webhook">
-  13 hook events (PreToolUse, PostToolUse, SessionStart, etc.). Claude Code compatible — drop in your existing hooks config.
-</Card>
-
+<CardGroup cols={3}>
+  <Card title="The first AST editor for AI" icon="scalpel" href="/tools/ast-edit">
+    Symbol-addressed TypeScript and JavaScript edits via ts-morph. Born from my own 2022 Master's thesis on programmatic JS to TS conversion. Changing a return type costs a handful of tokens.
+  </Card>
+  <Card title="Full LSP, your way" icon="brain" href="/tools/lsp">
+    Workspace rename, definitions, references, call and type hierarchy, diagnostics, code actions, format. Mason installer for 576+ servers from the TUI.
+  </Card>
+  <Card title="Compaction with zero LLM" icon="archive" href="/context/compaction">
+    V2 extracts structured state as the conversation happens. When context fills, serialization is instant. Typical sessions compact for free.
+  </Card>
+  <Card title="Cost tracking, live" icon="dollar-sign" href="/concepts/cost-tracking">
+    Per-model and per-subagent breakdown. Real prices for Claude, OpenAI, Gemini, DeepSeek, Groq, Mistral, Copilot, OpenRouter. Cache-aware. Zero for local models.
+  </Card>
+  <Card title="Tab-aware file claims" icon="table-columns" href="/agents/cross-tab">
+    Up to 5 tabs per project, each with its own model, mode, session, and checkpoints. Tabs see each other's claimed files and active agents. Git hard-blocks during cross-tab dispatch, you never commit partial changes.
+  </Card>
+  <Card title="Symbol reads, not file dumps" icon="file-code">
+    The agent reads a single function by name or jumps via LSP go-to-definition. It navigates the code graph instead of grepping and dumping whole files.
+  </Card>
 </CardGroup>
 
-## Tool suite
+## Start in 60 seconds
 
-SoulForge ships 36+ tools organized by capability:
+<CodeGroup>
+```bash Homebrew
+brew tap proxysoul/tap && brew install soulforge
+soulforge
+```
 
-### Code intelligence
+```bash One key, every model
+soulforge --set-key llmgateway sk-...
+soulforge
+```
 
-| Tool | What it does |
-|------|-------------|
-| `read` | Read files — full, line ranges, or surgical symbol extraction by name |
-| `navigate` | Definition, references, call hierarchy, implementations, type hierarchy |
-| `analyze` | File diagnostics, unused symbols, type info, code actions |
-| `rename_symbol` | Compiler-guaranteed rename across all files |
-| `move_symbol` | Move to another file + update all importers |
-| `refactor` | Extract function/variable, organize imports, format |
+```bash Local, no key
+brew install ollama && ollama pull llama3.3
+soulforge
+```
+</CodeGroup>
 
-### Codebase analysis (zero LLM cost)
+Neovim is optional. A Nerd Font is optional. SoulForge prompts to install either on first launch if you want them.
 
-| Tool | What it does |
-|------|-------------|
-| `soul_grep` | Token-efficient search with count mode and repo map intercept |
-| `soul_find` | Fuzzy file/symbol search, PageRank-ranked, signatures included |
-| `soul_analyze` | Identifier frequency, unused exports, file profiles, duplication, packages |
-| `soul_impact` | Dependency graph — dependents, cochanges, blast radius |
+<CardGroup cols={3}>
+  <Card title="Install" href="/installation" icon="download">
+    Homebrew, binary, Bun, or source.
+  </Card>
+  <Card title="Quickstart" href="/quickstart" icon="rocket">
+    Your first five minutes.
+  </Card>
+  <Card title="FAQ" href="/faq" icon="circle-question">
+    Do I need Neovim? Which LLM? How much does it cost?
+  </Card>
+</CardGroup>
 
-### Project management
+## Plain-English prompts, real tool calls
 
-| Tool | What it does |
-|------|-------------|
-| `project` | Auto-detected lint, format, test, build, typecheck across 23 ecosystems |
-| `dispatch` | Parallel multi-agent execution with shared cache |
-| `git` | Structured git operations with auto co-author tracking |
-| `editor` | 18 Neovim actions — read, edit, navigate, LSP, format, and more |
+```
+> rename AgentBus to CoordinationBus
+> move parseConfig from utils.ts to config/parser.ts
+> change fetchUser to return Promise<User>
+> run tests, fix lint, commit
+> research how auth handles refresh tokens
+```
 
-## LLM providers
+Every line above resolves to a single compound tool call. No multi-step orchestration. No guessing commands.
 
-| Provider | Models | Setup |
-|----------|--------|-------|
-| **Anthropic** | Claude Opus 4, Sonnet 4, Haiku 3.5 | `ANTHROPIC_API_KEY` |
-| **OpenAI** | GPT-4o, o3, o4-mini | `OPENAI_API_KEY` |
-| **Google** | Gemini 2.5 Pro/Flash | `GOOGLE_GENERATIVE_AI_API_KEY` |
-| **xAI** | Grok 3 | `XAI_API_KEY` |
-| **Groq** | Llama, Mixtral (fast inference) | `GROQ_API_KEY` |
-| **DeepSeek** | DeepSeek Chat/Coder | `DEEPSEEK_API_KEY` |
-| **Mistral** | Mistral Large, Codestral | `MISTRAL_API_KEY` |
-| **Bedrock** | AWS-hosted models | AWS IAM credentials |
-| **Fireworks** | Fast inference models | `FIREWORKS_API_KEY` |
-| **MiniMax** | MiniMax models | `MINIMAX_API_KEY` |
-| **Codex** | ChatGPT/Codex subscription models | OAuth via `/codex login` |
-| **GitHub Copilot** | Claude, GPT-4o/5.4, Gemini, o-series | OAuth token from IDE |
-| **GitHub Models** | GPT-4o, Llama, DeepSeek, Mistral | `GITHUB_MODELS_API_KEY` |
-| **Ollama** | Any local model | Auto-detected |
-| **LM Studio** | Any local model | Auto-detected |
-| **OpenRouter** | 200+ models | `OPENROUTER_API_KEY` |
-| **OpenCode** | OpenCode models | `OPENCODE_API_KEY` |
-| **LLM Gateway** | Multi-model gateway | `LLM_GATEWAY_API_KEY` |
-| **Vercel AI Gateway** | Unified gateway | `AI_GATEWAY_API_KEY` |
-| **Proxy** | Local proxy relay | `PROXY_API_KEY` |
-| **Custom** | Any OpenAI-compatible API | Any env var |
+## Why it's different
 
-<Note>
-Read the [full story](https://proxysoul.com/blog/soulforge) on why we built SoulForge.
-</Note>
+<CardGroup cols={2}>
+  <Card title="Live Soul Map" icon="diagram-project" href="/concepts/repo-map">
+    SQLite graph of every file, symbol, and import. Ranked by PageRank and git co-change. Blast-radius tags show how far an edit ripples. Updates as you work.
+  </Card>
+  <Card title="AST editing for TypeScript and JavaScript" icon="code" href="/tools/ast-edit">
+    65+ surgical operations via ts-morph. Toggle `async`, change a parameter, add a method, rename a class member. Atomic batches with rollback.
+  </Card>
+  <Card title="Full LSP, with Mason installer" icon="brain" href="/concepts/intelligence">
+    Definitions, references, rename, diagnostics, code actions, call and type hierarchy, format, hover. Install servers from Mason's registry inside the TUI (`/lsp install`). Works with or without Neovim open.
+  </Card>
+  <Card title="Symbol reads across 33 languages" icon="file-code">
+    Extract one function by name. A 500-line file becomes 20 lines in the prompt. TypeScript, Python, Rust, Go, Java, Kotlin, Scala, Swift, C/C++, Ruby, PHP, Elixir, Zig, Lua, Dart, OCaml, Solidity, Vue, and more.
+  </Card>
+  <Card title="Cost and speed tracking" icon="chart-line" href="/concepts/cost-tracking">
+    Live USD cost broken down by model and by subagent. Cache-aware pricing across Anthropic, OpenAI, Google, DeepSeek, Groq, Mistral, Fireworks, Copilot, OpenRouter, and GitHub Models.
+  </Card>
+  <Card title="V2 compaction, often free" icon="archive" href="/context/compaction">
+    Structured state extraction as you go — files touched, decisions, failures, tool results. Compaction serializes instantly and usually skips the LLM pass entirely.
+  </Card>
+  <Card title="Parallel agents with shared cache" icon="users" href="/agents/dispatch">
+    Forge dispatches explore, code, and web-search agents in parallel. One agent's file read is cached for the others. Discoveries propagate across agents within a step.
+  </Card>
+  <Card title="Task router" icon="route" href="/recipes/task-router">
+    Different model per task slot: spark for exploration, ember for code, compact for context, verify for review. Cheap work to cheap models. Mix providers freely.
+  </Card>
+  <Card title="36 built-in themes" icon="palette" href="/tools/themes">
+    Catppuccin, Dracula, Gruvbox, Tokyo Night, Rose Pine, Kanagawa, Nightfox, Cyberdream, Oxocarbon, and more. Hot-reloaded custom themes from a JSON file.
+  </Card>
+  <Card title="Sessions and checkpoints" icon="clock-rotate-left" href="/tools/checkpoints">
+    Every turn is a checkpoint with git tags for file rollback. Sessions save as JSONL; resume by short-id prefix. Undo conversation and files in one keystroke.
+  </Card>
+  <Card title="Local LLMs, zero cost" icon="server">
+    Ollama and LM Studio auto-detected. Run Llama, Qwen, DeepSeek, Mistral, whatever you have. Cost tracking skips local models automatically.
+  </Card>
+  <Card title="Skills manager" icon="puzzle-piece">
+    Browse, install, enable, disable community skills from the TUI (`Ctrl+S`). Skills resolve from project and global scopes, auto-loaded into the agent prompt.
+  </Card>
+  <Card title="Remote control" icon="mobile" href="/tools/hearth">
+    Hearth exposes your running forge to Telegram, Discord, iMessage, or VS Code. Approval prompts arrive as inline buttons. Your code never leaves your host.
+  </Card>
+</CardGroup>
+
+## Providers
+
+21 built-in LLM providers. Anthropic, OpenAI, Google, xAI, Groq, DeepSeek, Mistral, Bedrock, Fireworks, MiniMax, Codex, Copilot, GitHub Models, OpenRouter, OpenCode Zen, OpenCode Go, LLM Gateway, Vercel AI Gateway, Proxy, Ollama, LM Studio. Plus any OpenAI-compatible API via custom providers. See [all providers](/providers/overview).
+
+## Ready?
+
+<CardGroup cols={2}>
+  <Card title="Install in one command" href="/installation" icon="terminal">
+    `brew tap proxysoul/tap && brew install soulforge`
+  </Card>
+  <Card title="Read the FAQ" href="/faq" icon="circle-question">
+    Common questions, short answers.
+  </Card>
+</CardGroup>
+
+Need help? [Troubleshooting](/troubleshooting) · [GitHub issues](https://github.com/proxysoul/soulforge/issues) · [Blog](https://proxysoul.com/blog/soulforge).

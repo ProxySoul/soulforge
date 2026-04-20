@@ -41,149 +41,162 @@
 
 <img src="assets/separator.svg" width="100%" height="8" />
 
-## The agent that already knows your codebase
-
-Every AI coding tool starts blind. It reads files, greps around, slowly builds a mental model of your codebase. You wait. You pay. The agent is doing orientation work, not real work.
-
-SoulForge already knows. It builds a **live dependency graph** on startup and keeps it updated as you work. The agent knows which files matter, what depends on what, and how far an edit will ripple before it writes a single line.
-
-**Result: ~2x fewer steps, ~2x lower cost on the same tasks.** The agent spends time on real work, not figuring out where things are.
-
-<img src="assets/separator.svg" width="100%" height="8" />
-
-## What makes it different
+## The agent that treats code as code
 
 <table>
 <tr>
-<td width="50%" valign="top">
-<h4>⚡ Live Soul Map</h4>
-<p>Graph of every file, symbol, and import, ranked by importance, enriched with git history, updated in real-time. The agent never wastes a turn orienting itself. <a href="docs/repo-map.md">Learn more</a></p>
-</td>
-<td width="50%" valign="top">
-<h4>🔪 Surgical reads</h4>
-<p>Extracts exactly the function or class it needs by name. A 500-line file becomes a 20-line extraction. 33 languages supported. <a href="docs/architecture.md">Learn more</a></p>
-</td>
-</tr>
-<tr>
-<td valign="top">
-<h4>🤖 Multi-agent dispatch</h4>
-<p>Parallel explore, code, and web search agents with shared cache. One agent's discovery reaches others instantly. <a href="docs/agent-bus.md">Learn more</a></p>
-</td>
-<td valign="top">
-<h4>💰 Instant compaction</h4>
-<p>Context state is tracked as the conversation happens. When it gets long, compaction fires instantly, often with zero LLM cost. <a href="docs/compaction.md">Learn more</a></p>
-</td>
-</tr>
-<tr>
-<td valign="top">
-<h4>🧠 4-tier code intelligence</h4>
-<p>LSP, ts-morph, tree-sitter, regex fallback chain. Dual LSP backend, works with or without the editor open. <a href="docs/architecture.md">Learn more</a></p>
-</td>
-<td valign="top">
-<h4>🔧 Compound tools</h4>
-<p><code>rename_symbol</code>, <code>move_symbol</code>, <code>refactor</code>, <code>project</code>. Compiler-guaranteed, one call does the complete job. <a href="docs/compound-tools.md">Learn more</a></p>
-</td>
-</tr>
-<tr>
-<td valign="top">
-<h4>🔬 AST editing</h4>
-<p><code>ast_edit</code> for TS/JS — 65+ surgical operations, zero <code>oldString</code>. Micro-edits cost 1-10 tokens. Atomic multi-op batches on a single file. <a href="docs/ast-edit.md">Learn more</a></p>
-</td>
-<td valign="top">
-<h4>🎯 Mix-and-match models</h4>
-<p>Opus for planning, Sonnet for coding, Haiku for cleanup. 20 providers built-in. Task router gives full control.</p>
-</td>
-</tr>
-<tr>
-<td valign="top">
-<h4>📝 Embedded Neovim</h4>
-<p>Your config, your plugins, your LSP servers. The AI edits through the same editor you use.</p>
-</td>
-<td valign="top">
-<h4>📑 Multi-tab</h4>
-<p>Up to 5 concurrent sessions with per-tab models, file claims, and git coordination. <a href="docs/cross-tab-coordination.md">Learn more</a></p>
-</td>
+<td align="center" width="33%"><h3>~5 tokens</h3><sub>to change a function return type<br/>(AST edit vs ~100 lines of <code>oldString</code>)</sub></td>
+<td align="center" width="33%"><h3>~$0</h3><sub>average compaction cost<br/>(V2 extracts as you go)</sub></td>
+<td align="center" width="33%"><h3>34 → 5</h3><sub>messages after compaction<br/>with 0 LLM tokens spent</sub></td>
 </tr>
 </table>
 
+Every other AI coding tool treats your codebase as text. It `grep`s, it pastes 500-line files into context, it builds `oldString`/`newString` blobs and prays the whitespace matches. Half the turn is orientation. The other half is string-matching roulette.
+
+SoulForge treats code as code. On startup it parses your project into a **live Soul Map** — every file, symbol, import edge — ranked by PageRank and git co-change. Forge opens every turn oriented: it reads single symbols by name (not whole files), edits TS/JS through the AST (symbol kind + name, 65+ ops, zero text matching), and rewrites the rest with line-anchored edits that never drift.
+
+**What that means in practice:**
+
+- `ast_edit` changes a return type with `value: "Promise<User>"` — no `oldString`, no whitespace failures, no line-offset math.
+- Reads pull one function by name, not an 800-line dump. Context stays lean.
+- V2 compaction serializes structured state as the conversation happens — when context fills, it compacts for free.
+- Sub-agents share a read cache, so 3 parallel explorers don't re-open the same file 3 times.
+
+Same work, a fraction of the tokens, a fraction of the seconds.
+
+<img src="assets/separator.svg" width="100%" height="8" />
+
+## Not your average CLI
+
 <table>
 <tr>
 <td width="50%" valign="top">
-<h4>🔌 MCP servers</h4>
-<p>Connect to any <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server. stdio, HTTP, SSE transports. Auto-reconnect, namespaced tools. <a href="docs/mcp.md">Learn more</a></p>
+<h4>🧠 Live Soul Map</h4>
+<p>SQLite graph of every file, symbol, and import — PageRank-ranked, git-co-change-aware, personalized per turn. Renders into the system prompt with <strong>blast radius</strong> tags so the agent knows which edits ripple. <a href="https://soulforge.proxysoul.com/concepts/repo-map">Learn more</a></p>
 </td>
 <td width="50%" valign="top">
-<h4>🪝 Lifecycle hooks</h4>
-<p>13 hook events (PreToolUse, PostToolUse, SessionStart, etc.). Claude Code compatible, drop in your existing <code>.claude/settings.json</code> hooks. <a href="docs/hooks.md">Learn more</a></p>
+<h4>🔪 Surgical reads across 33 languages</h4>
+<p>Read a single function by name. A 500-line file becomes a 20-line extraction. TypeScript, Python, Rust, Go, Java, Ruby, C/C++, Swift, Kotlin, Elixir, Zig, Solidity, and more. <a href="https://soulforge.proxysoul.com/concepts/intelligence">Learn more</a></p>
 </td>
 </tr>
 <tr>
 <td valign="top">
-<h4>🧩 Skills</h4>
-<p>Installable domain-specific capabilities with approval gates. Browse and install from the community registry with <code>Ctrl+S</code>.</p>
+<h4>🤖 Parallel agents with shared cache</h4>
+<p>Forge dispatches explore, code, and web-search agents in parallel. Files one reads are cached for the others — 3 agents don't re-read 3x. Real-time findings propagate between them. <a href="https://soulforge.proxysoul.com/agents/dispatch">Learn more</a></p>
 </td>
 <td valign="top">
-<h4>↶ Checkpoints</h4>
-<p>Conversation snapshots you can roll back to. Recover from bad edits or experiment without fear. <a href="docs/checkpoints.md">Learn more</a></p>
+<h4>💰 Free compaction</h4>
+<p>V2 compaction tracks structured state as the conversation happens — files touched, decisions, failures, tool results. When context fills up, serialization is instant and typically costs <strong>zero LLM tokens</strong>. <a href="https://soulforge.proxysoul.com/context/compaction">Learn more</a></p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h4>🎯 One call, complete job</h4>
+<p><code>rename_symbol</code> runs LSP rename, verifies zero dangling refs, reports back. <code>move_symbol</code> moves a symbol and updates every import across TS/JS, Python, and Rust. <code>project</code> auto-detects your toolchain across <strong>23 ecosystems</strong>. <a href="https://soulforge.proxysoul.com/concepts/compound-tools">Learn more</a></p>
+</td>
+<td valign="top">
+<h4>🔬 AST-native editing</h4>
+<p><code>ast_edit</code> addresses TS/JS symbols by name, not text. 65+ operations. Changing a return type costs <strong>~5 tokens</strong> instead of 100 lines of <code>oldString</code>. Atomic batches, auto-rollback. <a href="https://soulforge.proxysoul.com/tools/ast-edit">Learn more</a></p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h4>📝 Your Neovim, embedded</h4>
+<p>Real Neovim in a PTY — your config, your plugins, your LSP servers. Agent edits route through the same editor you use. Over SSH, in tmux, wherever.</p>
+</td>
+<td valign="top">
+<h4>🎚️ Mix-and-match models</h4>
+<p>Haiku for exploration. Sonnet for code. Flash for compaction. The task router wires a different model to each job — cheap work goes to cheap models. <strong>21 providers</strong> + any OpenAI-compatible API.</p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h4>📱 Reach your forge from anywhere</h4>
+<p><strong>Hearth</strong> turns a running SoulForge into a remote agent. Telegram, Discord, iMessage, or VS Code. Tap-to-approve for destructive ops, auto-redaction of secrets. Your code never leaves your host. <a href="https://soulforge.proxysoul.com/tools/hearth">Learn more</a></p>
+</td>
+<td valign="top">
+<h4>↶ Undo any turn</h4>
+<p>Every prompt is a checkpoint. <code>Ctrl+B</code> / <code>Ctrl+F</code> walks history. Branching from any point rewrites the conversation AND restores files on disk. <a href="https://soulforge.proxysoul.com/tools/checkpoints">Learn more</a></p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h4>📑 Tab-aware file claims</h4>
+<p>Up to 5 tabs per project with independent model, mode, session, and checkpoints. Tabs see each other's claimed files and active agents. Git hard-blocks during cross-tab dispatch, partial commits are impossible. <a href="https://soulforge.proxysoul.com/agents/cross-tab">Learn more</a></p>
+</td>
+<td valign="top">
+<h4>🪝 Drop-in Claude Code hooks</h4>
+<p>13 lifecycle events (PreToolUse, PostToolUse, compaction, subagents). Reads your existing <code>.claude/settings.json</code> — no rewrites. <a href="https://soulforge.proxysoul.com/tools/hooks">Learn more</a></p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h4>🔌 MCP-compatible</h4>
+<p>Any <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server works out of the box. stdio, HTTP, SSE. Auto-reconnect, namespaced tools. <a href="https://soulforge.proxysoul.com/tools/mcp">Learn more</a></p>
+</td>
+<td valign="top">
+<h4>🧩 Skills</h4>
+<p>Install domain-specific skills with <code>Ctrl+S</code>. Bun development, Three.js fundamentals, product marketing, whatever. Approval-gated, scoped per session.</p>
 </td>
 </tr>
 </table>
 
 <details>
-<summary><strong>Even more</strong></summary>
+<summary><strong>And a lot more</strong></summary>
 <br/>
 
-- **User steering** type while the agent works, messages inject mid-stream. [More](docs/steering.md)
-- **Lock-in mode** hides narration, shows only tool activity and final answer
-- **Inline images** pixel-perfect images and animated GIFs in chat via Kitty graphics protocol
-- **24 themes** Catppuccin, Dracula, Gruvbox, Nord, Tokyo Night, and more. Custom themes with hot reload. [More](docs/themes.md)
-- **Code execution** sandboxed Python for data processing and calculations
-- **100 slash commands** [Full reference](docs/commands-reference.md)
+- **Steering** — type while the agent works, messages inject mid-stream. [More](https://soulforge.proxysoul.com/agents/steering)
+- **Lock-in mode** — hide narration, show only tool activity and final answer
+- **Inline images** — pixel-perfect images and animated GIFs via Kitty graphics protocol
+- **24 themes** — Catppuccin, Dracula, Gruvbox, Nord, Tokyo Night, Rose Pine, and more. Hot-reload custom themes. [More](https://soulforge.proxysoul.com/tools/themes)
+- **Floating terminals** — Ghostty-powered PTYs next to the chat
+- **Plan mode** — research, write a structured plan, you approve, then execute. [More](https://soulforge.proxysoul.com/recipes/plan-mode)
+- **Memory** — persistent SQLite memory across sessions, scoped per project or global
+- **Pre-commit enforcement** — `git commit` auto-runs lint + typecheck; fails block the commit
+- **100 slash commands** — [full reference](https://soulforge.proxysoul.com/reference/commands)
 
 </details>
 
 <br/>
 <img src="assets/separator.svg" width="100%" height="8" />
 
-
-## Get started
-
-macOS and Linux. First launch offers to install Neovim and Nerd Fonts if missing.
+## Install
 
 ```bash
 brew tap proxysoul/tap && brew install soulforge
 ```
 
+macOS and Linux. Neovim and a Nerd Font auto-install on first launch.
+
 <details>
 <summary><strong>Other install methods</strong></summary>
 <br/>
 
-**Bun (global):**
 ```bash
+# Bun (global)
 bun install -g @proxysoul/soulforge
-```
 
-**Prebuilt binary:**
-```bash
-# Download from https://github.com/ProxySoul/soulforge/releases/latest
+# Prebuilt binary
+# download from https://github.com/ProxySoul/soulforge/releases/latest
 tar xzf soulforge-*.tar.gz && cd soulforge-*/ && ./install.sh
-```
 
-**Build from source:**
-```bash
-git clone https://github.com/ProxySoul/soulforge.git && cd soulforge && bun install
-bun run dev
+# Source
+git clone https://github.com/ProxySoul/soulforge.git && cd soulforge && bun install && bun run dev
 ```
 
 </details>
 
+## Get a key
+
+Pick any one.
+
 ```bash
-soulforge                                  # launch, pick a model with Ctrl+L
-soulforge --set-key anthropic sk-ant-...   # save a key
-soulforge --headless "your prompt here"    # non-interactive
+soulforge --set-key llmgateway sk-...         # one key for every major model, up to 30% off frontier
+soulforge --set-key anthropic sk-ant-...      # or any individual provider you already have
+soulforge                                     # launch, Ctrl+L to pick a model
 ```
 
-See [GETTING_STARTED.md](GETTING_STARTED.md) for a full walkthrough, or the [full docs](docs/README.md) for everything.
+[All providers](https://soulforge.proxysoul.com/providers) · [Custom providers](https://soulforge.proxysoul.com/providers/custom)
 
 <img src="assets/separator.svg" width="100%" height="8" />
 
@@ -192,101 +205,129 @@ See [GETTING_STARTED.md](GETTING_STARTED.md) for a full walkthrough, or the [ful
 <table>
 <thead>
 <tr>
-<th width="160"></th>
+<th width="170"></th>
 <th>SoulForge</th>
 <th>Claude Code</th>
 <th>Codex CLI</th>
-<th>Aider</th>
+<th>OpenCode</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Codebase awareness</strong></td>
-<td>Live dependency graph with ranking</td>
+<td>Live SQLite graph — PageRank + git co-change, blast-radius tags, per-turn personalization</td>
 <td>File reads + grep</td>
-<td>MCP plugins</td>
-<td>Tree-sitter + PageRank</td>
+<td>File reads + grep</td>
+<td>File reads + grep</td>
 </tr>
 <tr>
-<td><strong>Cost optimization</strong></td>
-<td>Surgical reads + instant compaction + shared cache + model mixing</td>
+<td><strong>Cost tactics</strong></td>
+<td>Surgical reads, parallel shared cache, free V2 compaction, model-per-task router</td>
 <td>Auto-compaction</td>
 <td>Server-side compaction</td>
-<td>-</td>
+<td>Auto-compaction</td>
 </tr>
 <tr>
 <td><strong>Code intelligence</strong></td>
-<td>4-tier fallback, dual LSP, 33 languages</td>
+<td>LSP → ts-morph → tree-sitter → regex, 33 languages, Mason installer (576+ servers)</td>
 <td>LSP via plugins</td>
-<td>MCP-based LSP</td>
-<td>Tree-sitter AST</td>
-</tr>
-<tr>
-<td><strong>Multi-agent</strong></td>
-<td>Parallel dispatch with shared cache</td>
-<td>Subagents + Teams</td>
-<td>Multi-agent v2</td>
-<td>Single</td>
+<td>—</td>
+<td>LSP auto-load</td>
 </tr>
 <tr>
 <td><strong>Editor</strong></td>
-<td>Embedded Neovim (your config)</td>
-<td>No</td>
-<td>No</td>
-<td>No</td>
+<td>Embedded Neovim — your config</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>Remote control</strong></td>
+<td>Hearth: Telegram, Discord, iMessage, VS Code</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>Multi-agent</strong></td>
+<td>Parallel dispatch + shared cache + edit coordination</td>
+<td>Subagents + Teams</td>
+<td>Multi-agent v2</td>
+<td>Multi-session subagents</td>
+</tr>
+<tr>
+<td><strong>Hooks</strong></td>
+<td>13 events, Claude Code drop-in compatible</td>
+<td>Hooks (PreToolUse, etc.)</td>
+<td>—</td>
+<td>—</td>
 </tr>
 <tr>
 <td><strong>Providers</strong></td>
-<td>20 + custom</td>
+<td>21 + any OpenAI-compatible</td>
 <td>Anthropic only</td>
 <td>OpenAI only</td>
-<td>100+ LLMs</td>
+<td>75+ via Models.dev</td>
 </tr>
 <tr>
 <td><strong>License</strong></td>
-<td>BSL 1.1</td>
+<td>BSL 1.1 (converts to Apache 2.0 in 2030)</td>
 <td>Proprietary</td>
 <td>Apache 2.0</td>
-<td>Apache 2.0</td>
+<td>MIT</td>
 </tr>
 </tbody>
 </table>
 
 <sub>Verified April 2026. <a href="https://github.com/ProxySoul/soulforge/issues">Report inaccuracies.</a></sub>
 
+<img src="assets/separator.svg" width="100%" height="8" />
+
+## Real numbers
+
+All from SoulForge's own codebase, on Claude Sonnet 4.6:
+
+<table>
+<tr>
+<td><strong>Rename a class across 8 files</strong></td>
+<td>19 steps, $0.228 (text edits) → <strong>3 steps, $0.036</strong> (<code>rename_symbol</code>)</td>
+</tr>
+<tr>
+<td><strong>Change a function return type</strong></td>
+<td>~100 lines of <code>oldString</code>/<code>newString</code> → <strong>~5 tokens</strong> with <code>ast_edit</code></td>
+</tr>
+<tr>
+<td><strong>Compact a 34-message session</strong></td>
+<td>V1 LLM summary: ~8k output tokens, 5-15s → V2: <strong>0 tokens, instant</strong></td>
+</tr>
+<tr>
+<td><strong>Post-compaction conversation</strong></td>
+<td>4.5M prompt tokens → <strong>7.5k tokens</strong> (context utilization 6% → 4%)</td>
+</tr>
+</table>
+
+Claude Code's Explore subagent averages ~$0.70 per 5-minute research run with Haiku. SoulForge matches it when you route `spark` to Haiku via the task router — with the added benefit of full repo-map context.
 
 <img src="assets/separator.svg" width="100%" height="8" />
 
-## 20 providers
+## Try it
 
-Anthropic · OpenAI · Google · xAI · Groq · DeepSeek · Mistral · Bedrock · Fireworks · MiniMax · Codex · Copilot · GitHub Models · Ollama · LM Studio · OpenRouter · LLM Gateway · Vercel AI Gateway · Proxy · **any OpenAI-compatible API**
+```bash
+brew tap proxysoul/tap && brew install soulforge
+cd your-project
+soulforge
+```
 
-Set a key and go: `soulforge --set-key anthropic sk-ant-...` or `export ANTHROPIC_API_KEY=sk-ant-...`
+Then:
 
-[Provider setup guide](docs/headless.md#provider-management) · [Custom providers](docs/headless.md#custom-providers)
+```
+> rename AgentBus to CoordinationBus across the project
+> run tests and commit
+```
 
-<img src="assets/separator.svg" width="100%" height="8" />
+Pair a Telegram/Discord/iMessage bot once with `/hearth pair`, then keep chatting from your phone — the session auto-syncs both ways.
 
-## Documentation
-
-| | |
-|---|---|
-| **[Architecture](docs/architecture.md)** | System overview, agent tiers, intelligence router |
-| **[Repo Map](docs/repo-map.md)** | Graph ranking, co-change analysis, blast radius |
-| **[AST Editing](docs/ast-edit.md)** | `ast_edit` — 65+ surgical operations for TS/JS, zero `oldString` |
-| **[Compound Tools](docs/compound-tools.md)** | `rename_symbol`, `move_symbol`, `refactor`, `project` |
-| **[Agent Bus](docs/agent-bus.md)** | Multi-agent coordination, shared cache, edit mutex |
-| **[Compaction](docs/compaction.md)** | Context management strategies |
-| **[Commands](docs/commands-reference.md)** | All 100 slash commands |
-| **[Headless Mode](docs/headless.md)** | CLI flags, JSON output, CI/CD |
-| **[Configuration](docs/README.md)** | Config files, task router, custom providers |
-| **[Themes](docs/themes.md)** | 24 themes, custom themes, hot reload |
-| **[MCP Servers](docs/mcp.md)** | Model Context Protocol integration |
-| **[Hooks](docs/hooks.md)** | 13 lifecycle events, Claude Code compatible |
-| **[Checkpoints](docs/checkpoints.md)** | Conversation snapshots and rollback |
-| **[Copilot Provider](docs/copilot-provider.md)** | Setup and legal review |
-
-Full index in **[docs/README.md](docs/README.md)**.
+Full docs at **[soulforge.proxysoul.com](https://soulforge.proxysoul.com/introduction)**.
 
 <img src="assets/separator.svg" width="100%" height="8" />
 

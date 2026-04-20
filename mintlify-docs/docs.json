@@ -17,64 +17,78 @@
       "weight": 700
     }
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.png",
   "navigation": {
     "tabs": [
       {
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get started",
             "pages": [
               "introduction",
               "installation",
-              "quickstart"
+              "quickstart",
+              "faq"
             ]
           },
           {
-            "group": "Core concepts",
+            "group": "Recipes",
+            "pages": [
+              "recipes/rename-refactor",
+              "recipes/test-and-commit",
+              "recipes/task-router",
+              "recipes/plan-mode",
+              "recipes/headless"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "providers/overview",
+              "providers/custom",
+              "providers/copilot"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/hearth",
+              "tools/editor",
+              "tools/lsp",
+              "tools/project",
+              "tools/mcp",
+              "tools/ast-edit",
+              "tools/skills",
+              "tools/sessions",
+              "tools/hooks",
+              "tools/checkpoints",
+              "tools/themes",
+              "tools/terminals"
+            ]
+          },
+          {
+            "group": "How it works",
             "pages": [
               "concepts/architecture",
               "concepts/repo-map",
               "concepts/intelligence",
-              "concepts/compound-tools"
-            ]
-          },
-          {
-            "group": "Agents",
-            "pages": [
+              "concepts/compound-tools",
+              "concepts/cost-tracking",
               "agents/dispatch",
               "agents/steering",
-              "agents/cross-tab"
-            ]
-          },
-          {
-            "group": "Context management",
-            "pages": [
+              "agents/cross-tab",
               "context/compaction",
               "context/provider-options",
               "context/prompt-system"
             ]
           },
           {
-            "group": "Tools",
-            "pages": [
-              "tools/ast-edit",
-              "tools/project",
-              "tools/mcp",
-              "tools/headless",
-              "tools/themes",
-              "tools/terminals",
-              "tools/editor",
-              "tools/hooks",
-              "tools/checkpoints"
-            ]
-          },
-          {
             "group": "Reference",
             "pages": [
               "reference/commands",
-              "reference/configuration"
+              "reference/configuration",
+              "troubleshooting"
             ]
           }
         ]
@@ -96,8 +110,8 @@
     }
   },
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png"
   },
   "navbar": {
     "links": [
@@ -121,6 +135,11 @@
       "mcp"
     ]
   },
+  "redirects": [
+    { "source": "/tools/headless", "destination": "/recipes/headless" },
+    { "source": "/docs/copilot-provider", "destination": "/providers/copilot" },
+    { "source": "/docs/hearth", "destination": "/tools/hearth" }
+  ],
   "footer": {
     "socials": {
       "github": "https://github.com/proxysoul/soulforge",

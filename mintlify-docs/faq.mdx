@@ -1,0 +1,98 @@
+---
+title: "FAQ"
+description: "Common questions, short answers."
+icon: "circle-question"
+---
+
+## Do I need Neovim?
+
+No. Neovim is an optional editor panel for users who want one. SoulForge works fully from the chat alone. If you do want the panel, SoulForge can auto-install Neovim and a Nerd Font on first launch.
+
+## Do I need an API key?
+
+You need either one cloud key or a local LLM.
+
+**One cloud key.** [LLM Gateway](https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK) — one key for Claude, GPT, Gemini, Grok, Llama, Qwen, and others, up to 30% off frontier models. Or bring any individual provider key you already have.
+
+**Local, free.** Install Ollama or LM Studio. SoulForge auto-detects both. Cost tracking reports `$0.00` for local runs.
+
+```bash
+soulforge --set-key llmgateway sk-...   # one key, every model
+soulforge --set-key anthropic sk-ant-...
+brew install ollama && ollama pull llama3.3   # or run local
+```
+
+## How much does it cost to run?
+
+Cloud costs depend on your model. SoulForge shows the live USD number as you work, broken down per model and per subagent. Cache-aware pricing for all major providers.
+
+Rough ballpark on a mid-size repo: a one-file refactor under $0.05 on Sonnet with caching, a cross-file rename often under $0.05 because the compound tool runs in three steps, an all-day session with a mix of Haiku exploration and Sonnet coding typically stays under $5.
+
+Local models are free. Use the [task router](/recipes/task-router) to push exploration to a cheap model and reserve the strong model for code.
+
+## Which model should I pick?
+
+- **Claude Sonnet 4.6** for balanced code quality.
+- **Claude Haiku 4.5** for fast exploration and cleanup.
+- **Google Gemini 2.5 Flash** for compaction (cheapest, fastest).
+- **Local Llama/Qwen/DeepSeek** if you want $0 and privacy.
+
+Mix them via `/router`. See the [task router recipe](/recipes/task-router).
+
+## Does it work without internet?
+
+With local LLMs (Ollama, LM Studio), yes — fully offline for model calls. The Soul Map, LSP, tree-sitter, and everything else is local anyway.
+
+## How does SoulForge edit code?
+
+Four tools, picked by the one that fits:
+
+1. **AST editing** for TypeScript and JavaScript. Addresses functions, classes, methods by name — not text. A return-type change costs a handful of tokens.
+2. **Multi-edit** for batched text edits on the same file, applied atomically with line-offset tracking.
+3. **Edit** for single text edits with line-anchored matching on any file (JSON, YAML, Markdown, Python, Rust, Go, etc).
+4. **LSP rename and refactor** for workspace-wide symbol renames, move symbol, extract function, organize imports. Compiler-verified, every file updated.
+
+The agent picks automatically.
+
+## Is my code uploaded anywhere?
+
+Only what you send to your chosen LLM provider, same as any other AI coding tool. SoulForge does not upload anything to our servers. There is no SoulForge backend.
+
+Privacy patterns (`/privacy add`) block sensitive files from the agent entirely. Built-in blocks already cover `.env`, `.pem`, `credentials`, `id_rsa`, `.npmrc`, `.netrc`, and more.
+
+## Can I use it for work?
+
+Yes. Use it anywhere, anytime, for free — personal projects, startups, enterprise, client work, whatever. The [BSL 1.1 license](https://github.com/proxysoul/soulforge/blob/main/LICENSE) only kicks in if you want to *redistribute SoulForge as a commercial product* (repackage it, resell it, host it as a paid service). Converts to Apache 2.0 on March 15, 2030.
+
+## What languages does code intelligence cover?
+
+LSP and tree-sitter support for: TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Scala, C#, Swift, Dart, Elixir, OCaml, Lua, C, C++, Ruby, PHP, Zig, Bash, CSS, HTML, JSON, TOML, YAML, Dockerfile, Vue, ReScript, Solidity, TLA+, Emacs Lisp, Objective-C.
+
+AST editing (ts-morph) is TypeScript and JavaScript only. Everything else uses LSP and tree-sitter.
+
+## Can I install LSP servers from SoulForge?
+
+Yes. `/lsp install` opens a browser over Mason's registry (576+ packages). SoulForge installs into `~/.soulforge/lsp-servers/` via npm, pip, cargo, go, or GitHub releases depending on the package.
+
+## How do sessions work?
+
+Every conversation is auto-saved as JSONL under `~/.soulforge/sessions/`. Resume with `soulforge --headless --session <prefix>` or press `Ctrl+P` in the TUI. Each session carries its checkpoint git tags — undo all the way back to any earlier turn.
+
+## Can I run this over SSH?
+
+Yes. The TUI is pure terminal output (OpenTUI with Kitty graphics for inline images). SSH, tmux, and remote shells all work.
+
+## What about multi-tab work?
+
+Up to 5 tabs per project. Each has its own session, model, mode, and checkpoint history. Tabs are aware of each other: when one claims a file, the others see the claim and skip it. Git operations hard-block during cross-tab dispatch so you never commit partial changes. See [tabs](/agents/cross-tab).
+
+## How do themes work?
+
+36 built-in themes (Catppuccin, Dracula, Gruvbox, Tokyo Night, Rose Pine, Kanagawa, Nightfox, Cyberdream, Oxocarbon, Ember, Vesper, and more). `/theme` opens a live-preview picker. Custom themes go in `~/.soulforge/themes/<name>.json` and hot-reload on save. See [themes](/tools/themes).
+
+## How do I get help?
+
+- [Troubleshooting](/troubleshooting) — common issues.
+- `/diagnose` inside SoulForge — LSP, tree-sitter, semantic indexing health check.
+- `/status` — full system dashboard.
+- [GitHub issues](https://github.com/proxysoul/soulforge/issues).

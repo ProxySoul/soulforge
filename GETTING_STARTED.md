@@ -279,7 +279,7 @@ SoulForge auto-summarizes when context exceeds 80% of the model's window. You ca
 
 On startup, SoulForge builds a live graph of your codebase — files, symbols, and import edges. PageRank ranks the most important files, which appear in the system prompt so the AI understands your codebase's shape.
 
-Configure via `/repo-map`. See [docs/repo-map.md](docs/repo-map.md) for the full technical reference.
+Configure via `/repo-map`. See [soulforge.proxysoul.com/concepts/repo-map](https://soulforge.proxysoul.com/concepts/repo-map) for the full technical reference.
 
 ## Memory
 
@@ -339,4 +339,4 @@ Run `/summarize` or `/compact` to condense the conversation. `/context` shows ex
 - Press `Ctrl+S` to browse community skills
 - Use `/router` to optimize model assignment per task
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) to hack on SoulForge itself
-- See [docs/](docs/) for deep dives on architecture, repo map, compound tools, and the agent bus
+- See [soulforge.proxysoul.com](https://soulforge.proxysoul.com/introduction) for deep dives on architecture, repo map, compound tools, and the agent bus

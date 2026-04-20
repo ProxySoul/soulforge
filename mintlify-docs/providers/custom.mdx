@@ -1,0 +1,122 @@
+---
+title: "Custom providers"
+description: "Connect any OpenAI-compatible API with one block of config."
+icon: "plug-circle-plus"
+---
+
+Add any OpenAI-compatible API as a provider. No code, no plugin.
+
+## Minimal example
+
+Add this to `~/.soulforge/config.json` (or `.soulforge/config.json` for project scope):
+
+```json
+{
+  "providers": [
+    {
+      "id": "together",
+      "name": "Together AI",
+      "baseURL": "https://api.together.xyz/v1",
+      "envVar": "TOGETHER_API_KEY",
+      "models": ["meta-llama/Llama-3-70b-chat-hf"]
+    }
+  ]
+}
+```
+
+Set the key and use it:
+
+```bash
+soulforge --set-key together <your-key>
+soulforge --model together/meta-llama/Llama-3-70b-chat-hf
+```
+
+## Fields
+
+| Field | Required | What it does |
+|-------|----------|--------------|
+| `id` | yes | Used in model strings (`together/llama-3`) |
+| `baseURL` | yes | OpenAI-compatible endpoint |
+| `name` | — | Display name |
+| `envVar` | — | Env var for the key (omit for auth-less servers) |
+| `models` | — | Fallback model list (strings or `{id, name, contextWindow}`) |
+| `modelsAPI` | — | URL returning OpenAI `/v1/models` format |
+| `reasoning` | — | Thinking/reasoning config (see below) |
+
+## More examples
+
+<AccordionGroup>
+<Accordion title="Local server (no key)">
+  ```json
+  {
+    "providers": [{
+      "id": "local",
+      "name": "Local LLM",
+      "baseURL": "http://localhost:8080/v1",
+      "models": ["llama-3-70b"]
+    }]
+  }
+  ```
+</Accordion>
+
+<Accordion title="Corporate gateway with dynamic model list">
+  ```json
+  {
+    "providers": [{
+      "id": "corp",
+      "name": "Corp Gateway",
+      "baseURL": "https://llm.internal.corp.com/v1",
+      "envVar": "CORP_LLM_KEY",
+      "modelsAPI": "https://llm.internal.corp.com/v1/models"
+    }]
+  }
+  ```
+</Accordion>
+
+<Accordion title="Multiple providers at once">
+  ```json
+  {
+    "providers": [
+      { "id": "together", "baseURL": "https://api.together.xyz/v1", "envVar": "TOGETHER_API_KEY", "models": ["meta-llama/Llama-3-70b"] },
+      { "id": "cerebras", "baseURL": "https://api.cerebras.ai/v1", "envVar": "CEREBRAS_API_KEY", "modelsAPI": "https://api.cerebras.ai/v1/models" }
+    ]
+  }
+  ```
+</Accordion>
+</AccordionGroup>
+
+## Thinking / reasoning
+
+For models that support reasoning over an OpenAI-compatible endpoint, add a `reasoning` block. Three styles are supported — use the one your provider accepts:
+
+```json
+{
+  "providers": [{
+    "id": "dashscope",
+    "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "envVar": "DASHSCOPE_API_KEY",
+    "models": ["qwen-plus"],
+    "reasoning": {
+      "enabled": true,
+      "budget": 8192
+    }
+  }]
+}
+```
+
+| Style | Fields | When to use |
+|-------|--------|-------------|
+| OpenAI-style | `effort: "low" \| "medium" \| "high" \| "xhigh" \| "none"` | OpenAI-compatible reasoning models |
+| DashScope-style | `enabled: true`, `budget: 8192` | Alibaba Qwen, DashScope APIs |
+| Raw | `extraParams: { ... }` | Anything else — fields are forwarded verbatim |
+
+The fields are injected into every request body. Raw `extraParams` override all other keys on collision.
+
+## Scope
+
+- **Global** — `~/.soulforge/config.json` applies everywhere.
+- **Project** — `.soulforge/config.json` overrides global entries with the same `id`.
+
+## Conflicts
+
+If your `id` matches a built-in (e.g. `"anthropic"`), SoulForge renames it to `{id}-custom` — the built-in is never replaced. Custom providers always show `[custom]` in `/keys` and `--list-providers`.

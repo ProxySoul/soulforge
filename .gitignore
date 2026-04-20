@@ -45,6 +45,9 @@ scripts/test-local.sh
 # Improvement plans
 improvements
 
+# Legacy docs (docs site is in mintlify-docs/)
+docs/
+
 # Benchmark artifacts
 bench/results-*.json
 benchmarks/results-*.json

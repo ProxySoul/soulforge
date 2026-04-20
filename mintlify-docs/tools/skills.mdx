@@ -1,0 +1,89 @@
+---
+title: "Skills"
+description: "Installable agent capabilities, browsable from the TUI."
+icon: "puzzle-piece"
+---
+
+Skills are markdown files that extend what the agent knows. A skill can teach it a framework, a workflow, a style guide, or a domain. SoulForge reads SKILL.md files at launch and routes them into the agent's system prompt when relevant.
+
+## Browse and install
+
+Press `Ctrl+S` or run `/skills`. The picker searches [skills.sh](https://skills.sh) for community skills.
+
+```
+/skills        open the manager
+Ctrl+S         same
+```
+
+Three tabs:
+
+- **Search**: live search against the skills.sh catalog, sorted by install count.
+- **Installed**: every skill SoulForge can find on your machine.
+- **Active**: skills loaded into the current session.
+
+## Scopes
+
+Skills resolve from six directories, with project scope taking priority over global:
+
+```
+~/.soulforge/skills/        global
+~/.agents/skills/           global (shared with other tools)
+~/.claude/skills/           global (Claude Code compatible)
+.soulforge/skills/          project
+.agents/skills/             project
+.claude/skills/             project
+```
+
+If a skill exists in both a global and a project scope, the project copy wins. Symlinks are followed, so shared skill collections (for example `~/.agents/skills` linked from `~/.claude/skills`) deduplicate automatically.
+
+## Install
+
+From the picker: enter selects a skill. SoulForge runs `bunx` (or `npx` as fallback) to add the skill. It lands in the chosen scope and appears in the Installed tab.
+
+From the CLI:
+
+```bash
+# Browse popular skills
+bunx skills list
+
+# Add from a catalog
+bunx skills add <source> --skill <id> -g
+```
+
+## Enable and disable
+
+Skills are loaded per session. In the Active tab, toggle skills on and off; they appear in the agent's prompt context when on and drop out when off. The setting persists per session.
+
+## Structure
+
+A skill is a directory with a SKILL.md at its root:
+
+```
+my-skill/
+├── SKILL.md           required, the frontmatter + instructions
+├── references/        optional supporting docs
+└── templates/         optional templates
+```
+
+`SKILL.md` front matter:
+
+```yaml
+---
+name: my-skill
+description: When to reach for this skill.
+---
+
+# My Skill
+
+Instructions, conventions, patterns...
+```
+
+## Remove
+
+From the Installed tab, select a skill and delete. SoulForge removes the directory on disk.
+
+## Writing your own
+
+Any directory with a `SKILL.md` is a skill. Drop one in `.soulforge/skills/my-skill/SKILL.md` (project) or `~/.soulforge/skills/my-skill/SKILL.md` (global) and it shows up immediately.
+
+The agent loads the skill content into its system prompt when the skill is active for the session, so keep SKILL.md concise and actionable.

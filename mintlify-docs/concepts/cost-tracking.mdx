@@ -1,0 +1,50 @@
+---
+title: "Cost tracking"
+description: "Live USD cost, per-model and per-subagent."
+icon: "dollar-sign"
+---
+
+SoulForge tracks every token spent and prices it in real time. The status bar shows the running total in USD. `/context` opens a dashboard with the per-model breakdown.
+
+## What gets tracked
+
+- **Prompt tokens** (uncached input).
+- **Completion tokens** (model output).
+- **Cache-write tokens** (billed at a higher rate by most providers).
+- **Cache-read tokens** (billed at a discount).
+- **Subagent tokens** tracked separately from the main agent.
+- **Per-model breakdown** when the task router mixes providers.
+
+## Providers with built-in pricing
+
+Pricing tables ship for the major providers, updated against their public price lists:
+
+| Provider | Notes |
+|----------|-------|
+| Anthropic | Claude Opus/Sonnet/Haiku with cache-write and cache-read rates |
+| OpenAI | GPT-5.4, GPT-4.1, o3, o4-mini |
+| Google | Gemini 2.5 Pro/Flash, Gemini 3 Flash/Pro |
+| DeepSeek | V3.2 (chat and reasoner) |
+| Groq | Llama 3.3, Llama 4 Scout, Qwen3, GPT-OSS |
+| Mistral | Mistral Large/Medium/Small, Codestral, Magistral, Ministral, Pixtral, Devstral |
+| Fireworks | Tier-based pricing (Mixtral, Llama 70B+, DeepSeek) |
+| GitHub Copilot | Premium-request multiplier-based estimation |
+| OpenRouter | Live pricing from the catalog |
+| GitHub Models | Per-token via multipliers |
+| Ollama, LM Studio, OpenCode free models | $0.00 |
+
+Custom providers default to a conservative estimate. Unknown models fall back to Sonnet-tier pricing as a safety floor.
+
+## Why it matters
+
+Two tactics cut cost dramatically:
+
+1. **Mix models.** Haiku for spark agents, Sonnet for ember agents, Flash for compaction. A task that would cost $0.25 on Sonnet often runs for $0.05 when the exploration phase routes through Haiku.
+
+2. **Use caching.** Cache reads are 10x cheaper on Anthropic, up to 50% off on Groq/Fireworks. SoulForge structures the system prompt and the Soul Map for maximum cache hits — typical cache-hit rates exceed 60%.
+
+## UI
+
+The status bar shows the running total in USD. Compact mode shows tokens plus a dollar figure. `/context` opens the detailed view: per-model usage, cache ratio, subagent spend, and the compaction history.
+
+Use `/router` to [assign cheap models to cheap tasks](/recipes/task-router).

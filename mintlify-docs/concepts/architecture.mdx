@@ -1,131 +1,52 @@
 ---
-title: "Architecture"
-description: "System overview, agent tiers, data flow, and component lifecycle."
+title: "How it works"
+description: "A bird's-eye view of the SoulForge architecture."
 icon: "sitemap"
 ---
 
-## System overview
+SoulForge is three things talking to each other:
 
-36+ tools, three agent tiers, 20 LLM providers, and an in-process coordination bus.
+1. **A live code graph** — every file, symbol, and import, ranked by importance. Updated as you work.
+2. **An agent loop** — reads, edits, tests, commits. Can dispatch parallel sub-agents.
+3. **Your Neovim** — embedded. The agent edits through the same editor you use.
 
-```
-User Input
-    |
-    v
-+---------+     +---------+     +---------------+
-|  Input  |---->|  Chat   |---->|  Forge Agent   |
-|  (TUI)  |     | (AI SDK)|     | (orchestrator) |
-+---------+     +---------+     +-------+-------+
-                                        | dispatch
-                         +--------------+--------------+
-                         v              v              v
-                   +----------+  +----------+  +----------+
-                   | Spark    |  |  Ember   |  |WebSearch |
-                   | explore  |  |   code   |  | subagent |
-                   +-----+----+  +----+-----+  +----+-----+
-                         |            |              |
-                         +------+-----+--------------+
-                                v
-                         +--------------+
-                         |   AgentBus   |
-                         | shared cache |
-                         | edit mutex   |
-                         | findings     |
-                         +--------------+
-                                |
-                  +-------------+-------------+
-                  v             v             v
-           +-----------+ +-----------+ +-----------+
-           |   Tools   | |Intelligence| |  Neovim   |
-           +-----------+ +-----------+ +-----------+
-                               |
-                    +----------+----------+
-                    v          v          v
-                  LSP    tree-sitter    regex
-```
+## The agents
 
-## Three-tier agent architecture
+| Agent | Runs | Model |
+|-------|------|-------|
+| **Forge** | The one talking to you. Orchestrates everything. | Your active model |
+| **⚡ Spark** | Read-only research (grep, read, analyze). | `taskRouter.spark` |
+| **🔥 Ember** | Code edits and refactors. Own context window. | `taskRouter.ember` |
+| **WebSearch** | Multi-step web research with citations. | `taskRouter.webSearch` |
 
-| Agent | Purpose |
-|-------|---------|
-| **Forge** | Main orchestrator — plans, dispatches, responds to the user |
-| **⚡ Spark** | Read-only research and code analysis. Shares the forge's cache for efficiency |
-| **🔥 Ember** | File edits, refactoring, implementation. Uses its own model and context |
-| **WebSearch** | Multi-step web research with scraping and synthesis |
+Configure which model each one uses in [the task router](/recipes/task-router).
 
-## AgentBus
+## What the agents share
 
-Coordination layer for parallel subagents:
+When Forge dispatches multiple sub-agents in parallel, they coordinate through the AgentBus:
 
-- **File cache** — first reader caches the content; concurrent readers share it. Edits invalidate the cache.
-- **Tool result cache** — read-only tool results are cached across agents and dispatches.
-- **Edit mutex** — concurrent edits to the same file are serialized. First editor owns the file; second gets a warning.
-- **Findings** — agents share discoveries in real-time. One agent's finding influences the next agent within a step or two.
+- **File cache** — first reader caches; others reuse.
+- **Tool cache** — read-only tool results shared across agents and dispatches.
+- **Edit lock** — concurrent writes to the same file are serialized.
+- **Findings** — one agent's discovery reaches the others at their next step.
 
-## Step lifecycle
+Result: N agents don't re-read the same files N times.
 
-Each agent step goes through preparation that handles context management:
+## Code intelligence, layered
 
-- **Peer findings** — new discoveries from other agents are injected
-- **Semantic pruning** — stale reads and old tool results are summarized to save context
-- **Budget management** — agents are guided to wrap up as they approach their context budget
-- **Edit preservation** — file edits are always kept in full, never pruned
+Operations (go-to-definition, rename, diagnostics…) try the best backend first, fall back if it fails:
 
-## Result pipeline
+| Tier | Backend | Used for |
+|------|---------|----------|
+| 1 | LSP | precise types, workspace rename, diagnostics |
+| 2 | ts-morph | TypeScript/JavaScript AST ops |
+| 2 | tree-sitter | 33+ languages — outlines, imports |
+| 3 | regex | universal fallback |
 
-When subagents finish, their results are aggregated and compressed before the parent Forge agent sees them. Multi-agent dispatches combine all results and findings into a single summary.
+LSP runs via Neovim when the editor is open, via standalone servers otherwise. The agent always has it.
 
-## Agent quality
+## System prompt
 
-- **Schema enforcement** — dispatch tasks require target file paths, validated before any agent runs
-- **Tier routing** — tasks are classified and routed to the appropriate model tier (spark for read-only, ember for edits)
-- **De-sloppify pass** — optional cleanup agent reviews code edits in fresh context to catch sloppy patterns
-- **Verify pass** — optional adversarial review checks correctness after code agents finish
+Every turn, the prompt is assembled from: mode, project info, git context, the repo map, your memory, forbidden files, active skills. The repo map is personalized per-turn — files you just edited or referenced get boosted.
 
-All features can be toggled via `/agent-features` or `agentFeatures` in config.
-
-## Intelligence router
-
-Routes code intelligence operations to the best available backend.
-
-| Backend | Tier | Capabilities |
-|---------|------|-------------|
-| **LSP** | 1 | definitions, references, rename, diagnostics, code actions, call hierarchy, type info, formatting |
-| **ts-morph** | 2 | TypeScript/JavaScript --AST definitions, references, rename, extract, unused detection |
-| **tree-sitter** | 2 | 33+ languages --symbol extraction, imports/exports, scopes, outlines |
-| **regex** | 3 | Universal fallback --symbol search, simple definitions, import patterns |
-
-For each operation, the router tries backends in tier order. If tier 1 returns null or throws, tier 2 is tried, then tier 3.
-
-### LSP integration
-
-Dual-backend architecture — the agent always has LSP access regardless of editor state:
-
-- **Neovim bridge**: When the editor is open, routes LSP requests through Neovim's running servers. Zero startup cost.
-- **Standalone client**: When the editor is closed, spawns LSP servers directly. Full protocol support.
-- **Multi-language warmup**: On boot, detects project languages and spawns LSP servers for all of them in parallel.
-
-## Web search
-
-Web search supports Brave Search API (with `BRAVE_API_KEY`) and DuckDuckGo as fallback. When a web search model is configured via the task router, the `web_search` tool spawns a multi-step agent that can run multiple queries, follow URLs, and synthesize a structured summary with citations. Results are cached.
-
-## Context manager
-
-Assembles the system prompt from multiple sources:
-
-1. **Mode instructions** --persona-specific behavior
-2. **Project info** --detected toolchain, package.json metadata
-3. **Git context** --branch, recent commits, dirty files
-4. **Repo map** --PageRank-ranked file/symbol view
-5. **Memory** --persistent project/global memory from SQLite
-6. **Forbidden files** --security patterns that block AI access
-7. **Outside-CWD gating** --write tools require confirmation for paths outside the project
-8. **Skills** --loaded skill instructions
-
-See also: [Multi-agent dispatch](/agents/dispatch) for AgentBus coordination details, and [User steering](/agents/steering) for mid-execution redirection.
-
-## UI layer
-
-Built on OpenTUI (React reconciler for terminal UIs) with Zustand for state management. Lock-in mode (`/lock-in`) hides agent narration and shows only tool activity + final answer.
-
-
+See [repo map](/concepts/repo-map) for ranking details, [compound tools](/concepts/compound-tools) for the one-call tools, [code intelligence](/concepts/intelligence) for the backend router.

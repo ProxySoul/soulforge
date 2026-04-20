@@ -1,95 +1,58 @@
 ---
 title: "Code intelligence"
-description: "4-tier fallback chain, LSP integration, dual-backend architecture, and convention-based visibility detection."
+description: "LSP, AST, and fallbacks — the agent sees your code like an IDE."
 icon: "brain"
 ---
 
-Every code intelligence operation routes through a tiered fallback chain. Each backend reports what it supports; the router picks the highest-tier backend available.
+SoulForge gives the agent the same code intelligence your IDE has: go-to-definition, references, rename, diagnostics, type info. It tries LSP first, falls back to AST tools, then tree-sitter, then regex.
 
-See also: [Compound tools](/concepts/compound-tools) for the tools that use this intelligence layer.
+This replaces grep-and-read. The agent navigates the code graph by symbol, not by pattern matching across files. Cheaper, faster, correct.
 
-## Fallback chain
+You don't configure this. It picks the best available backend for every operation.
 
-| Tier | Backend | Capabilities |
-|------|---------|-------------|
-| 1 | **LSP** | definitions, references, rename, diagnostics, code actions, call hierarchy, type info, formatting |
-| 2 | **ts-morph** | TypeScript/JavaScript --AST definitions, references, rename, extract function/variable, unused detection, type info |
-| 2 | **tree-sitter** | 30 languages --symbol extraction, imports/exports, scopes, outlines via WASM grammars |
-| 3 | **regex** | Universal fallback --symbol search, simple definitions, import patterns |
+## What it can do
 
-For each operation, the router tries backends in tier order. If tier 1 returns null or throws, tier 2 is tried, then tier 3.
+| Operation | Examples |
+|-----------|----------|
+| **Go to definition** | "where is `parseConfig` defined?" |
+| **Find references** | "who calls `AgentBus`?" |
+| **Rename** | "rename `useChat` to `useConversation` everywhere" |
+| **Type info** | "what's the return type of `fetchUser`?" |
+| **Diagnostics** | "any errors in this file?" |
+| **Call hierarchy** | "what does `buildTools` call?" |
+
+All of these come through the `navigate` and `analyze` tools.
+
+## How it picks a backend
 
 ```
-Symbol Query --> LSP available?
-                    |
-              yes --+--> Precise: types, refs, diagnostics
-                    |
-              no  --+--> ts-morph available?
-                           |
-                     yes --+--> AST: signatures, exports
-                           |
-                     no  --+--> tree-sitter grammar?
-                                  |
-                            yes --+--> Structural: outlines, imports
-                                  |
-                            no  --+--> Best-effort: pattern matching
+LSP → ts-morph (TS/JS) → tree-sitter (33+ langs) → regex
 ```
 
-## Dual LSP backend
+If LSP isn't attached for your language, the agent still works — the lower tiers cover most queries.
 
-The agent always has LSP access regardless of editor state:
+## LSP always-on
 
-### Neovim bridge
+The agent has LSP access even when the editor panel is closed. When you open Neovim (`Ctrl+E`), requests route through your LSP servers there. When it's closed, SoulForge spawns standalone servers.
 
-When the editor is open, routes LSP requests through Neovim's running LSP servers. Zero startup cost since servers are already warm.
+Check what's attached:
 
-### Standalone client
+```
+/lsp status
+```
 
-When the editor is closed, spawns LSP servers directly. Full protocol support.
+Install more servers through the Mason registry:
 
-### Multi-language warmup
+```
+/lsp install
+```
 
-On boot, SoulForge detects project languages and spawns standalone LSP servers for all of them in parallel. Standalone servers stay warm as hot standby even when Neovim is open.
+## After every edit
 
-## LSP operations
+SoulForge snapshots diagnostics before the edit, compares after, and tells the agent:
 
-| Operation | What it returns |
-|-----------|----------------|
-| **Go to definition** | File path + line number of the symbol's declaration |
-| **Find references** | All locations where the symbol is used |
-| **Rename** | Workspace-wide rename with all affected files |
-| **Diagnostics** | Errors, warnings, and info for a file |
-| **Code actions** | Available refactorings and quick fixes |
-| **Call hierarchy** | Incoming/outgoing calls for a function |
-| **Type hierarchy** | Subtypes/supertypes for a class |
-| **Hover/Type info** | Type signature and documentation |
-| **Formatting** | Language-specific code formatting |
+- New errors it just introduced
+- Errors it just fixed
+- Errors in other files caused by the edit
 
-## Post-edit diagnostics
-
-After file edits, SoulForge snapshots LSP diagnostics and diffs against pre-edit state:
-
-- New errors introduced by the edit
-- New warnings
-- Previously existing errors that were resolved
-- Cross-file errors (in other files caused by this edit)
-
-This gives the agent immediate feedback on whether its edit introduced problems, without needing to run the full type checker.
-
-## Convention-based visibility
-
-The repo map uses convention-based rules to determine which symbols are "public" (exported) vs "private" across 30 languages. This affects which symbols appear in the Soul Map system prompt.
-
-| Convention | Languages | Rule |
-|---|---|---|
-| Name-based | Go | Capitalized = public |
-| Name-based | Python, Dart | No `_` prefix = public |
-| Keyword-based | Rust, Zig | `pub` keyword |
-| Keyword-based | Java, Kotlin, Swift, C#, Scala | Not `private` = public |
-| Keyword-based | Elixir | `def` (not `defp`) = public |
-| File-based | C, C++, Objective-C | Header file = public |
-| Default public | Ruby, Lua, Bash, OCaml | All top-level symbols public |
-
-## Regex fallback
-
-When LSP is unavailable, the `navigate` tool falls back to language-aware regex patterns covering 14 language families to find function/class/type definitions.
+The agent sees this instantly — no need to run a full typecheck.

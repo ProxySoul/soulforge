@@ -1,0 +1,76 @@
+---
+title: "Test, lint, commit"
+description: "Run your toolchain through the agent. Commit with a clean message."
+icon: "check"
+---
+
+## Run your tests
+
+```
+> run tests
+```
+
+The agent auto-detects your toolchain (Bun, npm, cargo, go, pytest, gradle, and 20+ others) and runs the right command.
+
+Target a specific test:
+```
+> run only the auth tests
+```
+
+## Lint and auto-fix
+
+```
+> lint and fix everything
+```
+
+Runs your linter (biome, eslint, oxlint, ruff, clippy, golangci-lint — auto-detected) with the fix flag where supported.
+
+## Typecheck
+
+```
+> typecheck
+```
+
+Runs `tsc --noEmit`, `mypy`, `pyright`, `cargo check`, `dart analyze`, etc.
+
+## Commit
+
+Press `Ctrl+G`, then `c`. Or:
+
+```
+> commit my changes
+```
+
+SoulForge:
+
+1. Runs lint + typecheck (blocks if either fails).
+2. Writes a conventional-commit message based on your diff.
+3. Shows you the message and the diff.
+4. Commits after you confirm.
+
+To skip the pre-commit checks, commit via shell outside SoulForge.
+
+## Co-author trailers
+
+Add your LLM as a co-author:
+
+```
+/git co-author
+```
+
+Toggles between on (adds `Co-Authored-By: <model>`) and off. Saved per-scope.
+
+## The `project` tool
+
+Under the hood, all of the above use the `project` tool. If you want to run it directly:
+
+| Ask | Runs |
+|-----|------|
+| "run tests" | `project(action: "test")` |
+| "run the auth tests" | `project(action: "test", file: "auth")` |
+| "build" | `project(action: "build")` |
+| "lint and fix" | `project(action: "lint", fix: true)` |
+| "typecheck" | `project(action: "typecheck")` |
+| "what packages are in this monorepo?" | `project(action: "list")` |
+
+See [project tool](/tools/project) for the full list of supported ecosystems.

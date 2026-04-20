@@ -1,0 +1,146 @@
+---
+title: "Troubleshooting"
+description: "Fixes for common issues."
+icon: "wrench"
+---
+
+## No models in the picker
+
+Your API key isn't set. Pick one:
+
+```bash
+soulforge --set-key anthropic sk-ant-...
+# or export it and restart your terminal:
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Check what's configured:
+
+```bash
+soulforge --list-providers
+```
+
+## Getting rate-limited (429)
+
+Bump retry settings in `~/.soulforge/config.json`:
+
+```json
+{
+  "retry": {
+    "maxAttempts": 5,
+    "baseDelayMs": 3000
+  }
+}
+```
+
+Delays double each attempt. `maxAttempts: 5` with `baseDelayMs: 3000` gives ~3s, 6s, 12s, 24s, 48s between retries.
+
+## Icons show as boxes or `??`
+
+You don't have a [Nerd Font](https://www.nerdfonts.com). Install one and set it as your terminal font. Or run `/setup` inside SoulForge to install one for you. If you can't install fonts, disable the icons:
+
+```
+/font nerd
+```
+
+## LSP isn't working
+
+Open `/lsp status`. If your language server isn't attached:
+
+```
+/lsp install
+```
+
+Picks from the Mason registry and installs into `~/.local/share/soulforge/mason/`. Restart SoulForge after installing.
+
+## Neovim not found
+
+SoulForge needs Neovim >= 0.11. Run `/setup` to install it, or:
+
+```bash
+brew install neovim        # macOS
+sudo apt install neovim    # Debian/Ubuntu
+sudo pacman -S neovim      # Arch
+```
+
+If `nvim` isn't on your PATH, set `nvimPath` in `~/.soulforge/config.json`.
+
+## Editor panel is garbled
+
+Your terminal needs true color. Most modern terminals have it; some need:
+
+```bash
+export COLORTERM=truecolor
+```
+
+in your shell profile.
+
+## Context is full / "too many tokens"
+
+```
+/compact
+```
+
+Runs compaction immediately. Or switch to a larger model (`Ctrl+L`).
+
+To compact automatically at a lower threshold, edit config:
+
+```json
+{
+  "compaction": {
+    "triggerThreshold": 0.6
+  }
+}
+```
+
+## Copilot: 401 / token expired
+
+Your Copilot token was rotated. Copy it again from your IDE:
+
+```bash
+soulforge --set-key copilot $(jq -r '."github.com".oauth_token' \
+  ~/.config/github-copilot/apps.json)
+```
+
+See [Copilot setup](/providers/copilot) for details.
+
+## Hearth: "daemon unreachable"
+
+The daemon isn't running:
+
+```bash
+soulforge hearth start
+```
+
+Leave it running in a terminal (or install as a service with `soulforge hearth install --now`). Check with `soulforge hearth doctor`.
+
+## Hearth: bot isn't responding
+
+Run the diagnostic:
+
+```bash
+soulforge hearth doctor
+```
+
+Common causes:
+- Token missing from keychain — re-run `soulforge hearth login`.
+- Chat not paired — run `/hearth pair` and DM the bot with the code.
+- Your identity isn't in the allowlist — the daemon drops unknown senders silently.
+
+## Agent is slow
+
+Switch to a faster model with `Ctrl+L` (Haiku, Flash, Ollama) or tune the [task router](/recipes/task-router) — use a fast model for `spark` and `compact`, reserve the strong one for `ember`.
+
+## Forgot a session
+
+```bash
+soulforge --headless --chat            # browse by timestamp
+```
+
+Or open `/session history` inside SoulForge. Sessions live in `~/.soulforge/sessions/`.
+
+## Still stuck?
+
+- [GitHub Issues](https://github.com/proxysoul/soulforge/issues)
+- Run `/diagnose` inside SoulForge for a health check — LSP, tree-sitter, semantic indexing, provider status.
+- `/status` shows the full system dashboard.

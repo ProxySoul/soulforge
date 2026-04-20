@@ -1,0 +1,42 @@
+---
+title: "Plan before you code"
+description: "Research, plan, confirm, execute — for bigger refactors."
+icon: "map"
+---
+
+For anything touching more than 2-3 files, use plan mode. The agent researches first, writes a structured plan, waits for your approval, then executes step-by-step.
+
+## Start a plan
+
+```
+/plan refactor the auth module to use JWT refresh tokens
+```
+
+Or switch to plan mode globally:
+
+```
+/mode plan
+```
+
+In plan mode, the agent can read but not write. When it's ready, it calls the `plan` tool and the plan appears in the sidebar for review.
+
+## Review the plan
+
+- **Approve** — executes the plan step-by-step, with progress in the sidebar.
+- **Revise** — type what you want changed; the agent rewrites.
+- **Cancel** — discards the plan.
+
+## Plan types
+
+- **Light plan** — a checklist, no code. Fast, low context.
+- **Full plan** — includes code snippets and old→new diffs. More context, higher confidence on big refactors.
+
+The agent picks based on the request; you can override in the prompt ("make a detailed plan").
+
+## Why plan mode
+
+For small fixes, planning is overhead. For multi-file refactors, it catches mistakes before you commit to them — cheaper than re-running an expensive edit session.
+
+## Resume a plan
+
+If you close SoulForge mid-plan, `/session continue` picks up where you left off. Plans are saved to `.soulforge/plans/` so they survive restarts.

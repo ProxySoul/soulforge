@@ -1,148 +1,45 @@
 ---
 title: "Compound tools"
-description: "Tools that do the complete job in one call -- rename_symbol, move_symbol, refactor, project."
+description: "One call does the complete job — rename, move, refactor, test, commit."
 icon: "wrench"
 ---
 
-Compound tools eliminate the most expensive pattern in AI coding: the agent guessing shell commands, failing, and retrying.
+Compound tools do a full task in a single call. You don't have to explain every step to the agent, and the agent doesn't burn tokens guessing commands.
 
-## The problem
+## The tools
+
+| Tool | One-liner |
+|------|-----------|
+| `rename_symbol` | Rename a symbol across every file. LSP-backed, verified. |
+| `move_symbol` | Move a symbol to another file + update every import. |
+| `rename_file` | Rename or move a file + update every importer. |
+| `refactor` | Extract function/variable, organize imports, format. |
+| `project` | Auto-detected lint / typecheck / test / build across 23 ecosystems. |
+| `navigate` | Definitions, references, call hierarchy, type hierarchy. |
+| `read` | Full file, line ranges, or a single symbol by name. |
+| `ast_edit` | Surgical TypeScript/JavaScript edits — 65+ AST operations. |
+
+See the [rename & refactor recipe](/recipes/rename-refactor) and [test & commit recipe](/recipes/test-and-commit) for copy-paste examples.
+
+## Why they exist
+
+Without compound tools, the agent burns steps guessing:
 
 ```
 Agent: I'll run the tests with `npm test`
 Shell: npm ERR! missing script: test
-Agent: Let me try `npx jest`
-Shell: jest: not found
-Agent: Let me check package.json for the test runner...
-Agent: I see it uses bun. Let me try `bun test`
-Shell: 42 tests passed
+Agent: Let me try `npx jest`...
 ```
 
-Three wasted steps, three tool calls, hundreds of tokens burned. Multiply by every test/build/lint command across every ecosystem.
-
-## Design principles
-
-1. **Tool finds things itself** --no file hint, no line numbers, no prior exploration required
-2. **Confident output** --state facts ("All references updated. No errors."), never hedge ("Run tests to verify")
-3. **One call = complete job** --the agent shouldn't orchestrate multi-step mechanical workflows
-4. **Know the project** --toolchain, runner, linter detected automatically from config files
-5. **Accept flexible input** --symbol name instead of file path + line number
-
-### Why output tone matters
-
-When a tool says "Run tests to verify", the agent adds 3 verification steps. When a tool says "All references updated. No errors.", the agent moves on. One step.
-
-See also: [Code intelligence](/concepts/intelligence) for the LSP and tree-sitter fallback chain that powers these tools.
-
-## Tool reference
-
-### `rename_symbol`
-
-```typescript
-rename_symbol({ symbol: "AgentBus", newName: "CoordinationBus" })
-```
-
-What happens:
-
-<Steps>
-  <Step title="Locate">
-    Finds the symbol automatically via LSP workspace search, with grep fallback.
-  </Step>
-  <Step title="Rename">
-    LSP workspace-wide rename across all files.
-  </Step>
-  <Step title="Verify">
-    Confirms no remaining references to the old name.
-  </Step>
-  <Step title="Report">
-    Files changed, references updated, any remaining occurrences.
-  </Step>
-</Steps>
-
-No `file` parameter needed. The tool locates the symbol itself via workspace search + grep fallback. Works across monorepos.
-
-### `move_symbol`
-
-```typescript
-move_symbol({ symbol: "parseConfig", from: "src/utils.ts", to: "src/config/parser.ts" })
-```
-
-What happens:
-
-<Steps>
-  <Step title="Extract">
-    Parse source file, extract the symbol's full source code.
-  </Step>
-  <Step title="Remove">
-    Remove from source file (preserve surrounding code).
-  </Step>
-  <Step title="Insert">
-    Insert into target file (created if it doesn't exist).
-  </Step>
-  <Step title="Scan imports">
-    Scan all files for imports of the symbol from the old path.
-  </Step>
-  <Step title="Update imports">
-    Update each import to point to the new path.
-  </Step>
-  <Step title="Handle re-exports">
-    Update re-exports if the source file re-exported the symbol.
-  </Step>
-</Steps>
-
-**Per-language import handlers:**
-
-| Language | Support level |
-|----------|-------------|
-| **TypeScript/JavaScript** | Full. Handles `import { X }`, `import type { X }`, `require()`, re-exports. Respects `verbatimModuleSyntax`. |
-| **Python** | Handles `from module import X`, `import module`, bare imports. |
-| **Rust** | Handles `use crate::path::Symbol`, `mod` declarations. |
-| **Go/C/C++** | Graceful degradation --moves the symbol but warns that imports need manual update. |
-
-### `project`
-
-```typescript
-project({ action: "test", filter: "auth" })
-project({ action: "build" })
-project({ action: "lint", fix: true })
-project({ action: "typecheck" })
-project({ action: "run", script: "dev" })
-```
-
-Auto-detects toolchain by probing for config files, maps actions to the correct commands, applies user overrides, and executes. See [Project Tool](/tools/project) for the full reference.
-
-### `read`
-
-```typescript
-read({ files: [
-  { path: "src/index.ts" },
-  { path: "src/utils.ts", ranges: [{ start: 10, end: 50 }] },
-  { path: "src/agent.ts", target: "class", name: "AgentBus" }
-]})
-```
-
-Reads multiple files in parallel. Each can be a full read, a line range, or a surgical symbol extraction by name.
-
-### `navigate`
-
-```typescript
-navigate({ action: "definition", symbol: "parseConfig" })
-navigate({ action: "references", symbol: "useChat" })
-navigate({ action: "call_hierarchy", symbol: "buildTools" })
-```
-
-LSP-backed navigation. Returns locations with surrounding context lines.
+With `project(action: "test")`, one call detects your toolchain and runs the right command. Same idea for rename, move, refactor.
 
 ## Benchmark
 
-Single representative run on `rename_symbol` (renaming an exported class across 8 files):
+Renaming an exported class across 8 files:
 
-| Metric | Before (manual) | After (compound) | Improvement |
-|--------|-----------------|-------------------|-------------|
-| Agent steps | 19 | 3 | 84% fewer |
-| Token cost | $0.228 | $0.036 | 84% cheaper |
+|  | Manual approach | `rename_symbol` |
+|--|----------------|-----------------|
+| Agent steps | 19 | 3 |
+| Token cost | $0.228 | $0.036 |
 
-The improvements come from:
-1. The tool finds the symbol itself — no manual file lookup needed
-2. Confident output — no "verify" suggestions that trigger verification spirals
-3. Toolchain in context — prevents wrong-runner retries
+The tool finds the symbol itself, runs an LSP rename, verifies zero dangling references, and reports back. No exploration, no guesswork, no verification spiral.

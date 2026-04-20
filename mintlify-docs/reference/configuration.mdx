@@ -1,21 +1,17 @@
 ---
 title: "Configuration"
-description: "Config files, scoping, custom providers, task router, agent features, and all settings."
+description: "Every setting, grouped by what you're trying to do."
 icon: "gear"
 ---
 
-SoulForge uses layered configuration: global defaults plus per-project overrides. Every setting can be changed at runtime and persisted to either scope.
+Config lives in two files. Project wins.
 
-## Config files
+| Scope | Path |
+|-------|------|
+| Global | `~/.soulforge/config.json` |
+| Project | `.soulforge/config.json` |
 
-| Scope | Path | Purpose |
-|-------|------|---------|
-| **Global** | `~/.soulforge/config.json` | Defaults for all projects |
-| **Project** | `.soulforge/config.json` | Project-specific overrides |
-
-Project settings override global. Session-level settings (changed via commands but not saved) override both.
-
-## Config example
+## Full example
 
 ```json
 {
@@ -25,356 +21,177 @@ Project settings override global. Session-level settings (changed via commands b
   "semanticSummaries": "ast",
   "diffStyle": "default",
   "chatStyle": "accent",
-  "vimHints": true,
+  "toolTimeout": 2,
   "compaction": {
     "strategy": "v2",
     "triggerThreshold": 0.7,
     "keepRecent": 4
   },
   "taskRouter": {
-    "spark":      "anthropic/claude-haiku-4-5",
+    "spark":      "anthropic/claude-haiku-4",
     "ember":      "anthropic/claude-sonnet-4-6",
-    "webSearch":  "anthropic/claude-haiku-4-5",
-    "desloppify": "anthropic/claude-haiku-4-5",
-    "verify":     "anthropic/claude-haiku-4-5",
-    "compact":    "google/gemini-2.5-flash",
-    "semantic":   "anthropic/claude-haiku-4-5",
-    "default":    null
+    "compact":    "google/gemini-2.5-flash"
   },
-  "toolTimeout": 2,
-    "agentFeatures": {
-    "desloppify": true,
-    "tierRouting": true,
-    "dispatchCache": true,
-      "targetFileValidation": true
-  },
-  "providers": []
-}
-```
-
-## Key fields
-
-### Model settings
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `defaultModel` | `string` | `"none"` | Active model ID (e.g. `"anthropic/claude-sonnet-4-6"`). `"none"` forces model selection on launch. |
-| `thinking` | `object` | -- | Thinking mode config: `{mode: "off" \| "adaptive" \| "enabled", budget?: number}` |
-
-### Display
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `diffStyle` | `string` | `"default"` | Diff display: `"default"`, `"sidebyside"`, `"compact"` |
-| `chatStyle` | `string` | `"accent"` | Chat layout: `"accent"`, `"bubble"` |
-| `vimHints` | `boolean` | `true` | Show Neovim keybinding hints |
-| `nerdFont` | `boolean` | `true` | Show Nerd Font icons |
-
-### Intelligence
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `repoMap` | `boolean` | `true` | Enable repo map scanning |
-| `semanticSummaries` | `string` | `"ast"` | Summary mode: `"ast"` (tree-sitter), `"llm"` (LLM-generated), `"off"` |
-
-### Tools
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `toolTimeout` | `number` | `2` | Tool call timeout in minutes. Applies to shell, project, and agent tools. `0` disables timeout. Change via `/timeouts`. |
-
-### Compaction
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `compaction.strategy` | `string` | `"v2"` | `"v2"` (incremental extraction) or `"v1"` (LLM summarization) |
-| `compaction.triggerThreshold` | `number` | `0.7` | Auto-compact at this % of context |
-| `compaction.resetThreshold` | `number` | `0.4` | Hysteresis reset threshold |
-| `compaction.keepRecent` | `number` | `4` | Recent messages to preserve verbatim |
-| `compaction.maxToolResults` | `number` | `30` | Rolling tool result window (V2) |
-| `compaction.llmExtraction` | `boolean` | `true` | LLM gap-fill on compact (V2) |
-
-See [Compaction](/context/compaction) for strategy details.
-
-## Task router
-
-Assign different models to different task types. Configure via `/router` in the TUI or in config:
-
-```json
-{
-  "taskRouter": {
-    "spark":      "anthropic/claude-haiku-4-5",
-    "ember":      "anthropic/claude-sonnet-4-6",
-    "webSearch":  "anthropic/claude-haiku-4-5",
-    "desloppify": "anthropic/claude-haiku-4-5",
-    "verify":     "anthropic/claude-haiku-4-5",
-    "compact":    "google/gemini-2.5-flash",
-    "semantic":   "anthropic/claude-haiku-4-5",
-    "default":    null
-  }
-}
-```
-
-| Slot | Section | Purpose |
-|------|---------|--------|
-| `spark` | Dispatch | Read-only explore/investigate agents — searches, reads, analyzes |
-| `ember` | Dispatch | Code agents — reads files and makes edits |
-| `webSearch` | Dispatch | Web search and page fetching agent |
-| `desloppify` | Post-Dispatch | Cleanup pass after code agents finish |
-| `verify` | Post-Dispatch | Adversarial review pass after code agents |
-| `compact` | Background | Context compaction summarizer |
-| `semantic` | Background | Repo map LLM symbol summaries |
-| `default` | — | Fallback for background tasks when no specific slot is set |
-
-Resolution order: `taskRouter[slot]` → `taskRouter.default` → active model.
-
-<Note>
-**Legacy fields** (`coding`, `exploration`, `trivial`, `planning`) are accepted for backwards compatibility but are hidden from the `/router` UI. They map to `ember` and `spark` respectively on load. Use `spark` and `ember` in new configs.
-</Note>
-
-### Spark vs Ember tier
-
-Spark and ember are architectural tiers, not just model slots:
-
-- **Spark** — explore/investigate agents that share the forge's system prompt and tool definitions for cache prefix hits. Only activated when `spark` model matches the main model; otherwise the agent runs as an ember automatically.
-- **Ember** — agents with their own model and fresh context. Code agents are always embers. Explore agents become embers when `spark` points to a different model than the main one.
-
-This means setting `spark` to a cheaper model routes all read-only agents through it, while `ember` handles all code-writing agents regardless.
-
-## Agent features
-
-Toggle via `/agent-features` or in config:
-
-```json
-{
   "agentFeatures": {
     "desloppify": true,
     "tierRouting": true,
     "dispatchCache": true,
     "targetFileValidation": true
-  }
+  },
+  "retry": { "maxAttempts": 5, "baseDelayMs": 3000 }
 }
 ```
 
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `desloppify` | `true` | Cleanup agent after code agents (requires `desloppify` model in router) |
-| `tierRouting` | `true` | Auto-classify trivial tasks and route to cheap model |
-| `dispatchCache` | `true` | Cache file reads across dispatch boundaries |
-| `targetFileValidation` | `true` | Require file paths on dispatch tasks |
+## Fields
 
-## Custom providers
+### Model
 
-Add any OpenAI-compatible API as a provider:
+| Field | Default | What it does |
+|-------|---------|--------------|
+| `defaultModel` | `"none"` | Active model ID. `"none"` forces picker on launch. |
+| `thinking.mode` | `"off"` | `"off"`, `"adaptive"`, `"enabled"` |
+| `thinking.budget` | — | Tokens when `mode: "enabled"` (1024, 2048, 5000, 10000, 20000) |
+
+### Display
+
+| Field | Default | What it does |
+|-------|---------|--------------|
+| `diffStyle` | `"default"` | `"default"`, `"sidebyside"`, `"compact"` |
+| `chatStyle` | `"accent"` | `"accent"`, `"bubble"` |
+| `vimHints` | `true` | Show Vim keybinding hints |
+| `nerdFont` | `true` | Nerd Font icons (off shows ASCII) |
+
+### Intelligence
+
+| Field | Default | What it does |
+|-------|---------|--------------|
+| `repoMap` | `true` | Build the codebase graph on launch |
+| `semanticSummaries` | `"ast"` | `"ast"`, `"llm"`, `"off"` |
+| `toolTimeout` | `2` | Tool call timeout in minutes. `0` disables. |
+
+### Compaction
+
+See [compaction](/context/compaction) for what these do.
 
 ```json
-{
-  "providers": [
-    {
-      "id": "deepseek",
-      "name": "DeepSeek",
-      "baseURL": "https://api.deepseek.com/v1",
-      "envVar": "DEEPSEEK_API_KEY",
-      "models": ["deepseek-chat", "deepseek-coder"],
-      "modelsAPI": "https://api.deepseek.com/v1/models"
-    }
-  ]
+"compaction": {
+  "strategy": "v2",
+  "triggerThreshold": 0.7,
+  "resetThreshold": 0.4,
+  "keepRecent": 4,
+  "maxToolResults": 30,
+  "llmExtraction": true
 }
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | Yes | Provider ID, used in model strings like `deepseek/deepseek-chat` |
-| `name` | No | Display name (defaults to `id`) |
-| `baseURL` | Yes | OpenAI-compatible API endpoint |
-| `envVar` | No | Env var name for the API key |
-| `models` | No | Fallback model list (strings or `{id, name, contextWindow}` objects) |
-| `modelsAPI` | No | URL to fetch models dynamically (OpenAI `/v1/models` format) |
+### Retry
 
-<Note>
-If a custom provider `id` matches a built-in (e.g. `"anthropic"`), it auto-renames to `{id}-custom`. The built-in is never replaced.
-</Note>
-
-### Provider examples
-
-**Local LLM server (no API key):**
+For 429s and transient errors. Delays double each attempt.
 
 ```json
-{
-  "providers": [{
-    "id": "local",
-    "name": "Local LLM",
-    "baseURL": "http://localhost:8080/v1",
-    "models": ["llama-3-70b"]
-  }]
-}
+"retry": { "maxAttempts": 5, "baseDelayMs": 3000 }
 ```
 
-**Corporate proxy:**
+## Task router
+
+Assign different models to different jobs. See the [task router recipe](/recipes/task-router) for tuning tips.
 
 ```json
-{
-  "providers": [{
-    "id": "corp",
-    "name": "Corp API Gateway",
-    "baseURL": "https://llm.internal.corp.com/v1",
-    "envVar": "CORP_LLM_KEY",
-    "modelsAPI": "https://llm.internal.corp.com/v1/models"
-  }]
+"taskRouter": {
+  "spark":      "anthropic/claude-haiku-4",
+  "ember":      "anthropic/claude-sonnet-4-6",
+  "webSearch":  "anthropic/claude-haiku-4",
+  "desloppify": "anthropic/claude-haiku-4",
+  "verify":     "anthropic/claude-haiku-4",
+  "compact":    "google/gemini-2.5-flash",
+  "semantic":   "anthropic/claude-haiku-4",
+  "default":    null
 }
 ```
 
-**Multiple providers:**
+| Slot | Runs when |
+|------|-----------|
+| `spark` | Read-only research agents |
+| `ember` | Code-writing agents |
+| `webSearch` | Web search agent |
+| `desloppify` | Cleanup pass after code edits |
+| `verify` | Adversarial review after code edits |
+| `compact` | Context compaction |
+| `semantic` | Repo map one-line summaries |
+| `default` | Fallback for background tasks |
+
+Resolution: `taskRouter[slot]` → `taskRouter.default` → active model.
+
+## Agent features
 
 ```json
-{
-  "providers": [
-    { "id": "deepseek", "baseURL": "https://api.deepseek.com/v1", "envVar": "DEEPSEEK_API_KEY", "models": ["deepseek-chat"] },
-    { "id": "together", "baseURL": "https://api.together.xyz/v1", "envVar": "TOGETHER_API_KEY", "models": ["meta-llama/Llama-3-70b-chat-hf"] },
-    { "id": "groq", "baseURL": "https://api.groq.com/openai/v1", "envVar": "GROQ_API_KEY", "modelsAPI": "https://api.groq.com/openai/v1/models" }
-  ]
+"agentFeatures": {
+  "desloppify": true,
+  "tierRouting": true,
+  "dispatchCache": true,
+  "targetFileValidation": true
 }
 ```
 
-## Project instructions
+| Feature | What it does |
+|---------|--------------|
+| `desloppify` | Run cleanup agent after code agents |
+| `tierRouting` | Auto-route trivial tasks to cheap model |
+| `dispatchCache` | Share file reads across dispatches |
+| `targetFileValidation` | Require file paths on dispatch tasks |
 
-SoulForge loads enabled instruction files from both your project root and your home directory. For example, the `soulforge` source can come from `SOULFORGE.md` in the repo or `~/.soulforge/instructions.md`, and the `codex` source can come from `AGENTS.md` in the repo or `~/.agents/instructions.md`. When both scopes exist, global instructions are loaded too and take priority over project-local instructions.
+Toggle in the TUI with `/agent-features`.
 
-| File | Source | Default |
-|------|--------|---------|
-| `SOULFORGE.md` | SoulForge | **on** |
-| `CLAUDE.md` | Claude Code | off |
-| `.cursorrules` | Cursor | off |
-| `.github/copilot-instructions.md` | GitHub Copilot | off |
-| `.clinerules` | Cline | off |
-| `.windsurfrules` | Windsurf | off |
-| `.aider.conf.yml` | Aider | off |
-| `AGENTS.md` | OpenAI Codex | off |
-| `.opencode/instructions.md` | OpenCode | off |
-| `AMPLIFY.md` | Amp | off |
+## Providers
 
-Toggle via `/instructions` in the TUI or set in config:
+Pick keys and add custom providers on the dedicated pages:
+
+- [All providers](/providers/overview) — env vars, `--set-key` commands, keyUrls.
+- [Custom providers](/providers/custom) — any OpenAI-compatible API.
+- [Copilot](/providers/copilot) — use your GitHub Copilot subscription.
+
+## Instruction files
+
+Auto-load project rules from AI-tool markdown files:
 
 ```json
 { "instructionFiles": ["soulforge", "claude", "cursorrules"] }
 ```
 
-## Scoped configuration
+| Key | File | Default |
+|-----|------|---------|
+| `soulforge` | `SOULFORGE.md` | on |
+| `claude` | `CLAUDE.md` | off |
+| `cursorrules` | `.cursorrules` | off |
+| `copilot` | `.github/copilot-instructions.md` | off |
+| `cline` | `.clinerules` | off |
+| `windsurf` | `.windsurfrules` | off |
+| `aider` | `.aider.conf.yml` | off |
+| `codex` | `AGENTS.md` | off |
+| `opencode` | `.opencode/instructions.md` | off |
+| `amp` | `AMPLIFY.md` | off |
 
-Every setting can be saved to one of three scopes:
+Toggle in TUI with `/instructions`.
 
-| Scope | Persistence | Priority |
-|-------|------------|----------|
-| **Session** | Lost on exit | Highest |
-| **Project** | `.soulforge/config.json` | Medium |
-| **Global** | `~/.soulforge/config.json` | Lowest |
+## Privacy
 
-Use `/model-scope` to toggle model persistence between project and global.
-
-## Privacy / forbidden files
-
-Block files from AI access with `/privacy add <pattern>`:
+Block files from the agent:
 
 ```
 /privacy add .env
 /privacy add secrets/**
 ```
 
-- **Project scope** -- patterns in `.soulforge/forbidden`
-- **Global scope** -- patterns in `~/.soulforge/forbidden`
-- Built-in patterns cover `.env`, `.pem`, `credentials`, `private_key`, `id_rsa`, `.npmrc`, `.netrc`, `shadow`, `passwd`, and more
+Built-ins already cover `.env`, `.pem`, `credentials`, `id_rsa`, `.npmrc`, `.netrc`, `shadow`, `passwd`.
 
 ## Hooks
 
-Lifecycle hooks run shell commands at key points in the agent lifecycle. Compatible with Claude Code's hook system.
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "my-hook.sh",
-            "async": true,
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Hooks are loaded from 5 config files (merged in order):
-
-1. `~/.claude/settings.json`
-2. `.claude/settings.json`
-3. `.claude/settings.local.json`
-4. `~/.soulforge/config.json`
-5. `.soulforge/config.json`
-
-13 events: `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionStart`, `SessionEnd`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Notification`.
-
-Use `/hooks` to view and toggle hooks at runtime.
-
-See [Hooks](/tools/hooks) for the full reference including protocol, examples, and Claude Code migration guide.
-
-## API keys
-
-Keys are stored in the OS keychain (macOS Keychain, Linux secret-tool) via `--set-key`:
-
-```bash
-soulforge --set-key anthropic sk-ant-...
-soulforge --set-key openai sk-...
-```
-
-Alternatively, set env vars in your shell profile:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export GOOGLE_GENERATIVE_AI_API_KEY=...
-```
-
-| Provider | Env Variable |
-|----------|-------------|
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Google | `GOOGLE_GENERATIVE_AI_API_KEY` |
-| xAI | `XAI_API_KEY` |
-| Groq | `GROQ_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| Mistral | `MISTRAL_API_KEY` |
-| Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_REGION` |
-| Fireworks | `FIREWORKS_API_KEY` |
-| MiniMax | `MINIMAX_API_KEY` |
-| Codex | OAuth via `/codex login` (ChatGPT subscription) |
-| Copilot | OAuth token from IDE (`~/.config/github-copilot/apps.json`) |
-| GitHub Models | `GITHUB_MODELS_API_KEY` (PAT with `models:read`) |
-| OpenRouter | `OPENROUTER_API_KEY` |
-| OpenCode | `OPENCODE_API_KEY` |
-| LLM Gateway | `LLM_GATEWAY_API_KEY` |
-| Vercel AI Gateway | `AI_GATEWAY_API_KEY` |
-| Proxy | `PROXY_API_KEY` (or auto-managed) |
-| Ollama | *(none — runs locally)* |
-| LM Studio | *(none — runs locally)* |
-
-**Local provider overrides:** Ollama defaults to `localhost:11434` (override with `OLLAMA_HOST`). LM Studio defaults to `localhost:1234` (override with `LM_STUDIO_URL`, optional auth with `LM_API_TOKEN`). Bedrock uses AWS IAM credentials — set the three env vars above.
+Covered on the [hooks page](/tools/hooks). Short version: SoulForge reads `hooks.{Event}` from all 5 config sources (Claude Code's three + SoulForge's two), fires all matches.
 
 ## Storage
 
-`/storage` shows per-component disk usage:
+`/storage` shows per-component disk usage (repo map, sessions, plans, memory, input history, binaries, fonts) with one-click cleanup.
 
-- Repo map index (SQLite)
-- Sessions (JSONL)
-- Plans
-- Memory (SQLite)
-- Input history (SQLite)
-- Config files
-- Binaries (CLIProxyAPI, bundled tools)
-- Fonts (Nerd Font symbols)
+## Scope priority
 
-One-click cleanup for each component.
+Session → Project → Global. Changes via commands land in whatever scope the command targets. Use `/model-scope` to move the active model between project and global.

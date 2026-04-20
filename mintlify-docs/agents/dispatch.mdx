@@ -1,56 +1,40 @@
 ---
-title: "Multi-agent dispatch"
-description: "Parallel agent coordination — shared cache, edit safety, findings, and staggered spawning."
+title: "Parallel agents"
+description: "Forge dispatches sub-agents in parallel for multi-file work."
 icon: "users"
 ---
 
-The AgentBus runs multiple AI agents in parallel without duplicate work, file conflicts, or lost findings.
+For bigger tasks, Forge (the main agent) dispatches sub-agents in parallel. Each one does a slice of the work, then reports back.
 
-## How it works
+## Two tiers
 
-When you dispatch multiple tasks, SoulForge spawns agents in parallel with a shared coordination layer:
+| Agent | Role | Model (router slot) |
+|-------|------|---------------------|
+| Spark | Read-only research: navigate, read, analyze | `spark` |
+| Ember | File edits, refactors | `ember` |
 
-- **File reads are deduplicated** — the first agent to read a file caches it; others get the cached content instantly
-- **Tool results are shared** — read-only tool results (grep, glob, navigate, etc.) are cached across agents
-- **Edits are serialized** — concurrent edits to the same file are queued, not raced
-- **Findings propagate** — one agent's discovery is visible to other agents within a step or two
-- **Caches persist** — warm caches carry over between dispatches in the same session
+Plus a WebSearch agent for multi-step web research.
 
-## Edit safety
+Assign cheap models to `spark`, strong models to `ember` in the [task router](/recipes/task-router). That is where most of the cost savings come from.
 
-The first agent to edit a file becomes its "owner". If a second agent tries to edit the same file, it receives a warning. After all agents finish, the parent Forge agent is told about any conflicts.
+## What they share
 
-## Findings
+- **I/O cache.** When multiple agents run concurrently and one has already fetched a file, the others get the cached bytes instead of touching disk again. This is a speed win, not a token win: every agent still reads the content into its own context window and pays tokens for it.
+- **Edit serialization.** Concurrent writes to the same file are queued, not raced.
+- **Findings channel.** One agent's discovery reaches the others at their next step.
 
-Agents share discoveries in real-time without sharing context windows. When one agent discovers something relevant (e.g. "auth uses JWT with refresh tokens"), other agents see it at their next step and can adjust their approach.
+## How the cost savings actually work
 
-## Dispatch flow
+Savings do not come from shared context. They come from:
 
-```
-Forge dispatches tasks
-    |
-    v
-Agents spawn with staggered starts
-    |
-    v
-Each agent runs independently with shared cache access
-    |
-    v
-Results aggregated and compressed
-    |
-    v
-Combined result returned to Forge
-```
+- **Model mix.** Spark agents run on a cheap model (Haiku, Flash) while Ember runs on a strong one. The [task router](/recipes/task-router) decides per task.
+- **Symbol-level access.** Agents use LSP go-to-definition and surgical symbol reads, not `grep + cat` on whole files. See [code intelligence](/concepts/intelligence).
+- **Parallelism hides latency.** Three agents finishing in parallel beats one agent doing three things serially.
 
-Single-task dispatches skip coordination overhead and return the result directly.
+## When dispatch happens
 
-## Spark vs Ember
+You do not trigger it. Forge decides when a task benefits from parallelism: multi-file refactors, research questions spanning several modules, or plan-mode execution. For one-shot questions, Forge does the work directly.
 
-| Agent | Role | When used |
-|-------|------|-----------|
-| **⚡ Spark** | Read-only research | Explore/investigate tasks. Shares the forge's cache for efficiency |
-| **🔥 Ember** | Code edits | Code tasks. Uses its own model and fresh context |
+## Steering mid-flight
 
-The dispatch schema's `role` field controls which tier is used. Code agents are always embers.
-
-See also: [User steering](/agents/steering) for redirecting agents mid-execution.
+Type while the agents are running. Your message is queued and injected at the next step. See [steering](/agents/steering).

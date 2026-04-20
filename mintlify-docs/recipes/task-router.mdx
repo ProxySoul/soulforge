@@ -1,0 +1,83 @@
+---
+title: "Use multiple models"
+description: "Cheap model for exploration, strong model for code. Cut cost without losing quality."
+icon: "route"
+---
+
+Assign different models to different tasks. Haiku searches your codebase, Sonnet writes the code, Flash compacts context.
+
+## Open the router
+
+```
+/router
+```
+
+Or edit `~/.soulforge/config.json`:
+
+```json
+{
+  "taskRouter": {
+    "spark":      "anthropic/claude-haiku-4",
+    "ember":      "anthropic/claude-sonnet-4-6",
+    "webSearch":  "anthropic/claude-haiku-4",
+    "desloppify": "anthropic/claude-haiku-4",
+    "verify":     "anthropic/claude-haiku-4",
+    "compact":    "google/gemini-2.5-flash",
+    "semantic":   "anthropic/claude-haiku-4",
+    "default":    null
+  }
+}
+```
+
+## What each slot does
+
+| Slot | Runs when | Good choice |
+|------|-----------|-------------|
+| `spark` | Read-only agents explore your code | Fast/cheap (Haiku, Flash) |
+| `ember` | Agents that edit files | Strong coding model (Sonnet, Opus) |
+| `webSearch` | Web search agents | Fast/cheap |
+| `desloppify` | Cleanup pass after code edits | Fast/cheap |
+| `verify` | Adversarial review after code edits | Medium strength |
+| `compact` | Context compaction | Fast/cheap (Flash is ideal) |
+| `semantic` | Repo map one-line symbol summaries | Fast/cheap |
+| `default` | Fallback when no slot matches | — |
+
+## Recommended setups
+
+<Tabs>
+  <Tab title="Balanced">
+    Strong code, cheap everything else.
+    ```json
+    "spark": "anthropic/claude-haiku-4",
+    "ember": "anthropic/claude-sonnet-4-6",
+    "compact": "google/gemini-2.5-flash"
+    ```
+  </Tab>
+  <Tab title="Budget">
+    Haiku everywhere. Still very capable for most tasks.
+    ```json
+    "spark": "anthropic/claude-haiku-4",
+    "ember": "anthropic/claude-haiku-4",
+    "compact": "google/gemini-2.5-flash"
+    ```
+  </Tab>
+  <Tab title="Max quality">
+    Opus for code, Sonnet for exploration.
+    ```json
+    "spark": "anthropic/claude-sonnet-4-6",
+    "ember": "anthropic/claude-opus-4-6",
+    "compact": "google/gemini-2.5-flash"
+    ```
+  </Tab>
+  <Tab title="One gateway">
+    Same models, one key via LLM Gateway.
+    ```json
+    "spark": "llmgateway/claude-haiku-4-5",
+    "ember": "llmgateway/claude-sonnet-4-6"
+    ```
+  </Tab>
+</Tabs>
+
+## Why this saves money
+
+Agents spend ~70% of their tokens on exploration (reading files, running greps, navigating the repo map). That work doesn't need an expensive model. Reserve your strong model for the ~30% that's actually writing code.

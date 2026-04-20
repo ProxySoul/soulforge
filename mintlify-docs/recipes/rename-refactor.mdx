@@ -1,0 +1,56 @@
+---
+title: "Rename & refactor"
+description: "Change a symbol everywhere. Move files without breaking imports."
+icon: "pen"
+---
+
+## Rename a symbol everywhere
+
+Just ask:
+
+```
+> rename AgentBus to CoordinationBus
+```
+
+The agent runs `rename_symbol` — one LSP-backed call updates every file and verifies there are no dangling references.
+
+Works for functions, classes, types, interfaces, variables, enums. No need to tell it which file.
+
+## Move a symbol to a different file
+
+```
+> move parseConfig from src/utils.ts to src/config/parser.ts
+```
+
+Moves the symbol, updates every import across the project, fixes re-exports. Full support for TypeScript, JavaScript, Python, Rust.
+
+## Rename a file
+
+```
+> rename src/old-name.ts to src/components/new-name.ts
+```
+
+Moves the file, updates every importer.
+
+## Extract a function or variable
+
+```
+> extract lines 42-58 of handler.ts into a function called validateInput
+```
+
+Uses `refactor extract_function` — an LSP-backed code action. The extracted code becomes a new function with the right parameters and return type.
+
+## Organize imports
+
+```
+> clean up imports in src/api.ts
+```
+
+Sorts, dedupes, removes unused imports via LSP.
+
+## Tips
+
+- You don't need to say **which file** for rename. The agent finds it.
+- If multiple symbols share a name, the agent will ask you to pick.
+- Run `/lsp status` to confirm your LSP is attached before a big rename.
+- Changes are checkpoint-saved automatically. `Ctrl+B` undoes them all.

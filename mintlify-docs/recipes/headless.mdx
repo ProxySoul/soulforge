@@ -1,0 +1,88 @@
+---
+title: "Run from CI or scripts"
+description: "Headless mode — pipe in a prompt, get back results."
+icon: "server"
+---
+
+Headless mode runs SoulForge without the TUI. Same agent, same tools, no renderer. For scripts, CI pipelines, automation.
+
+## Basics
+
+```bash
+# Inline prompt
+soulforge --headless "explain the auth middleware"
+
+# From stdin
+echo "find unused exports" | soulforge --headless
+
+# JSON output
+soulforge --headless --json "list all TODOs"
+
+# Real-time event stream
+soulforge --headless --events "refactor the store"
+```
+
+Agent text streams to `stdout`. Progress messages go to `stderr` so piping stays clean.
+
+## Useful flags
+
+| Flag | What it does |
+|------|-------------|
+| `--model <id>` | Override the default model |
+| `--max-steps <n>` | Stop after N steps |
+| `--timeout <ms>` | Kill after N ms |
+| `--system "..."` | Add custom system instructions |
+| `--include <file>` | Pre-load a file into context (repeatable) |
+| `--no-repomap` | Skip the startup scan (faster for quick questions) |
+| `--diff` | List files changed after the run |
+| `--save-session` | Save conversation so you can resume later |
+| `--session <id>` | Resume a saved session |
+| `--chat` | Interactive multi-turn chat |
+| `--quiet` | Suppress stderr progress |
+
+Exit codes: `0` success, `1` error, `2` timeout, `130` abort.
+
+## CI example
+
+```yaml
+# .github/workflows/lint.yml
+- name: Auto-fix lint
+  run: |
+    soulforge --headless --max-steps 30 --timeout 180000 --diff \
+      "run the linter, fix every issue, typecheck"
+```
+
+## Resume a session
+
+```bash
+# step 1: investigate
+soulforge --headless --save-session "analyze the auth module, find all issues"
+
+# grab the session id from the output, then:
+soulforge --headless --session <id> --save-session "now fix them"
+soulforge --headless --session <id> "write tests"
+```
+
+## Parse events
+
+```bash
+soulforge --headless --events "refactor the store" | while read -r line; do
+  type=$(echo "$line" | jq -r '.type')
+  case "$type" in
+    tool-call) echo "→ $(echo "$line" | jq -r '.tool')" ;;
+    done)      echo "done in $(echo "$line" | jq -r '.duration')ms" ;;
+  esac
+done
+```
+
+Event types: `start`, `text`, `tool-call`, `tool-result`, `step`, `error`, `done`, `session-saved`.
+
+## What's disabled
+
+- TUI, editor panel, splash screen.
+- Interactive approvals — destructive actions auto-allow in headless mode.
+- User steering — no stdin during the run.
+
+## Security in CI
+
+Set `SOULFORGE_NO_REPOMAP=1` to skip the startup scan on tiny CI jobs. Store API keys as CI secrets. Use `--max-steps` and `--timeout` to cap runaway runs.

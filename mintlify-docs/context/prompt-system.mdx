@@ -1,109 +1,48 @@
 ---
-title: "Prompt system"
-description: "Per-family prompt architecture, family detection, mode overlays, and Soul Map injection."
-icon: "message-square"
+title: "Modes & the prompt"
+description: "Switch personas with Ctrl+D. Load project instructions automatically."
+icon: "message"
 ---
 
-Each model family (Claude, OpenAI, Gemini) gets a tailored system prompt, with shared rules and tool guidance appended automatically.
+## Modes
 
-## Family detection
+Press `Ctrl+D` to cycle, or `/mode <name>`:
 
-SoulForge detects the model family from the model ID and selects the appropriate prompt style:
+| Mode | What it does |
+|------|--------------|
+| `default` | Full agent — investigates then implements |
+| `architect` | Design only — outlines and tradeoffs, no file edits |
+| `socratic` | Asks probing questions before doing anything |
+| `challenge` | Devil's advocate — challenges every assumption |
+| `plan` | Research, plan, confirm, execute (see [plan mode](/recipes/plan-mode)) |
+| `auto` | Autonomous — minimal interruptions |
 
-| Model ID Pattern | Family | Prompt style |
-|---|---|---|
-| `anthropic/*`, `claude-*` | `claude` | Concise, imperative, zero-filler |
-| `openai/*`, `xai/*`, `gpt-*`, `o1*`, `o3*` | `openai` | Agent framing, structured guidelines |
-| `google/*`, `gemini-*` | `google` | Core mandates, enumerated workflows |
-| Everything else | `other` | Generic, works with any model |
+## Project instructions
 
-Gateway providers (OpenRouter, LLM Gateway, Vercel AI Gateway, Proxy) are detected by inspecting the model name portion of the ID. For example, `llmgateway/claude-sonnet-4` matches `claude` family.
+SoulForge auto-loads `SOULFORGE.md` from your project root as context. You can also pick up instructions from other tools:
 
-## Prompt assembly
-
-The system prompt is assembled from these sections:
-
-<Steps>
-  <Step title="Family base prompt">
-    Identity, tone, style, workflow (per-model family).
-  </Step>
-  <Step title="Shared rules">
-    Tool policy, conventions, commit restrictions (same for all families).
-  </Step>
-  <Step title="Tool guidance">
-    Priority list, editing rules, dispatch rules (with/without Soul Map).
-  </Step>
-  <Step title="Project context">
-    cwd, toolchain, project instructions (project-local plus home-scoped instruction files such as `SOULFORGE.md`, `~/.soulforge/instructions.md`, `AGENTS.md`, etc.).
-  </Step>
-  <Step title="Forbidden files">
-    Security patterns.
-  </Step>
-  <Step title="Editor context">
-    Open file, cursor position, visual selection.
-  </Step>
-  <Step title="Git context">
-    Branch, status, conflicts.
-  </Step>
-  <Step title="Memory">
-    Persistent memory index.
-  </Step>
-  <Step title="Mode overlay">
-    Architect, plan, auto, etc. (if active).
-  </Step>
-  <Step title="Skills reference">
-    Static reference line.
-  </Step>
-</Steps>
-
-## Cache strategy
-
-The system prompt is structured for Anthropic prompt caching efficiency:
-
-- **System prompt** (all sections above) — stable across steps, cached after the first turn
-- **Soul Map** — injected as a separate message pair (updates after edits without invalidating the cached system prompt)
-- **Skills** — injected as a separate message pair
-
-## Mode overlays
-
-Modes append additional instructions to the base prompt:
-
-| Mode | Behavior |
-|---|---|
-| `default` | No overlay --full agent |
-| `architect` | Read-only, produces structured architecture analysis |
-| `socratic` | Investigates first, asks targeted questions |
-| `challenge` | Adversarial review with evidence from soul tools |
-| `plan` | Research, structured plan, user confirms, execute |
-| `auto` | Autonomous execution, minimal interruptions |
-
-Plan mode has two variants: `full` (high context --includes code snippets and diffs) and `light` (low context --just steps and descriptions).
-
-## Soul Map injection
-
-The Soul Map is injected as a user/assistant message pair prepended to the conversation:
-
-```xml
-<soul_map>
-  <description>...</description>
-  <how_to_use>...</how_to_use>
-  <directory_tree>
-    +-- src/
-    |   +-- core/
-    |   +-- components/
-    |   +-- hooks/
-    +-- tests/
-  </directory_tree>
-  <data>
-    src/types/index.ts: (->86)
-      +TaskRouter -- [types] interface: task router
-      ...
-  </data>
-</soul_map>
+```json
+{
+  "instructionFiles": ["soulforge", "claude", "cursorrules"]
+}
 ```
 
-This pattern (inspired by Aider's repo map) keeps the structural context visible to the model without bloating the cached system prompt.
+| File | From |
+|------|------|
+| `SOULFORGE.md` | SoulForge (on by default) |
+| `CLAUDE.md` | Claude Code |
+| `.cursorrules` | Cursor |
+| `.github/copilot-instructions.md` | GitHub Copilot |
+| `.clinerules` | Cline |
+| `.windsurfrules` | Windsurf |
+| `AGENTS.md` | OpenAI Codex |
+| `.opencode/instructions.md` | OpenCode |
+| `AMPLIFY.md` | Amp |
 
-## Adding a new family
+Toggle in the TUI: `/instructions`.
 
-Create a new prompt file for your model family, add it to the family prompt registry, and add detection logic for the model ID pattern.
+## Per-family tuning
+
+SoulForge tailors the prompt based on the model family (Claude, OpenAI, Gemini) — different models respond better to different phrasings. Gateway providers (LLM Gateway, OpenRouter, Vercel) are detected by the model ID portion, so `llmgateway/claude-sonnet-4` gets the Claude prompt.
+
+This is automatic; there's nothing to configure.

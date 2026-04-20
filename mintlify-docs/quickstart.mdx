@@ -1,132 +1,78 @@
 ---
 title: "Quickstart"
-description: "Get productive with SoulForge in 5 minutes."
+description: "Five minutes to your first refactor."
 icon: "rocket"
 ---
 
-## 5-minute setup
-
 <Steps>
+  <Step title="Launch">
+    ```bash
+    cd your-project
+    soulforge
+    ```
+    The first launch scans your codebase to build a live graph (a few seconds). Press `Ctrl+L` to pick a model.
+  </Step>
 
-<Step title="Install SoulForge">
-  ```bash
-  brew tap proxysoul/tap && brew install soulforge
-  ```
+  <Step title="Ask something">
+    Type any question. The agent already knows your file layout.
+    ```
+    > what does the auth middleware do?
+    ```
+  </Step>
 
-  Or download from [GitHub Releases](https://github.com/ProxySoul/soulforge/releases/latest), extract, and run `./install.sh`.
+  <Step title="Make a change">
+    Describe the change in plain English.
+    ```
+    > rename AgentBus to CoordinationBus across the project
+    ```
+    Watch the agent run `rename_symbol` — one tool call updates every file.
+  </Step>
 
-  See [Installation](/installation) for all methods.
-</Step>
-
-<Step title="Set an API key">
-  ```bash
-  export ANTHROPIC_API_KEY=sk-ant-...
-  # Or use --set-key to save to your OS keychain:
-  soulforge --set-key anthropic sk-ant-...
-  ```
-</Step>
-
-<Step title="Launch and select a model">
-  ```bash
-  soulforge
-  ```
-
-  On first launch, SoulForge checks for Neovim and Nerd Fonts and offers to install them if missing. Press `Ctrl+L` to open the model picker. Claude Sonnet 4 is a good default.
-</Step>
-
-<Step title="Send your first prompt">
-  Type a message in the input box and press Enter:
-
-  ```
-  > explain the project structure
-  ```
-
-  SoulForge scans your codebase on startup (repo map), so the AI already understands your file layout, imports, and key symbols.
-</Step>
-
-<Step title="Explore features">
-  - **Open the editor**: `Ctrl+E` to toggle the embedded Neovim panel
-  - **Git menu**: `Ctrl+G` for commit, push, pull, stash
-  - **Browse commands**: Type `/` or press `Ctrl+K` for the command palette
-  - **Switch modes**: `Ctrl+D` to cycle through default, auto, architect, socratic, challenge
-  - **Plan mode**: `/plan refactor the auth module` for research-first structured planning
-  - **Skills**: `Ctrl+S` to browse and install community skills
-</Step>
-
+  <Step title="Commit">
+    Press `Ctrl+G`, then `c`. SoulForge writes the commit message and runs lint + typecheck before committing. Or just say:
+    ```
+    > commit my changes
+    ```
+  </Step>
 </Steps>
 
-## Key shortcuts
+## Essential shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Ctrl+L` | Select LLM model |
-| `Ctrl+E` | Toggle editor panel |
+| Key | Does |
+|-----|------|
+| `Ctrl+L` | Switch model |
+| `Ctrl+E` | Toggle editor panel (Neovim) |
 | `Ctrl+G` | Git menu |
 | `Ctrl+K` | Command palette |
-| `Ctrl+S` | Skills browser |
-| `Ctrl+N` | New session |
-| `Ctrl+T` | New tab |
-| `Ctrl+W` | Close tab |
-| `Ctrl+D` | Cycle forge mode |
-| `Ctrl+X` | Abort generation |
-| `Tab` / `Shift+Tab` | Cycle between tabs |
+| `Ctrl+B` / `Ctrl+F` | Undo / redo a turn (checkpoints) |
+| `Ctrl+X` | Stop the agent |
+| `Ctrl+T` / `Ctrl+W` | New tab / close tab |
 
-## The interface
+## Common tasks
 
-```
-+-------------------------------------------------+
-|  SoulForge | tokens | context | git | model     |  <- header
-|                                                 |
-|  Chat messages appear here                      |  <- chat area
-|  Tool calls show in real time                   |
-|                                                 |
-|  > type here...                                 |  <- input
-|  ^X Stop  ^D Mode  ^E Editor  ^G Git  ^L LLM   |  <- footer
-+-------------------------------------------------+
-```
+<CardGroup cols={2}>
+  <Card title="Rename & refactor" href="/recipes/rename-refactor" icon="pen">
+    Rename a symbol across every file with one prompt.
+  </Card>
+  <Card title="Test, lint, commit" href="/recipes/test-and-commit" icon="check">
+    Run your toolchain through the agent.
+  </Card>
+  <Card title="Use multiple models" href="/recipes/task-router" icon="route">
+    Cheap model for search, strong model for code.
+  </Card>
+  <Card title="Run from CI" href="/recipes/headless" icon="server">
+    Headless mode for scripts and pipelines.
+  </Card>
+  <Card title="Reach it from your phone" href="/tools/hearth" icon="mobile">
+    Hearth — Telegram, Discord, iMessage.
+  </Card>
+  <Card title="Connect MCP servers" href="/tools/mcp" icon="plug">
+    GitHub, Sentry, anything MCP.
+  </Card>
+</CardGroup>
 
-**Header** shows token usage, context budget, git branch, and active model.
+## Next
 
-**Chat area** renders messages with markdown, syntax-highlighted code blocks, and live tool call progress.
-
-**Input box** accepts natural language or slash commands (type `/` to see them).
-
-## Task router
-
-Use `/router` to assign different models to different tasks:
-
-| Slot | Purpose | Example model |
-|------|---------|---------------|
-| `spark` | Read-only research and exploration | Haiku |
-| `ember` | File edits and implementation | Sonnet |
-| `webSearch` | Web search queries | Haiku |
-| `desloppify` | Cleanup pass after code edits | Haiku |
-| `verify` | Adversarial review of edits | Haiku |
-| `compact` | Context compaction | Flash |
-
-## Headless mode
-
-Run SoulForge without the TUI for scripting and CI/CD:
-
-```bash
-# Inline prompt
-soulforge --headless "explain the auth middleware"
-
-# JSON output
-soulforge --headless --json "list all TODO comments"
-
-# Event stream
-soulforge --headless --events "refactor the store"
-
-# Interactive chat
-soulforge --headless --chat
-```
-
-See [Headless mode](/tools/headless) for the full reference.
-
-## Next steps
-
-- [Architecture](/concepts/architecture) -- understand the system design
-- [Repo Map](/concepts/repo-map) -- how SoulForge understands your codebase
-- [Commands](/reference/commands) -- all 100 slash commands
-- [Configuration](/reference/configuration) -- customize everything
+- Browse the [recipes](/recipes/rename-refactor) for copy-paste workflows.
+- Skim [commands](/reference/commands) — type `/` to see them all in the app.
+- Tune `~/.soulforge/config.json` — see [configuration](/reference/configuration).

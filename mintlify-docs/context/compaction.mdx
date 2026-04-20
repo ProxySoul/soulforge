@@ -1,174 +1,70 @@
 ---
 title: "Context compaction"
-description: "V1 LLM summarization vs V2 deterministic extraction -- two strategies for managing long conversations."
-icon: "layers"
+description: "What happens when the conversation gets long."
+icon: "archive"
 ---
 
-SoulForge supports two compaction strategies for managing long conversations. When context usage exceeds a threshold, older messages are compacted to free space while preserving critical information.
+When your conversation gets close to the model's context window, SoulForge compacts it — summarizes older messages into a concise state, preserves the recent ones verbatim. The conversation continues; nothing is lost.
 
-## Strategies
+Compaction fires automatically at 70% of the context window. You can also run it manually:
+
+```
+/compact
+```
+
+## Two strategies
 
 <Tabs>
-  <Tab title="V2 -- Incremental extraction (default)">
-    Extracts structured state **as the conversation happens**, not in a batch at compaction time.
+  <Tab title="V2 (default) — instant, usually free">
+    SoulForge tracks structured state — files touched, decisions, discoveries, tool results — as the conversation happens. When compaction fires, this state is already built. Most sessions compact in zero LLM calls.
 
-    **Extracted deterministically (zero LLM cost):**
-    - **Files** -- tracked from read/edit/write tool calls with action details
-    - **Failures** -- extracted from error results
-    - **Tool results** -- rolling window of shell/grep/project outputs
-    - **Task** -- set from first user message
-
-    **Extracted via regex (zero LLM cost):**
-    - **Decisions** -- patterns like "I'll use...", "decided to...", "because..."
-    - **Discoveries** -- patterns like "found that...", "the issue was..."
-
-    **On compaction:**
-    1. Serializes the pre-built structured state into markdown
-    2. Optionally runs a cheap LLM **gap-fill** pass that only outputs what's missing
-    3. Same message replacement as V1
-
-    **Cost**: Rule-based extraction during conversation (free). Gap-fill ~2k tokens vs V1's 8k.
+    Best for: typical coding sessions.
   </Tab>
-  <Tab title="V1 -- LLM batch summarization">
-    The original approach. When compaction triggers:
+  <Tab title="V1 — LLM summary">
+    Sends the older half of the conversation to a cheap model and replaces it with a prose summary.
 
-    1. Splits messages: last N kept verbatim, everything older goes to the summarizer
-    2. Formats older messages for the summarizer
-    3. Sends to an LLM with a structured prompt requesting: Environment, Files Touched, Tool Results, Key Decisions, Work Completed, Errors, Current State
-    4. Replaces older messages with the summary
-
-    **Cost**: One LLM call processing the older messages.
+    Best for: design-heavy sessions where nuanced reasoning matters more than structured data.
   </Tab>
 </Tabs>
 
-## Configuration
+Switch with `/compact settings` or in config.
+
+## Config
 
 ```json
 {
   "compaction": {
     "strategy": "v2",
     "triggerThreshold": 0.7,
-    "resetThreshold": 0.4,
-    "keepRecent": 4,
-    "maxToolResults": 30,
-    "llmExtraction": true
+    "keepRecent": 4
   }
 }
 ```
 
-All fields are optional. Omitting `compaction` or `strategy` defaults to V2.
+| Field | Default | What it does |
+|-------|---------|--------------|
+| `strategy` | `"v2"` | `"v2"` or `"v1"` |
+| `triggerThreshold` | `0.7` | Auto-compact at this fraction of context |
+| `keepRecent` | `4` | Recent messages kept verbatim |
+| `maxToolResults` | `30` | Rolling window of tool results (V2) |
+| `llmExtraction` | `true` | Allow a cheap gap-fill pass (V2) |
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `strategy` | `"v2"` | `"v2"` (incremental extraction) or `"v1"` (LLM summarization) |
-| `triggerThreshold` | `0.7` | Auto-compact at this percentage of context usage |
-| `resetThreshold` | `0.4` | Hysteresis reset to prevent oscillation |
-| `keepRecent` | `4` | Number of recent messages to preserve verbatim |
-| `maxToolResults` | `30` | Rolling window for tool result slots (V2 only) |
-| `llmExtraction` | `true` | Enable cheap LLM gap-fill on compact (V2 only) |
+## Which model compacts
 
-### Live toggle
-
-Use `/compact settings` to switch strategies. The change takes effect immediately — switching to V2 starts extraction on the next message, switching to V1 drops the working state.
-
-### Dedicated model
-
-Both strategies use the task router's `compact` slot:
+Assign a cheap model in the [task router](/recipes/task-router):
 
 ```json
 {
   "taskRouter": {
-    "compact": "google/gemini-2.0-flash"
+    "compact": "google/gemini-2.5-flash"
   }
 }
 ```
 
-For V2, only the gap-fill pass uses this model. For V1, the full summarization uses it.
+For V2, this model only runs the optional gap-fill. For V1, it does the whole summary.
 
-## How V2 works
+## Signals
 
-V2 extracts structured state from every message as the conversation progresses:
-
-- **User messages** → task description, requirements
-- **Tool calls** → files touched, tool results
-- **Tool results** → successes, failures
-- **Assistant text** → decisions, discoveries
-
-When compaction triggers, this pre-built state is serialized into a structured summary. If the state is rich enough, no LLM call is needed at all.
-
-## Real-world example
-
-<Accordion title="Session with 10 user turns (fix/edit/test cycle)">
-
-### Before compaction
-
-| Metric | Value |
-|---|---|
-| Core messages | 34 |
-| Prompt tokens | 4,517,349 |
-| Cache read tokens | 2,740,557 (60.6% hit rate) |
-| Context utilization | 6% |
-
-### After V2 compaction
-
-| Metric | Value |
-|---|---|
-| Core messages | **5** |
-| Prompt tokens | **7,539** |
-| Gap-fill tokens | **0** (state was rich enough, skipped) |
-| Context utilization | **4%** |
-
-34 messages to 5. The compaction cost **zero tokens** -- no LLM call at all.
-
-### What V2 produced
-
-```markdown
-## Task
-(all user requests concatenated)
-
-## User Requirements
-- fix all issues
-- run tests, lint, typecheck format and commit
-- ...9 items total
-
-## Files Touched
-- `tsconfig.json`: read; edited (x2)
-- `src/core/tools/web-search.ts`: read (x4); analyzed (x3); edited
-- `README.md`: read (x2); edited
-- `src/core/tools/project.ts`: read (x9); grep; edited
-
-## Tool Results
-- **soul_analyze**: Top 20 identifiers by cross-file reference count...
-- **rename_symbol**: Renamed across 5 files [lsp], verified zero remaining
-- **project**: typecheck passed, lint passed, 2080 tests passed
-
-## Errors & Failures
-- project: typecheck failed -- TS5090 non-relative paths
-- project: lint failed -- formatter would have printed different content
-```
-
-### Gap-fill threshold
-
-When the extracted state is rich enough across all categories (task, files, decisions, failures, discoveries, tool results), the LLM gap-fill is skipped entirely. Sessions with fewer tool calls trigger a small gap-fill pass to capture reasoning from prose.
-
-### V1 comparison
-
-The same compaction with V1 would have:
-- Sent all 34 messages to an LLM for summarization
-- Cost ~8K output tokens
-- Taken 5-15 seconds of latency
-- Produced a prose summary that captures reasoning better but loses structured data
-
-</Accordion>
-
-<Note>
-**V2's tradeoff**: Zero cost, instant, structured data preserved, but reasoning chains truncated. For mechanical coding sessions (fix/edit/test cycles), V2 is strictly better. For design-heavy sessions where the "why" matters more, V1's LLM summarization may retain more nuance.
-</Note>
-
-## Visual indicators
-
-- Context bar shows compaction strategy and slot count when V2 is active
-- Compacting spinner during active compaction
-- System message reports strategy used and before/after context percentages
-
-
+- Context bar shows compaction strategy + slot count.
+- Compacting spinner during an active compaction.
+- System message reports before/after context percentages.

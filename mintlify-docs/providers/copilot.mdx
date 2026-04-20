@@ -1,0 +1,65 @@
+---
+title: "GitHub Copilot"
+description: "Use your Copilot subscription with SoulForge."
+icon: "github"
+---
+
+If you pay for [GitHub Copilot](https://github.com/features/copilot), SoulForge can use it. Claude Opus/Sonnet, GPT-4o, GPT-5.4, o-series, Gemini 2.5 Pro — all included in your Copilot subscription, no extra cost.
+
+<Warning>
+Unofficial integration using the same internal API as VS Code. Not endorsed by GitHub. Use at your own risk.
+</Warning>
+
+## Setup
+
+<Steps>
+  <Step title="Sign in to Copilot in VS Code or JetBrains">
+    Install the Copilot extension in your IDE and sign in. This writes your OAuth token to disk.
+  </Step>
+
+  <Step title="Copy your token">
+    ```bash
+    jq -r '."github.com".oauth_token' ~/.config/github-copilot/apps.json
+    ```
+    On Windows the path is `~\AppData\Local\github-copilot\apps.json`.
+  </Step>
+
+  <Step title="Save to SoulForge">
+    ```bash
+    soulforge --set-key copilot <token>
+    ```
+    Or use `/keys` inside the TUI.
+  </Step>
+
+  <Step title="Use it">
+    Press `Ctrl+L`, pick `copilot`, choose a model.
+    ```bash
+    soulforge --headless --model copilot/claude-sonnet-4 "explain this file"
+    ```
+  </Step>
+</Steps>
+
+## Legal review
+
+We reviewed GitHub's published terms and Microsoft's AI Code of Conduct — none prohibit third-party clients using valid Copilot credentials. Full review:
+
+<AccordionGroup>
+<Accordion title="Documents reviewed (2026-04-04)">
+  - [GitHub Copilot Product Specific Terms](https://github.com/customer-terms/github-copilot-product-specific-terms) — content-only restrictions
+  - [GitHub Generative AI Services Terms](https://github.com/customer-terms/github-generative-ai-services-terms) — acknowledges third-party products
+  - [Additional Products and Features](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#github-copilot) — no prohibition on alternative clients
+  - [Acceptable Use Policies](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies) — unauthorized access clause only; paid credentials are not unauthorized
+  - [GitHub Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) — rate-limiting only
+  - [Microsoft AI Code of Conduct](https://learn.microsoft.com/legal/ai-code-of-conduct) — content safety only
+</Accordion>
+
+<Accordion title="Risks">
+  - API could change without notice.
+  - High volume may trigger rate-limiting.
+  - Terms could be updated in the future.
+
+  One [community discussion](https://github.com/orgs/community/discussions/178117) has a GitHub employee stating the API is "intended solely for officially supported clients" — this is not in any legal document.
+</Accordion>
+</AccordionGroup>
+
+**Re-verify if GitHub publishes updated terms after 2026-04-04.**
