@@ -50,7 +50,7 @@ macOS (ARM64, x64) and Linux (x64, ARM64). No native Windows support — use WSL
 - Piped input: `echo "prompt" | soulforge --headless`
 - Exit codes: 0=success, 1=error, 2=timeout, 130=abort
 - Custom providers: add `providers` array to config (OpenAI-compatible APIs)
-- Project instructions: `SOULFORGE.md` loaded by default, `CLAUDE.md` + 9 others via `/instructions`
+- Project instructions: enabled sources load from the project root and matching home-scoped files; `SOULFORGE.md` / `~/.soulforge/instructions.md` are on by default and `CLAUDE.md` + others are available via `/instructions`
 
 ## Conventions
 

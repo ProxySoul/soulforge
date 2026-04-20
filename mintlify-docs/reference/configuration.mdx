@@ -238,7 +238,7 @@ If a custom provider `id` matches a built-in (e.g. `"anthropic"`), it auto-renam
 
 ## Project instructions
 
-SoulForge loads `SOULFORGE.md` from your project root as project-specific instructions. You can also load instruction files from other AI tools:
+SoulForge loads enabled instruction files from both your project root and your home directory. For example, the `soulforge` source can come from `SOULFORGE.md` in the repo or `~/.soulforge/instructions.md`, and the `codex` source can come from `AGENTS.md` in the repo or `~/.agents/instructions.md`. When both scopes exist, global instructions are loaded too and take priority over project-local instructions.
 
 | File | Source | Default |
 |------|--------|---------|

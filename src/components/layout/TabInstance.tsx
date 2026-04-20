@@ -6,6 +6,7 @@ import { useShallow } from "zustand/react/shallow";
 import { ContextManager, type SharedContextResources } from "../../core/context/manager.js";
 import { getWorkspaceCoordinator } from "../../core/coordination/WorkspaceCoordinator.js";
 import { icon } from "../../core/icons.js";
+import { buildInstructionPrompt, loadInstructions } from "../../core/instructions.js";
 import type { ProviderStatus } from "../../core/llm/provider.js";
 import { clearTabSessionPatterns } from "../../core/security/forbidden.js";
 import type { SessionManager } from "../../core/sessions/manager.js";
@@ -186,6 +187,11 @@ export const TabInstance = memo(function TabInstance({
   useEffect(() => {
     contextManager.setTaskRouter(effectiveConfig.taskRouter);
   }, [effectiveConfig.taskRouter, contextManager]);
+
+  useEffect(() => {
+    const loaded = loadInstructions(cwd, effectiveConfig.instructionFiles);
+    contextManager.setProjectInstructions(buildInstructionPrompt(loaded));
+  }, [effectiveConfig.instructionFiles, cwd, contextManager]);
 
   useEffect(() => {
     if (effectiveConfig.semanticSummaries !== undefined)
