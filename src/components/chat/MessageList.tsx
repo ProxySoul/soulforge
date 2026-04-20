@@ -67,6 +67,7 @@ interface Props {
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
   lockIn?: boolean;
+  verbose?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -758,6 +759,7 @@ function renderSegments(
   reasoningExpanded = false,
   t: ThemeTokens = getThemeTokens(),
   lockIn = false,
+  verbose = false,
 ) {
   // Merge consecutive tool segments (skip empty text between) so they share one tree
   const merged: MessageSegment[] = [];
@@ -906,6 +908,8 @@ function renderSegments(
 
     // Hide failed edits that were retried on the same file
     const calls = topLevel.filter((tc, idx) => {
+      if (tc.name === "update_plan_step") return false;
+      if (tc.name === "task_list" && !verbose) return false;
       if (!isFailedEditCall(tc)) return true;
       const path = extractPathFromArgs(tc.args);
       if (!path) return true;
@@ -1160,6 +1164,7 @@ const AssistantMessage = memo(function AssistantMessage({
   showReasoning = true,
   reasoningExpanded = false,
   lockIn = false,
+  verbose = false,
 }: {
   msg: ChatMessage;
   diffStyle?: "default" | "sidebyside" | "compact";
@@ -1167,6 +1172,7 @@ const AssistantMessage = memo(function AssistantMessage({
   showReasoning?: boolean;
   reasoningExpanded?: boolean;
   lockIn?: boolean;
+  verbose?: boolean;
 }) {
   const t = useTheme();
   const time = formatTime(msg.timestamp);
@@ -1287,6 +1293,7 @@ const AssistantMessage = memo(function AssistantMessage({
           reasoningExpanded,
           t,
           lockIn,
+          verbose,
         )
       ) : (
         <>
@@ -1294,7 +1301,9 @@ const AssistantMessage = memo(function AssistantMessage({
           {hasTools ? (
             <box flexDirection="column">
               {msg.toolCalls
-                ?.filter((tc) => tc.name !== "task_list" && tc.name !== "update_plan_step")
+                ?.filter(
+                  (tc) => tc.name !== "update_plan_step" && (verbose || tc.name !== "task_list"),
+                )
                 .map((tc) => (
                   <box key={tc.id} flexDirection="column">
                     <ToolCallRow tc={tc} diffStyle={diffStyle} collapseDiffs={collapseDiffs} />
@@ -1326,6 +1335,7 @@ export const StaticMessage = memo(function StaticMessage({
   animate = false,
   lockIn = false,
   dimmed = false,
+  verbose = false,
 }: {
   msg: ChatMessage;
   chatStyle: ChatStyle;
@@ -1336,6 +1346,7 @@ export const StaticMessage = memo(function StaticMessage({
   animate?: boolean;
   lockIn?: boolean;
   dimmed?: boolean;
+  verbose?: boolean;
 }) {
   if (msg.role === "system") {
     return (
@@ -1360,6 +1371,7 @@ export const StaticMessage = memo(function StaticMessage({
         showReasoning={showReasoning}
         reasoningExpanded={reasoningExpanded}
         lockIn={lockIn}
+        verbose={verbose}
       />
     </box>
   );
@@ -1372,6 +1384,7 @@ export const MessageList = memo(function MessageList({
   collapseDiffs = false,
   showReasoning = true,
   lockIn = false,
+  verbose = false,
 }: Props) {
   const t = useTheme();
   const lastSystemIdx = useMemo(() => {
@@ -1416,6 +1429,7 @@ export const MessageList = memo(function MessageList({
             collapseDiffs={collapseDiffs}
             showReasoning={showReasoning}
             lockIn={lockIn}
+            verbose={verbose}
           />
         );
       })}

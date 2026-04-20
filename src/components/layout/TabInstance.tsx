@@ -765,6 +765,7 @@ export const TabInstance = memo(function TabInstance({
                             animate={false}
                             lockIn={lockIn}
                             dimmed={dimmedMessageIds.has(msg.id)}
+                            verbose={effectiveConfig.verbose === true}
                           />
                         </box>
                       ))}
