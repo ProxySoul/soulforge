@@ -1,9 +1,39 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildInstructionPrompt, loadInstructions } from "../src/core/instructions.js";
 import { ContextManager } from "../src/core/context/manager.js";
+import { buildInstructionPrompt, loadInstructions } from "../src/core/instructions.js";
+
+const INSTRUCTIONS_MODULE_URL = new URL("../src/core/instructions.ts", import.meta.url).href;
+
+function loadInstructionsInFreshProcess(
+  projectDir: string,
+  homeDir: string,
+): ReturnType<typeof loadInstructions> {
+  const script = `
+    import { loadInstructions } from ${JSON.stringify(INSTRUCTIONS_MODULE_URL)};
+
+    const projectDir = process.env.PROJECT_DIR;
+    if (!projectDir) throw new Error("PROJECT_DIR missing");
+
+    const loaded = loadInstructions(projectDir, ["soulforge"]);
+    process.stdout.write(JSON.stringify(loaded));
+  `;
+
+  return JSON.parse(
+    execFileSync(process.execPath, ["-e", script], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        PROJECT_DIR: projectDir,
+        USERPROFILE: homeDir,
+      },
+    }),
+  ) as ReturnType<typeof loadInstructions>;
+}
 
 describe("instruction loading", () => {
   let rootDir: string;
@@ -89,35 +119,19 @@ describe("instruction loading", () => {
     expect(prompt.indexOf("global soulforge")).toBeGreaterThan(prompt.indexOf("project soulforge"));
   });
 
-  it("loads global instructions from homedir() by default", () => {
-    const actualHome = process.env.HOME ?? tmpdir();
-    const homeInstructionsDir = join(actualHome, ".soulforge");
-    const instructionsFile = join(homeInstructionsDir, "SOULFORGE.md");
-    let previousContent: string | null = null;
-    let hadPrevious = false;
+  it("loads global instructions from homedir() by default in fresh process", () => {
+    mkdirSync(join(homeDir, ".soulforge"), { recursive: true });
+    writeFileSync(join(homeDir, ".soulforge", "SOULFORGE.md"), "global soulforge");
 
-    try {
-      previousContent = Bun.file(instructionsFile).textSync();
-      hadPrevious = true;
-    } catch {}
+    const loaded = loadInstructionsInFreshProcess(projectDir, homeDir);
 
-    mkdirSync(homeInstructionsDir, { recursive: true });
-    writeFileSync(instructionsFile, "global soulforge");
-
-    try {
-      const loaded = loadInstructions(projectDir, ["soulforge"]);
-
-      expect(loaded).toHaveLength(1);
-      expect(loaded[0]).toMatchObject({
-        source: "soulforge",
-        file: ".soulforge/SOULFORGE.md",
-        scope: "global",
-        content: "global soulforge",
-      });
-    } finally {
-      if (!hadPrevious) rmSync(instructionsFile, { force: true });
-      else writeFileSync(instructionsFile, previousContent ?? "");
-    }
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({
+      source: "soulforge",
+      file: ".soulforge/SOULFORGE.md",
+      scope: "global",
+      content: "global soulforge",
+    });
   });
 
   it("dedupes project and global roots when they resolve to same directory", () => {
