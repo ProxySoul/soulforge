@@ -92,7 +92,7 @@ describe("instruction loading", () => {
 
     expect(loaded.map((inst) => inst.scope)).toEqual(["project", "global"]);
     expect(prompt).toContain(
-      "Global instruction files apply across all projects and take priority over project-local instruction files when they conflict.",
+      "Global instruction files apply across all projects, but project-local instruction files take priority when they conflict.",
     );
     expect(prompt).toContain("Project-local instruction files:");
     expect(prompt).toContain("[project:AGENTS.md]");
@@ -102,7 +102,7 @@ describe("instruction loading", () => {
     expect(prompt.indexOf("Global instruction files apply across all projects")).toBeLessThan(
       prompt.indexOf("[project:AGENTS.md]"),
     );
-    expect(prompt.indexOf("global codex")).toBeGreaterThan(prompt.indexOf("project codex"));
+    expect(prompt.indexOf("project codex")).toBeGreaterThan(prompt.indexOf("global codex"));
   });
 
   it("keeps both scopes when project and global instructions share source", () => {
@@ -116,7 +116,7 @@ describe("instruction loading", () => {
     expect(loaded.map((inst) => inst.scope)).toEqual(["project", "global"]);
     expect(loaded.map((inst) => inst.content)).toEqual(["project soulforge", "global soulforge"]);
     expect(loaded.map((inst) => inst.file)).toEqual(["SOULFORGE.md", ".soulforge/SOULFORGE.md"]);
-    expect(prompt.indexOf("global soulforge")).toBeGreaterThan(prompt.indexOf("project soulforge"));
+    expect(prompt.indexOf("project soulforge")).toBeGreaterThan(prompt.indexOf("global soulforge"));
   });
 
   it("loads global instructions from homedir() by default in fresh process", () => {
