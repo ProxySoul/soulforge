@@ -93,7 +93,7 @@ export const DEFAULT_REDACTION_RULES: RedactionRule[] = [
   {
     kind: "aws-secret",
     pattern:
-      /\b(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*['\"]?[A-Za-z0-9/+=]{40}['\"]?/g,
+      /\b(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?/g,
     replacement: "$1=***",
   },
   // Bearer tokens in Authorization headers

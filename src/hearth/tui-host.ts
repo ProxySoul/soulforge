@@ -39,6 +39,7 @@ import {
 } from "./config.js";
 import { generatePairingCode, PairingRegistry } from "./pairing.js";
 import { socketRequest } from "./protocol.js";
+import { redact } from "./redact.js";
 import { SurfaceHost } from "./surface-host.js";
 import {
   type BridgeNotifyRequest,
@@ -928,7 +929,6 @@ export function getTuiHost(): TuiHost {
         // M8: redact at the sink so every TUI-owned surface log line is
         // scrubbed regardless of caller discipline — matches the daemon's
         // logFn behavior.
-        const { redact } = require("./redact.js") as typeof import("./redact.js");
         const scrubbed = redact(line);
         if (logPath) {
           try {
