@@ -187,6 +187,8 @@ function surfaceIdFrom(kind: string, id: string): SurfaceId {
 function tokenSecretKey(surfaceId: string): string | null {
   const [kind, id] = surfaceId.split(":");
   if (!kind || !id) return null;
+  // iMessage uses macOS Messages.app — no bot token, no keychain entry.
+  if (kind === "imessage") return null;
   return `${kind}.bot.${id}`;
 }
 
@@ -1919,12 +1921,16 @@ function renderSurfaceDetail(
           t={t}
           valueColor={online ? t.success : t.warning}
         />
-        <KV
-          k="Token"
-          v={hasToken ? `present · ${tokenKey ?? "—"}` : `missing · ${tokenKey ?? "—"}`}
-          t={t}
-          valueColor={hasToken ? t.success : t.warning}
-        />
+        {tokenKey ? (
+          <KV
+            k="Token"
+            v={hasToken ? `present · ${tokenKey}` : `missing · ${tokenKey}`}
+            t={t}
+            valueColor={hasToken ? t.success : t.warning}
+          />
+        ) : sid.startsWith("imessage:") ? (
+          <KV k="Auth" v="macOS Messages.app (no token)" t={t} valueColor={t.textMuted} />
+        ) : null}
         <KV k="Chats bound" v={String(chatEntries.length)} t={t} />
       </box>
       <VSpacer />

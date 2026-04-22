@@ -9,7 +9,15 @@
  *   - Persist workspace state + flush on graceful shutdown
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { dirname } from "node:path";
 import { ApprovalRegistry } from "./approvals.js";
@@ -104,7 +112,13 @@ export class HearthDaemon {
     this.config = opts.config ?? loadHearthConfig();
     this.approvals = new ApprovalRegistry(this.config.daemon.approvalTimeoutMs);
     this.pairings = new PairingRegistry(this.config.daemon.pairingTtlMs);
-    this.logFn = opts.onLog ?? ((line) => process.stderr.write(`${line}\n`));
+    const fileLogger = createFileLogger(this.config.daemon.logFile);
+    const userLog = opts.onLog;
+    this.logFn = (line) => {
+      fileLogger(line);
+      if (userLog) userLog(line);
+      else process.stderr.write(`${line}\n`);
+    };
     this.host = new SurfaceHost({
       config: this.config,
       log: this.logFn,
@@ -1388,6 +1402,19 @@ export class HearthDaemon {
   private log(line: string): void {
     this.logFn(redact(`[hearth] ${line}`));
   }
+}
+
+function createFileLogger(logPath: string | undefined): (line: string) => void {
+  if (!logPath) return () => {};
+  try {
+    const dir = dirname(logPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  } catch {}
+  return (line: string) => {
+    try {
+      appendFileSync(logPath, `${new Date().toISOString()} ${line}\n`);
+    } catch {}
+  };
 }
 
 export async function startHearth(opts: HearthDaemonOptions = {}): Promise<HearthDaemon> {
