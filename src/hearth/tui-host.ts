@@ -164,17 +164,23 @@ export class TuiHost {
     if (!this.host) return;
     const surface = this.host.getSurface(surfaceId);
     if (!surface) return;
+    this.log(
+      `handleInbound ${surfaceId}/${msg.externalId}: cmd=${msg.command?.name ?? "-"} text=${(msg.text ?? "").slice(0, 60)}`,
+    );
 
     if (msg.command) {
       await this.handleCommand(surfaceId, msg);
       return;
     }
 
+    const binding = hearthBridge.getBinding(surfaceId, msg.externalId);
+    if (!binding) {
+      this.log(
+        `handleInbound ${surfaceId}/${msg.externalId}: no bridge binding — will prompt to pair`,
+      );
+    }
     // Bridge path: forward text (+ images) to the TUI tab bound to this chat.
-    if (
-      (msg.text || (msg.images && msg.images.length > 0)) &&
-      hearthBridge.getBinding(surfaceId, msg.externalId)
-    ) {
+    if ((msg.text || (msg.images && msg.images.length > 0)) && binding) {
       const kind = surface.kind === "fakechat" ? "fakechat" : surface.kind;
       const handled = hearthBridge.handleInbound(
         {

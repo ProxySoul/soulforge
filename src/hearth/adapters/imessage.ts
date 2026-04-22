@@ -188,7 +188,14 @@ export class IMessageSurface extends BaseSurface {
         const text = parts[2] ?? "";
         this.lastRowId = Math.max(this.lastRowId, rowId);
 
-        if (!handle || !this.allowedHandles.has(handle)) continue;
+        if (!handle) continue;
+        if (!this.allowedHandles.has(handle)) {
+          this.log(
+            `imessage dropped row ${String(rowId)} from ${handle}: not in allowedHandles (${Array.from(this.allowedHandles).join(",") || "empty"})`,
+          );
+          continue;
+        }
+        this.log(`imessage inbound from ${handle}: ${text.slice(0, 80)}`);
 
         // Approval short-reply parsing: exact 6-char id prefix required —
         // prevents "approve a" matching any approval starting with 'a'.
