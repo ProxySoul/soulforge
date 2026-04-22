@@ -74,7 +74,11 @@ export class SurfaceHost {
     this.registry = new SurfaceRegistry();
   }
 
-  /** Diff config → start new / stop removed surfaces. Returns result per surface. */
+  /** Rebuild all surfaces from the new config. Existing adapters are always
+   *  stopped and replaced so live config edits (allowlist, chats, token) take
+   *  effect immediately — the per-adapter state (`allowedByChannel`,
+   *  `allowedByChat`) is captured at construction time and isn't otherwise
+   *  refreshed. Cheap: reconnect latency is well under a second. */
   async reload(nextConfig: HearthConfig): Promise<{
     started: SurfaceId[];
     stopped: SurfaceId[];
@@ -90,19 +94,16 @@ export class SurfaceHost {
     const errors: { id: SurfaceId; error: string }[] = [...built.errors];
 
     for (const live of this.registry.list()) {
-      if (!desired.has(live.id)) {
-        try {
-          await live.stop();
-        } catch (err) {
-          errors.push({ id: live.id, error: err instanceof Error ? err.message : String(err) });
-        }
-        this.registry.unregister(live.id);
-        stopped.push(live.id);
+      try {
+        await live.stop();
+      } catch (err) {
+        errors.push({ id: live.id, error: err instanceof Error ? err.message : String(err) });
       }
+      this.registry.unregister(live.id);
+      if (!desired.has(live.id)) stopped.push(live.id);
     }
 
     for (const [id, surface] of desired) {
-      if (this.registry.get(id)) continue;
       this.registerOne(surface);
       try {
         await surface.start();
