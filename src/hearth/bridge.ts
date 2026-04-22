@@ -578,33 +578,75 @@ export type HearthBridge = HearthBridgeImpl;
 // Advisory file-based mutex so a running TUI and a separately-started daemon
 // don't both try to route inbound Telegram traffic. The TUI writes its pid on
 // boot; the daemon reads it before installing its own outbound sender.
+//
+// Lock file format (one line): `<pid>:<startedMs>`
+//   - pid       — owning process id
+//   - startedMs — Date.now() at the moment of acquisition
+//
+// The `startedMs` tag guards against pid reuse: if an unrelated process
+// inherits the pid after the TUI crashes, `kill(pid,0)` would still succeed
+// and the daemon/TUI would wrongly treat it as the owner. We record our own
+// boot wall-clock and only trust the lock if its timestamp is plausibly in
+// the past (< now, and written by a still-live pid). A future rewrite could
+// bind to `/proc/<pid>/stat` start-time on Linux, but that's platform-specific
+// and a wall-clock sanity check is sufficient to break pid-reuse shadows.
 
 export const BRIDGE_LOCK_PATH = join(homedir(), ".soulforge", "hearth-bridge.lock");
 
-/** Read the current bridge owner (live pid or null). */
+interface BridgeLock {
+  pid: number;
+  startedMs: number;
+}
+
+function parseLock(raw: string): BridgeLock | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Legacy format: bare pid. Treat as stale — force-steal on next acquire.
+  if (!trimmed.includes(":")) return null;
+  const [pidStr, msStr] = trimmed.split(":", 2);
+  const pid = Number.parseInt(pidStr ?? "", 10);
+  const startedMs = Number.parseInt(msStr ?? "", 10);
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  if (!Number.isFinite(startedMs) || startedMs <= 0) return null;
+  return { pid, startedMs };
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Read the current bridge owner (live pid or null).
+ *  Returns null if the lock is malformed, stale (legacy bare-pid format),
+ *  the pid is dead, or the timestamp is implausible (in the future). */
 export function readBridgeOwner(): number | null {
   try {
     if (!existsSync(BRIDGE_LOCK_PATH)) return null;
-    const pid = Number.parseInt(readFileSync(BRIDGE_LOCK_PATH, "utf-8").trim(), 10);
-    if (!Number.isFinite(pid) || pid <= 0) return null;
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return null;
-    }
-    return pid;
+    const lock = parseLock(readFileSync(BRIDGE_LOCK_PATH, "utf-8"));
+    if (!lock) return null;
+    if (lock.startedMs > Date.now() + 60_000) return null;
+    if (!isPidAlive(lock.pid)) return null;
+    return lock.pid;
   } catch {
     return null;
   }
 }
 
-/** TUI call: writes our pid as the bridge owner. Returns true if we took the lock. */
+/** TUI call: writes our pid as the bridge owner. Returns true if we took the lock.
+ *  Force-steals a stale lock (dead pid, legacy format, implausible timestamp). */
 export function acquireBridgeLock(): boolean {
   const existing = readBridgeOwner();
   if (existing && existing !== process.pid) return false;
   try {
     mkdirSync(dirname(BRIDGE_LOCK_PATH), { recursive: true, mode: 0o700 });
-    writeFileSync(BRIDGE_LOCK_PATH, String(process.pid), { mode: 0o600 });
+    writeFileSync(BRIDGE_LOCK_PATH, `${String(process.pid)}:${String(Date.now())}`, {
+      mode: 0o600,
+    });
+    installExitCleanup();
     return true;
   } catch {
     return false;
@@ -617,6 +659,19 @@ export function releaseBridgeLock(): void {
     const owner = readBridgeOwner();
     if (owner === process.pid) unlinkSync(BRIDGE_LOCK_PATH);
   } catch {}
+}
+
+// Belt-and-suspenders: also drop the lock on abnormal exit so a crash doesn't
+// leave a stale owner lingering for the next TUI boot to fight with.
+let exitCleanupInstalled = false;
+function installExitCleanup(): void {
+  if (exitCleanupInstalled) return;
+  exitCleanupInstalled = true;
+  const cleanup = () => releaseBridgeLock();
+  process.once("exit", cleanup);
+  process.once("SIGINT", cleanup);
+  process.once("SIGTERM", cleanup);
+  process.once("SIGHUP", cleanup);
 }
 /**
  * Streaming emitter \u2014 coalesces rapid `text` deltas into periodic flushes so
