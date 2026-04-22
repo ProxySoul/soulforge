@@ -21,9 +21,15 @@
  *   - `refresh()` re-reads config and calls `host.reload()`.
  */
 
-import { appendFileSync, existsSync, mkdirSync, unwatchFile, watchFile } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, unlinkSync, unwatchFile, watchFile } from "node:fs";
 import { dirname } from "node:path";
-import { acquireBridgeLock, hearthBridge, readBridgeOwner, releaseBridgeLock } from "./bridge.js";
+import {
+  acquireBridgeLock,
+  BRIDGE_LOCK_PATH,
+  hearthBridge,
+  readBridgeOwner,
+  releaseBridgeLock,
+} from "./bridge.js";
 import {
   GLOBAL_CONFIG_PATH,
   loadHearthConfig,
@@ -67,22 +73,40 @@ export class TuiHost {
   /** Acquire bridge lock, build+start surfaces, install outbound sender.
    *  Order is critical: lock → daemon release ack → our surfaces start.
    *  Without awaiting the daemon's release, both long-polls race → Telegram
-   *  returns HTTP 409 on every poll. */
+   *  returns HTTP 409 on every poll.
+   *
+   *  Contention model: the TUI is the preferred owner. If another *live* TUI
+   *  already holds the lock we stay passive (two TUIs don't coexist). But if
+   *  the lock points at the daemon (or any non-TUI holder), we notify it to
+   *  release first, then steal — TUI-first is the product rule. */
   async start(): Promise<void> {
     if (this.started) return;
     const owner = readBridgeOwner();
     if (owner && owner !== process.pid) {
-      this.log(`bridge owned by pid ${String(owner)} — TUI host staying passive`);
-      return;
+      // Ask the current owner to step aside. If it's the daemon, `bridge-notify
+      // acquired` triggers releaseSurfaces() on the daemon side and returns
+      // ok=true. If it's another TUI the socket call fails (no listener) and
+      // we stay passive so two TUIs don't fight.
+      const released = await this.notifyDaemon("acquired");
+      if (!released) {
+        this.log(`bridge owned by pid ${String(owner)} — TUI host staying passive`);
+        return;
+      }
+      // Daemon released — force-steal the lock so acquireBridgeLock below
+      // doesn't refuse on the stale owner.
+      try {
+        if (existsSync(BRIDGE_LOCK_PATH)) unlinkSync(BRIDGE_LOCK_PATH);
+      } catch {}
     }
     if (!acquireBridgeLock()) {
       this.log("could not acquire bridge lock — TUI host staying passive");
       return;
     }
     this.started = true;
+    this.startedAt = Date.now();
 
-    // Await daemon's release-surfaces ack so its long-poll is fully
-    // disconnected before we open ours (prevents concurrent getUpdates 409s).
+    // Re-ack after taking the lock so the daemon's reconcile loop sees the
+    // new pid immediately even if the first notify raced the lock write.
     await this.notifyDaemon("acquired");
 
     this.host = new SurfaceHost({
@@ -112,6 +136,7 @@ export class TuiHost {
   async stop(): Promise<void> {
     if (!this.started) return;
     this.started = false;
+    this.startedAt = 0;
 
     if (this.configWatcher) {
       try {
@@ -332,12 +357,38 @@ export class TuiHost {
           }
           return;
         }
-        // /pair (no arg): already-paired short-circuit
+        // /pair (no arg): already-paired short-circuit. If paired but no
+        // runtime binding exists, auto-bind to the first available tab —
+        // otherwise the user is stuck in a loop where /pair claims success
+        // but plain messages report "not bound to a TUI tab".
         const existing = resolveChatBinding(this.config, surfaceId, msg.externalId);
         if (existing) {
+          const currentBinding = hearthBridge.getBinding(surfaceId, msg.externalId);
+          if (currentBinding) {
+            await surface.notify(
+              msg.externalId,
+              "\u2713 This chat is already paired. Send a message to start a turn.",
+            );
+            return;
+          }
+          const tabs = hearthBridge.listTabs();
+          const firstTab = tabs[0];
+          if (!firstTab) {
+            await surface.notify(
+              msg.externalId,
+              "Paired, but no TUI tab is open yet. Open a tab in the TUI, then send a message here.",
+            );
+            return;
+          }
+          hearthBridge.setBinding({
+            surfaceId,
+            externalId: msg.externalId,
+            tabId: firstTab.id,
+            tabLabel: firstTab.label,
+          });
           await surface.notify(
             msg.externalId,
-            "\u2713 This chat is already paired. Send a message to start a turn.",
+            `\u2713 Bound to ${firstTab.label}. Send a message to start a turn.`,
           );
           return;
         }
@@ -817,16 +868,21 @@ export class TuiHost {
     return hearthBridge.getTabStatus(activeId);
   }
 
-  private async notifyDaemon(state: "acquired" | "released"): Promise<void> {
+  /** Returns true when a live daemon acknowledged the state change, false when
+   *  no daemon is reachable. Callers use the return value to decide whether
+   *  contention is with a daemon (handoff) or another TUI (stay passive). */
+  private async notifyDaemon(state: "acquired" | "released"): Promise<boolean> {
     const socketPath = this.config.daemon.socketPath;
-    if (!existsSync(socketPath)) return;
+    if (!existsSync(socketPath)) return false;
     try {
-      await socketRequest<BridgeNotifyRequest, BridgeNotifyResponse>(
+      const res = await socketRequest<BridgeNotifyRequest, BridgeNotifyResponse>(
         { op: "bridge-notify", v: HEARTH_PROTOCOL_VERSION, state, pid: process.pid },
         { path: socketPath, timeoutMs: 1500 },
       );
+      return res.ok === true;
     } catch {
       // Daemon not running or unreachable — the file-lock watcher will reconcile.
+      return false;
     }
   }
 
@@ -838,6 +894,12 @@ export class TuiHost {
       connected: s.isConnected(),
       chats: hearthBridge.listBindings().filter((b) => b.surfaceId === s.id).length,
     }));
+  }
+
+  private startedAt = 0;
+
+  getUptimeMs(): number {
+    return this.startedAt > 0 ? Date.now() - this.startedAt : 0;
   }
 }
 
