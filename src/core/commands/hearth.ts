@@ -48,7 +48,23 @@ async function handleHearthStatus(_input: string, ctx: CommandContext): Promise<
   const theme = getThemeTokens();
   const config = loadHearthConfig(ctx.cwd);
   const health = await daemonHealth(config.daemon.socketPath);
-  const running = health !== null;
+  let owner: "daemon" | "tui" | "none" = health ? "daemon" : "none";
+  let ownerPid: number | undefined;
+  let uptimeMs = health?.uptime ?? 0;
+  // TUI in-process host counts as "hearth alive" even when the daemon is down.
+  try {
+    const { getTuiHost } = await import("../../hearth/tui-host.js");
+    const tui = getTuiHost();
+    if (tui.isActive() && owner !== "daemon") {
+      owner = "tui";
+      ownerPid = process.pid;
+      uptimeMs = tui.getUptimeMs();
+    } else if (health?.surfaceOwner === "tui") {
+      owner = "tui";
+      ownerPid = health.surfaceOwnerPid;
+    }
+  } catch {}
+  const running = owner !== "none";
 
   const lines: Array<{
     type: "header" | "separator" | "entry" | "text" | "spacer";
@@ -59,35 +75,30 @@ async function handleHearthStatus(_input: string, ctx: CommandContext): Promise<
   }> = [
     {
       type: "entry",
-      label: "Daemon",
-      desc: running ? "running" : "stopped",
+      label: "Hearth",
+      desc:
+        owner === "tui"
+          ? `running (TUI pid ${String(ownerPid ?? process.pid)})`
+          : owner === "daemon"
+            ? "running (daemon)"
+            : "stopped",
       descColor: running ? theme.success : theme.warning,
     },
     { type: "entry", label: "Socket", desc: config.daemon.socketPath },
   ];
-  if (running && health) {
-    const ownerLabel =
-      health.surfaceOwner === "tui"
-        ? `TUI pid ${String(health.surfaceOwnerPid ?? "?")}`
-        : health.surfaceOwner === "daemon"
-          ? "this daemon"
-          : "unknown (handoff)";
-    lines.push({
-      type: "entry",
-      label: "Surface owner",
-      desc: ownerLabel,
-      descColor: health.surfaceOwner === "unknown" ? theme.warning : theme.success,
-    });
+  if (running) {
     lines.push({
       type: "entry",
       label: "Uptime",
-      desc: `${String(Math.floor(health.uptime / 1000))}s`,
+      desc: `${String(Math.floor(uptimeMs / 1000))}s`,
     });
-    lines.push({
-      type: "entry",
-      label: "Pending approvals",
-      desc: String(health.pendingApprovals),
-    });
+    if (health) {
+      lines.push({
+        type: "entry",
+        label: "Pending approvals",
+        desc: String(health.pendingApprovals),
+      });
+    }
   }
   try {
     const { getServiceStatus } = await import("../../hearth/service.js");
@@ -119,12 +130,20 @@ async function handleHearthStatus(_input: string, ctx: CommandContext): Promise<
     });
   }
 
+  let tuiSurfaceStates: { id: string; connected: boolean }[] = [];
+  if (owner === "tui") {
+    try {
+      const { getTuiHost } = await import("../../hearth/tui-host.js");
+      tuiSurfaceStates = getTuiHost().listSurfaceStates();
+    } catch {}
+  }
+
   for (const [surfaceId, cfg] of surfaceEntries) {
     const [kind, id] = surfaceId.split(":");
     const chats = Object.keys(cfg.chats ?? {}).length;
     const tokenKey = kind && id ? `${kind}.bot.${id}` : null;
     const tokenPresent = tokenKey ? hasSecret(tokenKey) : false;
-    const connection = surfaceSnapshot(running, surfaceId, health);
+    const connection = surfaceSnapshot(running, surfaceId, health, tuiSurfaceStates);
 
     lines.push({
       type: "entry",
@@ -156,12 +175,15 @@ async function handleHearthStatus(_input: string, ctx: CommandContext): Promise<
 }
 
 function surfaceSnapshot(
-  daemonRunning: boolean,
+  hearthAlive: boolean,
   surfaceId: string,
   health: HealthResponse | null,
+  tuiSurfaces: { id: string; connected: boolean }[] = [],
 ): string {
-  if (!daemonRunning || !health) return "offline";
-  const match = health.surfaces.find((s) => s.id === surfaceId);
+  if (!hearthAlive) return "offline";
+  const tuiMatch = tuiSurfaces.find((s) => s.id === surfaceId);
+  if (tuiMatch) return tuiMatch.connected ? "connected" : "starting";
+  const match = health?.surfaces.find((s) => s.id === surfaceId);
   if (!match) return "not started";
   return match.connected ? "connected" : "starting";
 }
