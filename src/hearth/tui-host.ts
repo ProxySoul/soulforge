@@ -21,7 +21,8 @@
  *   - `refresh()` re-reads config and calls `host.reload()`.
  */
 
-import { existsSync, unwatchFile, watchFile } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, unwatchFile, watchFile } from "node:fs";
+import { dirname } from "node:path";
 import { acquireBridgeLock, hearthBridge, readBridgeOwner, releaseBridgeLock } from "./bridge.js";
 import {
   GLOBAL_CONFIG_PATH,
@@ -846,10 +847,23 @@ let _tuiHost: TuiHost | null = null;
 
 export function getTuiHost(): TuiHost {
   if (!_tuiHost) {
+    // Tee log lines to hearth.log (so /hearth Recent log shows TUI-owned
+    // surface activity) AND to the in-memory error store (/errors panel).
+    const cfg = loadHearthConfig();
+    const logPath = cfg.daemon.logFile;
+    try {
+      if (logPath) {
+        const dir = dirname(logPath);
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      }
+    } catch {}
     _tuiHost = new TuiHost({
       log: (line) => {
-        // Route surface log lines to the in-memory error store so they
-        // surface in /errors instead of leaking onto the TUI's alt-screen.
+        if (logPath) {
+          try {
+            appendFileSync(logPath, `${new Date().toISOString()} [hearth-tui] ${line}\n`);
+          } catch {}
+        }
         void import("../stores/errors.js").then(({ logBackgroundError }) => {
           logBackgroundError("Hearth", line);
         });
