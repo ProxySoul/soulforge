@@ -118,6 +118,7 @@ type Mode =
       channelId: string;
       userId: string;
       cwd: string;
+      error: string | null;
     }
   | { k: "addSurface"; field: "kind" | "id"; kind: string; id: string }
   | { k: "addChat"; surfaceId: SurfaceId; field: "chatId" | "cwd"; chatId: string; cwd: string }
@@ -470,6 +471,8 @@ export function HearthSettings({ visible, onClose }: Props) {
         }
         st.surfaces = merged;
         if (!st.running) {
+          st.running = true;
+          st.uptimeMs = tui.getUptimeMs();
           st.surfaceOwner = "tui";
           st.surfaceOwnerPid = process.pid;
         }
@@ -619,6 +622,20 @@ export function HearthSettings({ visible, onClose }: Props) {
 
   const stopDaemon = useCallback(async () => {
     try {
+      // If the TUI owns surfaces in-process, stop its host — not the daemon.
+      // Pressing [s] while TUI-owned previously fell through to pkill because
+      // there's no daemon pidfile, which could kill unrelated processes.
+      if (statusRef.current.surfaceOwner === "tui") {
+        const { getTuiHost } = await import("../../hearth/tui-host.js");
+        const tui = getTuiHost();
+        if (tui.isActive()) {
+          await tui.stop();
+          flashMsg("ok", "TUI surfaces stopped");
+          setTimeout(() => void refreshStatus(), 500);
+          return;
+        }
+      }
+
       // Read the pidfile the daemon writes on start — direct kill, no pattern matching.
       const pidPath = join(homedir(), ".soulforge", "hearth.pid");
       let pid: number | null = null;
@@ -643,9 +660,10 @@ export function HearthSettings({ visible, onClose }: Props) {
           }
         }
       } else {
-        // Fallback: no pidfile — try socket-path-based pkill as last resort
-        spawn("pkill", ["-TERM", "-f", "hearth start"], { stdio: "ignore" });
-        flashMsg("ok", "SIGTERM sent (no pidfile — used pkill fallback)");
+        // No pidfile, no TUI host — nothing to stop. pkill fallback removed
+        // because it could target unrelated `hearth start` processes and
+        // would never be the right tool for a TUI-owned host anyway.
+        flashMsg("ok", "nothing to stop (no daemon pid, TUI surfaces not active)");
       }
 
       setTimeout(() => void refreshStatus(), 1000);
@@ -958,6 +976,31 @@ export function HearthSettings({ visible, onClose }: Props) {
           flashMsg("err", "app id, channel id, user id and token all required");
           return false;
         }
+        // Discord snowflakes are 17–20 decimal digits. Reject non-digits and
+        // the classic footgun of pasting the channel id into the user field.
+        if (!/^\d{17,20}$/.test(appId)) {
+          flashMsg("err", "application id must be 17–20 digits (Developer Portal → General)");
+          return false;
+        }
+        if (!/^\d{17,20}$/.test(channelId)) {
+          flashMsg("err", "channel id must be 17–20 digits (right-click channel → Copy ID)");
+          return false;
+        }
+        if (!/^\d{17,20}$/.test(userId)) {
+          flashMsg("err", "user id must be 17–20 digits (right-click your name → Copy User ID)");
+          return false;
+        }
+        if (channelId === userId) {
+          flashMsg(
+            "err",
+            "channel id and user id are identical — you pasted the channel into the user field. Right-click YOUR name, not the channel.",
+          );
+          return false;
+        }
+        if (appId === userId || appId === channelId) {
+          flashMsg("err", "application id collides with channel or user id — re-copy each");
+          return false;
+        }
         sid = surfaceIdFrom("discord", appId);
         allowed = { [channelId]: [userId] };
         chats = {
@@ -1150,6 +1193,7 @@ export function HearthSettings({ visible, onClose }: Props) {
             channelId: "",
             userId: "",
             cwd: process.cwd(),
+            error: null,
           });
         }
       }
@@ -1662,8 +1706,10 @@ function buildFooterHints(
     ];
   }
   if (tab === "daemon") {
+    const stopLabel = status.surfaceOwner === "tui" ? "stop TUI host" : "stop daemon";
+    const startLabel = "start daemon";
     return [
-      { key: "s", label: status.running ? "stop daemon" : "start daemon" },
+      { key: "s", label: status.running ? stopLabel : startLabel },
       { key: "b", label: "persist on boot" },
       { key: "r", label: "refresh" },
       { key: "tab", label: "next tab" },
@@ -2138,7 +2184,11 @@ function renderDaemon(
           <span bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
             [s]
           </span>{" "}
-          {status.running ? "stop daemon" : "start daemon"}
+          {status.running
+            ? status.surfaceOwner === "tui"
+              ? "stop TUI host"
+              : "stop daemon"
+            : "start daemon"}
         </text>
         <text bg={POPUP_BG} fg={t.textMuted}>
           {"     "}
@@ -2689,22 +2739,38 @@ function renderQuickDiscord(
   mode: Extract<Mode, { k: "quickDiscord" }>,
   t: Theme,
 ) {
+  const snowflakeOk = (v: string) => /^\d{17,20}$/.test(v);
+  const sameChannelUser =
+    mode.channelId.length > 0 && mode.userId.length > 0 && mode.channelId === mode.userId;
+  const appIdOk = mode.appId.length === 0 || snowflakeOk(mode.appId);
+  const channelOk = mode.channelId.length === 0 || snowflakeOk(mode.channelId);
+  const userOk = mode.userId.length === 0 || snowflakeOk(mode.userId);
+  const hint = (ok: boolean, warn: string) =>
+    ok ? null : (
+      <text bg={POPUP_BG} fg={t.warning}>
+        {`   ⚠  ${warn}`}
+      </text>
+    );
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={1}>
       <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Discord setup
       </text>
       <text bg={POPUP_BG} fg={t.textFaint}>
-        Requires MESSAGE_CONTENT intent toggled on in the Developer Portal (Bot tab).
+        DMs only. Toggle MESSAGE_CONTENT intent on in the Developer Portal (Bot tab).
+      </text>
+      <text bg={POPUP_BG} fg={t.textFaint}>
+        Channel id ≠ user id — right-click the channel, then right-click YOUR name.
       </text>
       <VSpacer />
       <FieldRow
         label="Application id"
         value={mode.appId}
-        placeholder="(Discord Developer Portal → General → Application ID)"
+        placeholder="(Developer Portal → General → Application ID)"
         focused={mode.field === "appId"}
         t={t}
       />
+      {hint(appIdOk, "application id must be 17–20 digits")}
       <FieldRow
         label="Bot token"
         value={mode.token}
@@ -2716,17 +2782,24 @@ function renderQuickDiscord(
       <FieldRow
         label="Channel id (DM or guild)"
         value={mode.channelId}
-        placeholder="(right-click channel → Copy ID; enable Developer Mode first)"
+        placeholder="(right-click channel → Copy ID; Dev Mode must be on)"
         focused={mode.field === "channelId"}
         t={t}
       />
+      {hint(channelOk, "channel id must be 17–20 digits")}
       <FieldRow
         label="Your user id (snowflake)"
         value={mode.userId}
-        placeholder="(right-click your name → Copy User ID)"
+        placeholder="(right-click YOUR name → Copy User ID)"
         focused={mode.field === "userId"}
         t={t}
       />
+      {hint(userOk, "user id must be 17–20 digits")}
+      {sameChannelUser ? (
+        <text bg={POPUP_BG} fg={t.error} attributes={TextAttributes.BOLD}>
+          {"   ✕  channel id = user id. Right-click YOUR name, not the channel."}
+        </text>
+      ) : null}
       <FieldRow
         label="Working directory"
         value={mode.cwd}
@@ -2742,6 +2815,14 @@ function renderQuickDiscord(
         t={t}
         valueColor={mode.appId ? t.info : t.textDim}
       />
+      {mode.error ? (
+        <>
+          <VSpacer />
+          <text bg={POPUP_BG} fg={t.error}>
+            {mode.error}
+          </text>
+        </>
+      ) : null}
     </box>
   );
 }
