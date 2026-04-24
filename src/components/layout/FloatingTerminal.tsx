@@ -11,7 +11,7 @@ import {
 import { useTheme } from "../../core/theme/index.js";
 import { useTerminalStore } from "../../stores/terminals.js";
 import { useUIStore } from "../../stores/ui.js";
-import { Overlay, POPUP_BG } from "./shared.js";
+import { Overlay } from "./shared.js";
 
 const MAX_PANEL_WIDTH = 100;
 
@@ -153,10 +153,10 @@ export function FloatingTerminal() {
         borderStyle="rounded"
         border={true}
         borderColor={t.brand}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
         <box height={1} flexShrink={0} paddingX={1} marginTop={-1}>
-          <text bg={POPUP_BG} truncate>
+          <text bg={t.bgPopup} truncate>
             <span fg={statusColor}>{statusDot} </span>
             <span fg={t.brand}>{icon("terminal")} </span>
             <span fg={t.textPrimary}>
@@ -167,23 +167,23 @@ export function FloatingTerminal() {
           </text>
         </box>
         <box height={1} flexShrink={0}>
-          <text bg={POPUP_BG}>
+          <text bg={t.bgPopup}>
             <span fg={t.textFaint}>{"─".repeat(innerWidth)}</span>
           </text>
         </box>
-        <box height={termRows} flexDirection="column" backgroundColor={POPUP_BG}>
+        <box height={termRows} flexDirection="column" backgroundColor={t.bgPopup}>
           {ansiBuffer.byteLength > 0 ? (
             <ghostty-terminal ansi={ansiBuffer} showCursor cols={termCols} rows={termRows} />
           ) : (
             <box paddingX={2}>
-              <text bg={POPUP_BG} fg={t.textDim}>
+              <text bg={t.bgPopup} fg={t.textDim}>
                 Shell starting...
               </text>
             </box>
           )}
         </box>
         <box height={1} flexShrink={0} paddingX={1}>
-          <text bg={POPUP_BG}>
+          <text bg={t.bgPopup}>
             {entry.active ? (
               <span fg={t.textDim}>Esc hide</span>
             ) : (

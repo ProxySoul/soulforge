@@ -52,7 +52,7 @@ import {
   type SurfaceId,
 } from "../../hearth/types.js";
 import { logBackgroundError } from "../../stores/errors.js";
-import { Overlay, POPUP_BG, POPUP_HL } from "../layout/shared.js";
+import { Overlay } from "../layout/shared.js";
 
 // ── Layout constants ───────────────────────────────────────────────────────
 
@@ -297,22 +297,24 @@ function severityColor(line: string, t: Theme): string {
 // ── Layout primitives ──────────────────────────────────────────────────────
 
 function HRow({ w, children }: { w: number; children: ReactNode }) {
+  const t = useTheme();
   return (
-    <box flexDirection="row" width={w} flexShrink={0} backgroundColor={POPUP_BG}>
+    <box flexDirection="row" width={w} flexShrink={0} backgroundColor={t.bgPopup}>
       {children}
     </box>
   );
 }
 
 function VSpacer({ rows = 1 }: { rows?: number }) {
-  return <box height={rows} flexShrink={0} backgroundColor={POPUP_BG} />;
+  const t = useTheme();
+  return <box height={rows} flexShrink={0} backgroundColor={t.bgPopup} />;
 }
 
 function Divider({ w, label, t }: { w: number; label?: string; t: Theme }) {
   if (!label) {
     return (
       <HRow w={w}>
-        <text bg={POPUP_BG} fg={t.textFaint}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
           {"─".repeat(Math.max(0, w))}
         </text>
       </HRow>
@@ -323,14 +325,14 @@ function Divider({ w, label, t }: { w: number; label?: string; t: Theme }) {
   const right = pad - left;
   return (
     <HRow w={w}>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         {"─".repeat(left)}
       </text>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         {" "}
         {label}{" "}
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         {"─".repeat(Math.max(0, right))}
       </text>
     </HRow>
@@ -339,7 +341,7 @@ function Divider({ w, label, t }: { w: number; label?: string; t: Theme }) {
 
 function StatusDot({ t, on }: { t: Theme; on: boolean }) {
   return (
-    <text bg={POPUP_BG} fg={on ? t.success : t.textDim}>
+    <text bg={t.bgPopup} fg={on ? t.success : t.textDim}>
       {on ? "●" : "○"}
     </text>
   );
@@ -359,12 +361,12 @@ function KV({
   valueColor?: string;
 }) {
   return (
-    <box flexDirection="row" flexShrink={0} backgroundColor={POPUP_BG}>
-      <text bg={POPUP_BG} fg={t.textDim}>
+    <box flexDirection="row" flexShrink={0} backgroundColor={t.bgPopup}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         {"  "}
         {k.padEnd(labelW).slice(0, labelW)}
       </text>
-      <text bg={POPUP_BG} fg={valueColor ?? t.textPrimary}>
+      <text bg={t.bgPopup} fg={valueColor ?? t.textPrimary}>
         {v}
       </text>
     </box>
@@ -387,17 +389,17 @@ function FooterHints({
       flexShrink={0}
       paddingX={CARD_PAD}
       height={1}
-      backgroundColor={POPUP_BG}
+      backgroundColor={t.bgPopup}
     >
       {hints.map((h, i) => (
-        <text key={`${h.key}-${String(i)}`} bg={POPUP_BG}>
-          <span bg={POPUP_BG} fg={t.textFaint}>
+        <text key={`${h.key}-${String(i)}`} bg={t.bgPopup}>
+          <span bg={t.bgPopup} fg={t.textFaint}>
             {i === 0 ? "" : "   "}
           </span>
-          <span bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+          <span bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
             {h.key}
           </span>
-          <span bg={POPUP_BG} fg={t.textMuted}>
+          <span bg={t.bgPopup} fg={t.textMuted}>
             {" "}
             {h.label}
           </span>
@@ -1529,13 +1531,13 @@ export function HearthSettings({ visible, onClose }: Props) {
       paddingY={1}
       paddingX={1}
     >
-      <text bg={POPUP_BG} fg={t.brand} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brand} attributes={TextAttributes.BOLD}>
         {" ⌂ Hearth"}
       </text>
       <VSpacer />
       {TABS.map((tk) => {
         const active = tk === tab;
-        const bg = active ? POPUP_HL : POPUP_BG;
+        const bg = active ? t.bgPopupHighlight : t.bgPopup;
         return (
           <text
             key={tk}
@@ -1549,7 +1551,7 @@ export function HearthSettings({ visible, onClose }: Props) {
         );
       })}
       <VSpacer />
-      <text bg={POPUP_BG} fg={status.running ? t.success : t.warning}>
+      <text bg={t.bgPopup} fg={status.running ? t.success : t.warning}>
         {" "}
         {status.running ? `● up ${formatUptime(status.uptimeMs)}` : "○ stopped"}
       </text>
@@ -1631,7 +1633,7 @@ export function HearthSettings({ visible, onClose }: Props) {
 
         <box flexDirection="column" height={2} flexShrink={0} backgroundColor={t.bgPopup}>
           <HRow w={innerW}>
-            <text bg={POPUP_BG} fg={t.textFaint}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
               {"─".repeat(innerW)}
             </text>
           </HRow>
@@ -1640,7 +1642,7 @@ export function HearthSettings({ visible, onClose }: Props) {
 
         {flash ? (
           <box flexDirection="row" height={1} flexShrink={0} paddingX={CARD_PAD}>
-            <text bg={POPUP_BG} fg={flash.kind === "ok" ? t.success : t.error}>
+            <text bg={t.bgPopup} fg={flash.kind === "ok" ? t.success : t.error}>
               {flash.kind === "ok" ? "✓ " : "✗ "}
               {flash.msg}
             </text>
@@ -1768,25 +1770,25 @@ function renderSurfaces(
         flexShrink={0}
         paddingX={1}
         paddingY={1}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
-        <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+        <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
           Surfaces
         </text>
-        <text bg={POPUP_BG} fg={t.textFaint}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
           {entries.length === 0
             ? "press 'a' to add your first"
             : `${String(entries.length)} configured`}
         </text>
         <VSpacer />
         {entries.length === 0 ? (
-          <text bg={POPUP_BG} fg={t.textDim}>
+          <text bg={t.bgPopup} fg={t.textDim}>
             (none)
           </text>
         ) : (
           entries.slice(0, rows - 4).map(([sid, cfg], i) => {
             const isSel = i === cursor;
-            const bg = isSel ? POPUP_HL : POPUP_BG;
+            const bg = isSel ? t.bgPopupHighlight : t.bgPopup;
             const chatCount = Object.keys(cfg.chats ?? {}).length;
             return (
               <box key={sid} flexDirection="row" flexShrink={0} backgroundColor={bg} paddingX={1}>
@@ -1821,32 +1823,32 @@ function renderSurfaces(
         flexShrink={1}
         paddingX={2}
         paddingY={1}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
         {selected ? (
           renderSurfaceDetail(detailW - 4, t, selected, status)
         ) : (
           <>
-            <text bg={POPUP_BG} fg={t.textDim}>
+            <text bg={t.bgPopup} fg={t.textDim}>
               No surfaces yet.
             </text>
             <VSpacer />
-            <text bg={POPUP_BG} fg={t.textMuted}>
+            <text bg={t.bgPopup} fg={t.textMuted}>
               Press{" "}
-              <span bg={POPUP_BG} fg={t.brandAlt}>
+              <span bg={t.bgPopup} fg={t.brandAlt}>
                 a
               </span>{" "}
               to start a guided setup for Telegram or Discord.
             </text>
             <VSpacer />
-            <text bg={POPUP_BG} fg={t.textFaint}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
               • Telegram — paste bot token, we derive the bot id for you.
             </text>
-            <text bg={POPUP_BG} fg={t.textFaint}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
               • Discord — app id + bot token + channel id + your snowflake.
             </text>
             <VSpacer />
-            <text bg={POPUP_BG} fg={t.textFaint}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
               (Shift+A opens the legacy raw-entry form for Fakechat/custom.)
             </text>
           </>
@@ -1870,14 +1872,14 @@ function renderSurfaceDetail(
 
   return (
     <>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         {sid}
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         {TAB_BLURB.surfaces}
       </text>
       <VSpacer />
-      <box flexDirection="column" flexShrink={0} backgroundColor={POPUP_BG}>
+      <box flexDirection="column" flexShrink={0} backgroundColor={t.bgPopup}>
         <KV
           k="State"
           v={cfg.enabled ? "enabled" : "disabled"}
@@ -1903,24 +1905,24 @@ function renderSurfaceDetail(
       <VSpacer />
       <Divider w={w} t={t} label="Actions" />
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textMuted}>
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+      <text bg={t.bgPopup} fg={t.textMuted}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           ⏎
         </span>{" "}
         toggle enabled{" "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           t
         </span>{" "}
         set token{" "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           c
         </span>{" "}
         bind chat{" "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           p
         </span>{" "}
         pair code{" "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           d
         </span>{" "}
         delete surface
@@ -1929,23 +1931,23 @@ function renderSurfaceDetail(
       <Divider w={w} t={t} label={`Chats (${String(chatEntries.length)})`} />
       <VSpacer />
       {chatEntries.length === 0 ? (
-        <text bg={POPUP_BG} fg={t.textDim}>
+        <text bg={t.bgPopup} fg={t.textDim}>
           No chats bound — press 'c' to add one.
         </text>
       ) : (
         chatEntries.map(([chatId, chat]) => (
-          <box key={chatId} flexDirection="column" flexShrink={0} backgroundColor={POPUP_BG}>
-            <text bg={POPUP_BG} fg={t.textPrimary}>
-              <span bg={POPUP_BG} fg={t.info}>
+          <box key={chatId} flexDirection="column" flexShrink={0} backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.textPrimary}>
+              <span bg={t.bgPopup} fg={t.info}>
                 •
               </span>{" "}
               {chatId}
             </text>
-            <text bg={POPUP_BG} fg={t.textFaint}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
               {"    cwd: "}
               {truncateMid(String(chat.cwd ?? "—"), w - 10)}
             </text>
-            <text bg={POPUP_BG} fg={t.textFaint}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
               {"    caps: "}
               {String(chat.caps ?? "—")} {" · maxTabs: "}
               {String(chat.maxTabs ?? "—")}
@@ -1967,10 +1969,10 @@ function renderAllowedList(_w: number, t: Theme, cfg: HearthSurfaceConfig) {
   if (entries.length === 0) {
     return (
       <>
-        <text bg={POPUP_BG} fg={t.textDim}>
+        <text bg={t.bgPopup} fg={t.textDim}>
           No allowed users — press 'u' to add one.
         </text>
-        <text bg={POPUP_BG} fg={t.textFaint}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
           Without an allowlist, all messages are silently dropped.
         </text>
       </>
@@ -1979,15 +1981,15 @@ function renderAllowedList(_w: number, t: Theme, cfg: HearthSurfaceConfig) {
   return (
     <>
       {entries.map(([chatId, userIds]) => (
-        <box key={chatId} flexDirection="column" flexShrink={0} backgroundColor={POPUP_BG}>
-          <text bg={POPUP_BG} fg={t.textPrimary}>
-            <span bg={POPUP_BG} fg={t.info}>
+        <box key={chatId} flexDirection="column" flexShrink={0} backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.textPrimary}>
+            <span bg={t.bgPopup} fg={t.info}>
               ▸
             </span>{" "}
             chat {chatId}
           </text>
           {(userIds as string[]).map((uid) => (
-            <text key={uid} bg={POPUP_BG} fg={t.textMuted}>
+            <text key={uid} bg={t.bgPopup} fg={t.textMuted}>
               {"    "}
               {uid}
             </text>
@@ -1995,12 +1997,12 @@ function renderAllowedList(_w: number, t: Theme, cfg: HearthSurfaceConfig) {
         </box>
       ))}
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textFaint}>
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           u
         </span>{" "}
         add user{"  "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           x
         </span>{" "}
         remove last
@@ -2025,10 +2027,10 @@ function renderDaemon(
 
   return (
     <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingY={1}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Daemon
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         {TAB_BLURB.daemon}
       </text>
       <VSpacer />
@@ -2041,35 +2043,35 @@ function renderDaemon(
         borderColor={status.running ? t.success : t.warning}
         paddingX={2}
         paddingY={1}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
-        <box flexDirection="row" flexShrink={0} backgroundColor={POPUP_BG}>
+        <box flexDirection="row" flexShrink={0} backgroundColor={t.bgPopup}>
           <text
-            bg={POPUP_BG}
+            bg={t.bgPopup}
             fg={status.running ? t.success : t.warning}
             attributes={TextAttributes.BOLD}
           >
             {status.running ? "● RUNNING" : "○ STOPPED"}
           </text>
-          <text bg={POPUP_BG} fg={t.textFaint}>
+          <text bg={t.bgPopup} fg={t.textFaint}>
             {"   uptime "}
           </text>
-          <text bg={POPUP_BG} fg={t.textPrimary}>
+          <text bg={t.bgPopup} fg={t.textPrimary}>
             {formatUptime(status.uptimeMs)}
           </text>
-          <text bg={POPUP_BG} fg={t.textFaint}>
+          <text bg={t.bgPopup} fg={t.textFaint}>
             {"   pending "}
           </text>
-          <text bg={POPUP_BG} fg={status.pendingApprovals ? t.warning : t.textPrimary}>
+          <text bg={t.bgPopup} fg={status.pendingApprovals ? t.warning : t.textPrimary}>
             {String(status.pendingApprovals ?? 0)}
           </text>
           {status.running ? (
             <>
-              <text bg={POPUP_BG} fg={t.textFaint}>
+              <text bg={t.bgPopup} fg={t.textFaint}>
                 {"   owner "}
               </text>
               <text
-                bg={POPUP_BG}
+                bg={t.bgPopup}
                 fg={
                   status.surfaceOwner === "tui"
                     ? t.info
@@ -2102,7 +2104,7 @@ function renderDaemon(
         {status.error ? (
           <>
             <VSpacer />
-            <text bg={POPUP_BG} fg={t.error}>
+            <text bg={t.bgPopup} fg={t.error}>
               {"  error: "}
               {status.error}
             </text>
@@ -2111,10 +2113,10 @@ function renderDaemon(
         {startupError ? (
           <>
             <VSpacer />
-            <text bg={POPUP_BG} fg={t.error} attributes={TextAttributes.BOLD}>
+            <text bg={t.bgPopup} fg={t.error} attributes={TextAttributes.BOLD}>
               {"  boot failure"}
             </text>
-            <text bg={POPUP_BG} fg={t.error}>
+            <text bg={t.bgPopup} fg={t.error}>
               {"  "}
               {truncateMid(startupError, w - 4)}
             </text>
@@ -2127,7 +2129,7 @@ function renderDaemon(
         <>
           <Divider w={w - 4} t={t} label="Lifetime stats" />
           <VSpacer />
-          <box flexDirection="row" flexShrink={0} backgroundColor={POPUP_BG}>
+          <box flexDirection="row" flexShrink={0} backgroundColor={t.bgPopup}>
             <box flexDirection="column" width={Math.floor((w - 4) / 2)} flexShrink={0}>
               <KV k="Messages in" v={String(status.stats.messagesIn)} t={t} />
               <KV k="Events out" v={String(status.stats.eventsOut)} t={t} />
@@ -2150,11 +2152,11 @@ function renderDaemon(
       ) : null}
 
       {/* Persistent-service row — survives TUI exit and reboot via launchd/systemd */}
-      <box flexDirection="row" flexShrink={0} paddingX={1} backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.textMuted}>
+      <box flexDirection="row" flexShrink={0} paddingX={1} backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
           {"Persistence   "}
           <span
-            bg={POPUP_BG}
+            bg={t.bgPopup}
             fg={service?.installed ? t.success : t.textDim}
             attributes={TextAttributes.BOLD}
           >
@@ -2169,7 +2171,7 @@ function renderDaemon(
           {service?.installed && service.unitLabel ? (
             <>
               {" · "}
-              <span bg={POPUP_BG} fg={t.textDim}>
+              <span bg={t.bgPopup} fg={t.textDim}>
                 {service.unitLabel}
               </span>
             </>
@@ -2179,9 +2181,9 @@ function renderDaemon(
       <VSpacer />
 
       {/* Actions row */}
-      <box flexDirection="row" flexShrink={0} paddingX={1} backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.textMuted}>
-          <span bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <box flexDirection="row" flexShrink={0} paddingX={1} backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
+          <span bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
             [s]
           </span>{" "}
           {status.running
@@ -2190,16 +2192,16 @@ function renderDaemon(
               : "stop daemon"
             : "start daemon"}
         </text>
-        <text bg={POPUP_BG} fg={t.textMuted}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
           {"     "}
-          <span bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+          <span bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
             [b]
           </span>{" "}
           {service?.installed ? "uninstall persist" : "persist on boot"}
         </text>
-        <text bg={POPUP_BG} fg={t.textMuted}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
           {"     "}
-          <span bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+          <span bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
             [r]
           </span>{" "}
           refresh
@@ -2209,12 +2211,12 @@ function renderDaemon(
       <Divider w={w - 4} t={t} label="Recent log" />
       <VSpacer />
       {preview.length === 0 ? (
-        <text bg={POPUP_BG} fg={t.textDim}>
+        <text bg={t.bgPopup} fg={t.textDim}>
           {"  (no log lines yet — start the daemon)"}
         </text>
       ) : (
         preview.map((line, i) => (
-          <text key={`p-${String(i)}`} bg={POPUP_BG} fg={severityColor(line, t)}>
+          <text key={`p-${String(i)}`} bg={t.bgPopup} fg={severityColor(line, t)}>
             {"  "}
             {truncateMid(line, w - 4)}
           </text>
@@ -2234,11 +2236,11 @@ function renderPairings(
   if (pairings.length === 0) {
     return (
       <box flexDirection="column" paddingX={2} paddingY={1}>
-        <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+        <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
           Pairings
         </text>
         <VSpacer />
-        <text bg={POPUP_BG} fg={t.textDim}>
+        <text bg={t.bgPopup} fg={t.textDim}>
           No paired chats yet. Open Surfaces, select a surface, then press 'c'.
         </text>
       </box>
@@ -2266,24 +2268,24 @@ function renderPairings(
         flexShrink={0}
         paddingX={1}
         paddingY={1}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
-        <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+        <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
           Paired chats
         </text>
-        <text bg={POPUP_BG} fg={t.textFaint}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
           {String(pairings.length)} total · {String(groups.size)} surface(s)
         </text>
         <VSpacer />
         {[...groups.entries()].map(([sid, chats]) => (
-          <box key={sid} flexDirection="column" flexShrink={0} backgroundColor={POPUP_BG}>
-            <text bg={POPUP_BG} fg={t.info} attributes={TextAttributes.BOLD}>
+          <box key={sid} flexDirection="column" flexShrink={0} backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.info} attributes={TextAttributes.BOLD}>
               {"  ▾ "}
               {sid}
             </text>
             {chats.map((c) => {
               const isSel = flatIdx === cursor;
-              const bg = isSel ? POPUP_HL : POPUP_BG;
+              const bg = isSel ? t.bgPopupHighlight : t.bgPopup;
               const row = (
                 <box
                   key={`${sid}#${c.chatId}`}
@@ -2314,14 +2316,14 @@ function renderPairings(
         flexShrink={1}
         paddingX={2}
         paddingY={1}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
         {selected ? (
           <>
-            <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+            <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
               {selected.sid}
             </text>
-            <text bg={POPUP_BG} fg={t.info}>
+            <text bg={t.bgPopup} fg={t.info}>
               {"chat: "}
               {selected.chatId}
             </text>
@@ -2331,19 +2333,19 @@ function renderPairings(
             <VSpacer />
             <Divider w={detailW - 4} t={t} label="Actions" />
             <VSpacer />
-            <text bg={POPUP_BG} fg={t.textMuted}>
-              <span bg={POPUP_BG} fg={t.brandAlt}>
+            <text bg={t.bgPopup} fg={t.textMuted}>
+              <span bg={t.bgPopup} fg={t.brandAlt}>
                 d
               </span>{" "}
               unpair this chat{" "}
-              <span bg={POPUP_BG} fg={t.brandAlt}>
+              <span bg={t.bgPopup} fg={t.brandAlt}>
                 p
               </span>{" "}
               new pairing code
             </text>
           </>
         ) : (
-          <text bg={POPUP_BG} fg={t.textDim}>
+          <text bg={t.bgPopup} fg={t.textDim}>
             No selection.
           </text>
         )}
@@ -2368,22 +2370,25 @@ function renderLogs(
 
   return (
     <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingY={1}>
-      <box flexDirection="row" flexShrink={0} backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <box flexDirection="row" flexShrink={0} backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
           Logs
         </text>
-        <text bg={POPUP_BG} fg={t.textFaint}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
           {"   "}
           {String(lines.length)} lines · {autoscroll ? "autoscroll on" : "autoscroll off"}
         </text>
       </box>
       <VSpacer />
       {/* Filter bar */}
-      <box flexDirection="row" flexShrink={0} backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.textDim}>
+      <box flexDirection="row" flexShrink={0} backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textDim}>
           {"  filter  "}
         </text>
-        <text bg={filterFocused ? POPUP_HL : POPUP_BG} fg={filterFocused ? t.brand : t.textPrimary}>
+        <text
+          bg={filterFocused ? t.bgPopupHighlight : t.bgPopup}
+          fg={filterFocused ? t.brand : t.textPrimary}
+        >
           {filter || "(press / to focus, paste supported)"}
           {filterFocused ? "▎" : ""}
         </text>
@@ -2394,23 +2399,23 @@ function renderLogs(
         flexGrow={1}
         flexShrink={1}
         minHeight={0}
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
       >
         {view.length === 0 ? (
-          <text bg={POPUP_BG} fg={t.textDim}>
+          <text bg={t.bgPopup} fg={t.textDim}>
             {"  (no log lines match)"}
           </text>
         ) : (
           view.map((line, i) => (
-            <text key={`l-${String(scroll + i)}`} bg={POPUP_BG} fg={severityColor(line, t)}>
+            <text key={`l-${String(scroll + i)}`} bg={t.bgPopup} fg={severityColor(line, t)}>
               {"  "}
               {truncateMid(line, w - 4)}
             </text>
           ))
         )}
       </box>
-      <box flexDirection="row" flexShrink={0} backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.textFaint}>
+      <box flexDirection="row" flexShrink={0} backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
           {"  "}
           {lines.length > 0
             ? `lines ${String(scroll + 1)}–${String(Math.min(scroll + view.length, lines.length))} / ${String(lines.length)}`
@@ -2429,18 +2434,18 @@ function renderAddSurface(
 ) {
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={2}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Add surface
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         'kind:id' forms the stable surface identifier (e.g. telegram:1234567890)
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         Kind
       </text>
       <text
-        bg={mode.field === "kind" ? POPUP_HL : POPUP_BG}
+        bg={mode.field === "kind" ? t.bgPopupHighlight : t.bgPopup}
         fg={mode.field === "kind" ? t.brand : t.textPrimary}
       >
         {"  "}
@@ -2448,11 +2453,11 @@ function renderAddSurface(
         {mode.field === "kind" ? "▎" : ""}
       </text>
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         Id
       </text>
       <text
-        bg={mode.field === "id" ? POPUP_HL : POPUP_BG}
+        bg={mode.field === "id" ? t.bgPopupHighlight : t.bgPopup}
         fg={mode.field === "id" ? t.brand : t.textPrimary}
       >
         {"  "}
@@ -2460,7 +2465,7 @@ function renderAddSurface(
         {mode.field === "id" ? "▎" : ""}
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         Preview: {mode.kind && mode.id ? `${mode.kind.toLowerCase()}:${mode.id}` : "—"}
       </text>
     </box>
@@ -2481,18 +2486,18 @@ function renderAddChat(
 ) {
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={2}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Bind chat
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         surface: {mode.surfaceId}
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         Chat id
       </text>
       <text
-        bg={mode.field === "chatId" ? POPUP_HL : POPUP_BG}
+        bg={mode.field === "chatId" ? t.bgPopupHighlight : t.bgPopup}
         fg={mode.field === "chatId" ? t.brand : t.textPrimary}
       >
         {"  "}
@@ -2500,11 +2505,11 @@ function renderAddChat(
         {mode.field === "chatId" ? "▎" : ""}
       </text>
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         cwd
       </text>
       <text
-        bg={mode.field === "cwd" ? POPUP_HL : POPUP_BG}
+        bg={mode.field === "cwd" ? t.bgPopupHighlight : t.bgPopup}
         fg={mode.field === "cwd" ? t.brand : t.textPrimary}
       >
         {"  "}
@@ -2527,27 +2532,27 @@ function renderTokenInput(
       : "";
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={2}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Bot token
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         surface: {mode.surfaceId} · stored in OS keychain, never logged
       </text>
       <VSpacer rows={2} />
       <box flexDirection="row" flexShrink={0}>
-        <text bg={POPUP_HL} fg={t.brandAlt}>
+        <text bg={t.bgPopupHighlight} fg={t.brandAlt}>
           {masked || "(paste your token — Cmd/Ctrl+V)"}
         </text>
-        <text bg={POPUP_HL} fg={t.brand}>
+        <text bg={t.bgPopupHighlight} fg={t.brand}>
           {"▎"}
         </text>
       </box>
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.warning}>
+      <text bg={t.bgPopup} fg={t.warning}>
         keychain key: {tokenSecretKey(mode.surfaceId) ?? "—"}
       </text>
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textMuted}>
+      <text bg={t.bgPopup} fg={t.textMuted}>
         Paste is enabled — bracketed-paste reads multi-line tokens in one go.
       </text>
     </box>
@@ -2562,27 +2567,27 @@ function renderPairCode(
 ) {
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={2}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Pairing code
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         surface: {mode.surfaceId}
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.brand} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brand} attributes={TextAttributes.BOLD}>
         {"    "}
         {mode.code}
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textMuted}>
+      <text bg={t.bgPopup} fg={t.textMuted}>
         From the chat: DM your bot and send{" "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           /pair {mode.code}
         </span>
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         Or from the host terminal:{" "}
-        <span bg={POPUP_BG} fg={t.brandAlt}>
+        <span bg={t.bgPopup} fg={t.brandAlt}>
           soulforge hearth pair {mode.surfaceId} {mode.code}
         </span>
       </text>
@@ -2614,10 +2619,10 @@ function FieldRow({
   const display = mask ? maskToken(value) : value;
   return (
     <>
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         {label}
       </text>
-      <text bg={focused ? POPUP_HL : POPUP_BG} fg={focused ? t.brand : t.textPrimary}>
+      <text bg={focused ? t.bgPopupHighlight : t.bgPopup} fg={focused ? t.brand : t.textPrimary}>
         {"  "}
         {display || placeholder}
         {focused ? "▎" : ""}
@@ -2636,17 +2641,17 @@ function renderPickProvider(
   const isMac = process.platform === "darwin";
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={2}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Add surface
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         Pick a platform. We'll guide you through the minimum fields needed.
       </text>
       <VSpacer rows={2} />
       {PROVIDERS.map((p, i) => {
         const active = i === mode.cursor;
         const disabled = p.macOnly && !isMac;
-        const bg = active ? POPUP_HL : POPUP_BG;
+        const bg = active ? t.bgPopupHighlight : t.bgPopup;
         const fg = disabled ? t.textFaint : active ? t.brand : t.textPrimary;
         return (
           <box key={p.kind} flexDirection="column" flexShrink={0} backgroundColor={bg} paddingX={1}>
@@ -2663,7 +2668,7 @@ function renderPickProvider(
         );
       })}
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         ↑↓ choose · ⏎ continue · esc cancel
       </text>
     </box>
@@ -2680,10 +2685,10 @@ function renderQuickTelegram(
   const username = mode.bot?.username ? `@${mode.bot.username}` : "—";
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={1}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Telegram setup
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         Paste token → ⏎ validates via getMe → bot id auto-fills. Then add your user id.
       </text>
       <VSpacer />
@@ -2721,11 +2726,11 @@ function renderQuickTelegram(
       />
       <VSpacer />
       {mode.validating ? (
-        <text bg={POPUP_BG} fg={t.info}>
+        <text bg={t.bgPopup} fg={t.info}>
           validating token with Telegram…
         </text>
       ) : mode.error ? (
-        <text bg={POPUP_BG} fg={t.error}>
+        <text bg={t.bgPopup} fg={t.error}>
           {mode.error}
         </text>
       ) : null}
@@ -2747,19 +2752,19 @@ function renderQuickDiscord(
   const userOk = mode.userId.length === 0 || snowflakeOk(mode.userId);
   const hint = (ok: boolean, warn: string) =>
     ok ? null : (
-      <text bg={POPUP_BG} fg={t.warning}>
+      <text bg={t.bgPopup} fg={t.warning}>
         {`   ⚠  ${warn}`}
       </text>
     );
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={1}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Discord setup
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         DMs only. Toggle MESSAGE_CONTENT intent on in the Developer Portal (Bot tab).
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         Channel id ≠ user id — right-click the channel, then right-click YOUR name.
       </text>
       <VSpacer />
@@ -2796,7 +2801,7 @@ function renderQuickDiscord(
       />
       {hint(userOk, "user id must be 17–20 digits")}
       {sameChannelUser ? (
-        <text bg={POPUP_BG} fg={t.error} attributes={TextAttributes.BOLD}>
+        <text bg={t.bgPopup} fg={t.error} attributes={TextAttributes.BOLD}>
           {"   ✕  channel id = user id. Right-click YOUR name, not the channel."}
         </text>
       ) : null}
@@ -2818,7 +2823,7 @@ function renderQuickDiscord(
       {mode.error ? (
         <>
           <VSpacer />
-          <text bg={POPUP_BG} fg={t.error}>
+          <text bg={t.bgPopup} fg={t.error}>
             {mode.error}
           </text>
         </>
@@ -2841,18 +2846,18 @@ function renderAddAllowed(
 ) {
   return (
     <box flexDirection="column" flexGrow={1} paddingX={3} paddingY={2}>
-      <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+      <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
         Allow user
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         surface: {mode.surfaceId}
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         Chat id (numeric for TG, channel snowflake for Discord)
       </text>
       <text
-        bg={mode.field === "chatId" ? POPUP_HL : POPUP_BG}
+        bg={mode.field === "chatId" ? t.bgPopupHighlight : t.bgPopup}
         fg={mode.field === "chatId" ? t.brand : t.textPrimary}
       >
         {"  "}
@@ -2860,11 +2865,11 @@ function renderAddAllowed(
         {mode.field === "chatId" ? "▎" : ""}
       </text>
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textDim}>
+      <text bg={t.bgPopup} fg={t.textDim}>
         User id (numeric TG user.id, Discord snowflake)
       </text>
       <text
-        bg={mode.field === "userId" ? POPUP_HL : POPUP_BG}
+        bg={mode.field === "userId" ? t.bgPopupHighlight : t.bgPopup}
         fg={mode.field === "userId" ? t.brand : t.textPrimary}
       >
         {"  "}
@@ -2872,10 +2877,10 @@ function renderAddAllowed(
         {mode.field === "userId" ? "▎" : ""}
       </text>
       <VSpacer rows={2} />
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         For Telegram DMs, chat id and user id are the same number.
       </text>
-      <text bg={POPUP_BG} fg={t.textFaint}>
+      <text bg={t.bgPopup} fg={t.textFaint}>
         DM @userinfobot on Telegram to get your numeric id.
       </text>
     </box>

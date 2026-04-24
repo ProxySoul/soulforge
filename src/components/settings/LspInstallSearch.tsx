@@ -20,7 +20,7 @@ import { clearProbeCache } from "../../core/intelligence/backends/lsp/server-reg
 import { useTheme } from "../../core/theme/index.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type { AppConfig } from "../../types/index.js";
-import { type ConfigScope, POPUP_BG, POPUP_HL } from "../layout/shared.js";
+import { type ConfigScope } from "../layout/shared.js";
 import { PremiumPopup, Radio } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 130;
@@ -99,7 +99,7 @@ function PackageRow({
   innerW: _innerW,
 }: PackageRowProps) {
   const t = useTheme();
-  const bg = isActive ? POPUP_HL : POPUP_BG;
+  const bg = isActive ? t.bgPopupHighlight : t.bgPopup;
   const src = sourceLabel(status);
   const method = methodLabel(status);
   const lang = langLabel(status.pkg);
@@ -569,8 +569,8 @@ export function LspInstallSearch({
         { key: "Esc", label: "close" },
       ]}
     >
-      <box flexDirection="row" backgroundColor={POPUP_BG}>
-        <text fg={t.textFaint} bg={POPUP_BG}>
+      <box flexDirection="row" backgroundColor={t.bgPopup}>
+        <text fg={t.textFaint} bg={t.bgPopup}>
           {"─".repeat(innerW - 4)}
         </text>
       </box>
@@ -613,17 +613,17 @@ export function LspInstallSearch({
           </text>
         )}
       </box>
-      <box height={1} backgroundColor={POPUP_BG} />
+      <box height={1} backgroundColor={t.bgPopup} />
 
       {registryLoading ? (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text fg={t.brand} bg={POPUP_BG}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text fg={t.brand} bg={t.bgPopup}>
             {registryLoaded ? "scanning installed packages..." : "loading Mason registry..."}
           </text>
         </box>
       ) : !registryLoaded ? (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text fg={t.textMuted} bg={t.bgPopup}>
             no registry available — install Mason or check network
           </text>
         </box>
@@ -634,8 +634,8 @@ export function LspInstallSearch({
           overflow="hidden"
         >
           {currentItems.length === 0 ? (
-            <box flexDirection="row" backgroundColor={POPUP_BG}>
-              <text fg={t.textMuted} bg={POPUP_BG}>
+            <box flexDirection="row" backgroundColor={t.bgPopup}>
+              <text fg={t.textMuted} bg={t.bgPopup}>
                 {query ? "no matching packages" : "no packages"}
               </text>
             </box>
@@ -658,8 +658,8 @@ export function LspInstallSearch({
       )}
 
       {currentItems.length > maxVisible && (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text fg={t.textMuted} bg={t.bgPopup}>
             {scrollOffset > 0 ? "↑ " : "  "}
             {String(cursor + 1)}/{String(currentItems.length)}
             {scrollOffset + maxVisible < currentItems.length ? " ↓" : ""}
@@ -669,9 +669,9 @@ export function LspInstallSearch({
 
       {pendingToggle && (
         <>
-          <box height={1} backgroundColor={POPUP_BG} />
-          <box flexDirection="row" backgroundColor={POPUP_BG}>
-            <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
+          <box height={1} backgroundColor={t.bgPopup} />
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={t.bgPopup}>
               {disabledServers.includes(pendingToggle.pkg.name) ? "Enable" : "Disable"} "
               {pendingToggle.pkg.name}" scope:
             </text>
@@ -688,8 +688,8 @@ export function LspInstallSearch({
       )}
 
       {installing && (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text fg={t.brand} bg={POPUP_BG}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text fg={t.brand} bg={t.bgPopup}>
             installing...
           </text>
         </box>

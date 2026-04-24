@@ -1,13 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { useTheme, useThemeStore } from "../../core/theme/index.js";
+import { useTheme } from "../../core/theme/index.js";
 
-/** Reactive popup colors — auto-update when theme changes */
-export let POPUP_BG = useThemeStore.getState().tokens.bgPopup;
-export let POPUP_HL = useThemeStore.getState().tokens.bgPopupHighlight;
-useThemeStore.subscribe((s) => {
-  POPUP_BG = s.tokens.bgPopup;
-  POPUP_HL = s.tokens.bgPopupHighlight;
-});
 export type ConfigScope = "project" | "global";
 export const CONFIG_SCOPES: ConfigScope[] = ["project", "global"];
 

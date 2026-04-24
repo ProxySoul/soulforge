@@ -8,7 +8,7 @@ import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import { type MCPServerState, type MCPServerStatus, useMCPStore } from "../../stores/mcp.js";
 import type { MCPServerConfig } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
-import { POPUP_BG, POPUP_HL, Spinner } from "../layout/shared.js";
+import { Spinner } from "../layout/shared.js";
 
 import {
   Divider,
@@ -598,14 +598,14 @@ export function MCPSettings({
       <box flexDirection="column">
         {/* Sub-header line — context-dependent */}
         {view === "detail" && detailName ? (
-          <box flexDirection="row" backgroundColor={POPUP_BG}>
-            <text bg={POPUP_BG} fg={t.brandAlt}>
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.brandAlt}>
               {icon("info")} {detailName}
             </text>
           </box>
         ) : isForm ? (
-          <box flexDirection="row" backgroundColor={POPUP_BG}>
-            <text bg={POPUP_BG} fg={t.brandAlt}>
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.brandAlt}>
               {editingName ? `${icon("edit")} Edit Server` : `${icon("create")} Add Server`}
             </text>
           </box>
@@ -636,7 +636,7 @@ export function MCPSettings({
           <EmptyState innerW={innerW} />
         ) : view === "list" ? (
           <box flexDirection="column">
-            <box paddingX={1} backgroundColor={POPUP_BG} flexShrink={0}>
+            <box paddingX={1} backgroundColor={t.bgPopup} flexShrink={0}>
               <Search
                 value={serverFilter}
                 placeholder="type to filter servers…"
@@ -646,7 +646,7 @@ export function MCPSettings({
                     ? `${filteredServers.length} result${filteredServers.length === 1 ? "" : "s"}`
                     : undefined
                 }
-                bg={POPUP_BG}
+                bg={t.bgPopup}
               />
             </box>
             <box
@@ -667,8 +667,8 @@ export function MCPSettings({
               ))}
             </box>
             {filteredServers.length === 0 && serverFilter && (
-              <box flexDirection="row" backgroundColor={POPUP_BG}>
-                <text bg={POPUP_BG} fg={t.textDim}>
+              <box flexDirection="row" backgroundColor={t.bgPopup}>
+                <text bg={t.bgPopup} fg={t.textDim}>
                   {"  No matches"}
                 </text>
               </box>
@@ -687,8 +687,8 @@ export function MCPSettings({
 
         {/* Scroll */}
         {!isForm && listCount > pageSize && (
-          <box flexDirection="row" backgroundColor={POPUP_BG}>
-            <text fg={t.textMuted} bg={POPUP_BG}>
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text fg={t.textMuted} bg={t.bgPopup}>
               {"  "}
               {scrollOffset > 0 ? "↑ " : "  "}
               {cursor + 1}/{listCount}
@@ -701,17 +701,17 @@ export function MCPSettings({
         {view === "list" && serverList.length > 0 && (
           <>
             <Sep w={innerW} />
-            <box flexDirection="row" backgroundColor={POPUP_BG}>
-              <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
+            <box flexDirection="row" backgroundColor={t.bgPopup}>
+              <text bg={t.bgPopup} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
                 {" P"}
               </text>
-              <text bg={POPUP_BG} fg={t.textDim}>
+              <text bg={t.bgPopup} fg={t.textDim}>
                 {" project  "}
               </text>
-              <text bg={POPUP_BG} fg={t.textMuted} attributes={TextAttributes.BOLD}>
+              <text bg={t.bgPopup} fg={t.textMuted} attributes={TextAttributes.BOLD}>
                 {"G"}
               </text>
-              <text bg={POPUP_BG} fg={t.textDim}>
+              <text bg={t.bgPopup} fg={t.textDim}>
                 {" global"}
               </text>
             </box>
@@ -719,14 +719,14 @@ export function MCPSettings({
         )}
 
         <Divider width={innerW} />
-        <box flexDirection="row" paddingX={1} backgroundColor={POPUP_BG}>
+        <box flexDirection="row" paddingX={1} backgroundColor={t.bgPopup}>
           <KeyCaps
             hints={mcpFooterHints(
               view,
               isForm,
               detailName ? runtimeServers[detailName]?.status === "disabled" : undefined,
             )}
-            bg={POPUP_BG}
+            bg={t.bgPopup}
           />
         </box>
       </box>
@@ -746,8 +746,9 @@ const MCP_TABS: { id: "list" | "tools"; label: string; ic: string }[] = [
 ];
 
 const TabRow = memo(function TabRow({ view, innerW }: { view: View; innerW: number }) {
+  const t = useTheme();
   return (
-    <box flexDirection="row" backgroundColor={POPUP_BG} paddingX={1} width={innerW} flexShrink={0}>
+    <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1} width={innerW} flexShrink={0}>
       <SegmentedControl
         label="Panel"
         labelWidth={7}
@@ -756,7 +757,7 @@ const TabRow = memo(function TabRow({ view, innerW }: { view: View; innerW: numb
           label: `${icon(tab.ic)} ${tab.label}`,
         }))}
         value={view}
-        bg={POPUP_BG}
+        bg={t.bgPopup}
       />
     </box>
   );
@@ -765,14 +766,14 @@ const TabRow = memo(function TabRow({ view, innerW }: { view: View; innerW: numb
 const EmptyState = memo(function EmptyState({ innerW: _innerW }: { innerW: number }) {
   const t = useTheme();
   return (
-    <box flexDirection="column" backgroundColor={POPUP_BG}>
+    <box flexDirection="column" backgroundColor={t.bgPopup}>
       <VSpacer />
-      <text bg={POPUP_BG} fg={t.textMuted}>
+      <text bg={t.bgPopup} fg={t.textMuted}>
         {"  "}
         {icon("unplug")} No MCP servers configured
       </text>
       <VSpacer />
-      <text bg={POPUP_BG}>
+      <text bg={t.bgPopup}>
         <span fg={t.textDim}>{"  Press "}</span>
         <span fg={t.success} attributes={TextAttributes.BOLD}>
           ctrl+a
@@ -802,7 +803,7 @@ const ServerCard = memo(function ServerCard({
   innerW: number;
 }) {
   const t = useTheme();
-  const bg = isSelected ? POPUP_HL : POPUP_BG;
+  const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
   const { config, status, tools, error, lastPingMs, connectedAt } = server;
   const sc = statusColor(status, t);
   const scopeBadge = scope === "project" ? "P" : "G";
@@ -874,7 +875,7 @@ const ServerCard = memo(function ServerCard({
             {icon("warning")} Delete?{"  "}
           </text>
           <text
-            bg={deleteChoice === "no" ? POPUP_HL : bg}
+            bg={deleteChoice === "no" ? t.bgPopupHighlight : bg}
             fg={deleteChoice === "no" ? "white" : t.textDim}
             attributes={deleteChoice === "no" ? TextAttributes.BOLD : undefined}
           >
@@ -884,7 +885,7 @@ const ServerCard = memo(function ServerCard({
             {" "}
           </text>
           <text
-            bg={deleteChoice === "yes" ? POPUP_HL : bg}
+            bg={deleteChoice === "yes" ? t.bgPopupHighlight : bg}
             fg={deleteChoice === "yes" ? t.error : t.textDim}
             attributes={deleteChoice === "yes" ? TextAttributes.BOLD : undefined}
           >
@@ -917,8 +918,8 @@ const ServerCard = memo(function ServerCard({
       )}
 
       {/* Separator */}
-      <box flexDirection="row" backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.textSubtle}>
+      <box flexDirection="row" backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textSubtle}>
           {`  ${"╌".repeat(Math.max(0, innerW - 4))}`}
         </text>
       </box>
@@ -947,8 +948,8 @@ function ServerDetail({
   return (
     <box flexDirection="column">
       {/* Server header */}
-      <box flexDirection="row" backgroundColor={POPUP_BG}>
-        <text bg={POPUP_BG} fg={t.textDim}>
+      <box flexDirection="row" backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textDim}>
           {"  "}
         </text>
         {status === "connecting" ? (
@@ -957,10 +958,10 @@ function ServerDetail({
           <text fg={sc}>{statusIcon(status)}</text>
         )}
         <text fg={sc}> </text>
-        <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
+        <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={t.bgPopup}>
           {config.name}
         </text>
-        <text fg={sc} bg={POPUP_BG}>
+        <text fg={sc} bg={t.bgPopup}>
           {"  "}
           {STATUS_LABEL[status]}
         </text>
@@ -1028,11 +1029,11 @@ function ServerDetail({
 
       {/* Tool names */}
       {tools.length > 0 && (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text bg={POPUP_BG} fg={t.textDim}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.textDim}>
             {"    "}
           </text>
-          <text bg={POPUP_BG} fg={t.textMuted} truncate>
+          <text bg={t.bgPopup} fg={t.textMuted} truncate>
             {tools
               .map((t) => t.name)
               .join(", ")
@@ -1046,12 +1047,12 @@ function ServerDetail({
       {/* Error section */}
       {error && (
         <box flexDirection="column">
-          <box flexDirection="row" backgroundColor={POPUP_BG}>
-            <text bg={POPUP_BG} fg={t.error} attributes={TextAttributes.BOLD}>
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.error} attributes={TextAttributes.BOLD}>
               {"  "}
               {icon("error")} Error {errorExpanded ? "▾" : "▸"}
             </text>
-            <text bg={POPUP_BG} fg={t.textDim}>
+            <text bg={t.bgPopup} fg={t.textDim}>
               {"  (⏎ to "}
               {errorExpanded ? "collapse" : "expand"}
               {")"}
@@ -1072,11 +1073,11 @@ function ServerDetail({
               </box>
             </box>
           ) : (
-            <box flexDirection="row" backgroundColor={POPUP_BG}>
-              <text bg={POPUP_BG} fg={t.error}>
+            <box flexDirection="row" backgroundColor={t.bgPopup}>
+              <text bg={t.bgPopup} fg={t.error}>
                 {"    "}
               </text>
-              <text bg={POPUP_BG} fg={t.error} truncate>
+              <text bg={t.bgPopup} fg={t.error} truncate>
                 {error.slice(0, innerW - 8)}
               </text>
             </box>
@@ -1085,8 +1086,8 @@ function ServerDetail({
       )}
 
       {!error && status === "ready" && (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text bg={POPUP_BG} fg={t.success}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.success}>
             {"  "}
             {icon("success")} Server healthy
           </text>
@@ -1094,12 +1095,12 @@ function ServerDetail({
       )}
 
       {!error && status === "connecting" && (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text bg={POPUP_BG} fg={t.warning}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.warning}>
             {"  "}
           </text>
           <Spinner color={t.warning} />
-          <text bg={POPUP_BG} fg={t.warning}>
+          <text bg={t.bgPopup} fg={t.warning}>
             {" Connecting…"}
           </text>
         </box>
@@ -1121,13 +1122,14 @@ function DetailRow({
   color: string;
   innerW: number;
 }) {
+  const t = useTheme();
   const trimmed = value.length > innerW - 16 ? value.slice(0, innerW - 16) : value;
   return (
     <Field
       label={label}
       labelWidth={12}
       value={
-        <text bg={POPUP_BG} fg={color}>
+        <text bg={t.bgPopup} fg={color}>
           {trimmed}
         </text>
       }
@@ -1156,20 +1158,20 @@ const ToolBrowser = memo(function ToolBrowser({
   const visible = tools.slice(scrollOffset, scrollOffset + maxVisible);
   return (
     <box flexDirection="column">
-      <box paddingX={1} backgroundColor={POPUP_BG} flexShrink={0}>
+      <box paddingX={1} backgroundColor={t.bgPopup} flexShrink={0}>
         <Search
           value={filter}
           placeholder="type to filter tools…"
           focused
           count={filter ? `${tools.length} result${tools.length === 1 ? "" : "s"}` : undefined}
-          bg={POPUP_BG}
+          bg={t.bgPopup}
         />
       </box>
       <box flexDirection="column" height={Math.min(tools.length, maxVisible) * 2} overflow="hidden">
         {visible.map((tool, vi) => {
           const i = vi + scrollOffset;
           const sel = i === cursor;
-          const bg = sel ? POPUP_HL : POPUP_BG;
+          const bg = sel ? t.bgPopupHighlight : t.bgPopup;
           return (
             <box key={`${tool.serverName}/${tool.name}`} flexDirection="column">
               <box flexDirection="row" backgroundColor={bg}>
@@ -1199,8 +1201,8 @@ const ToolBrowser = memo(function ToolBrowser({
         })}
       </box>
       {tools.length === 0 && (
-        <box flexDirection="row" backgroundColor={POPUP_BG}>
-          <text bg={POPUP_BG} fg={t.textDim}>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.textDim}>
             {"  "}
             {filter ? "No matches" : "No tools"}
           </text>
@@ -1245,7 +1247,7 @@ function FormBody({
       {/* Transport */}
       <box
         flexDirection="row"
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
         paddingX={1}
         width={innerW}
         flexShrink={0}
@@ -1255,16 +1257,16 @@ function FormBody({
           labelWidth={12}
           options={TRANSPORTS.map((tr) => ({ value: tr, label: TRANSPORT_LABEL[tr] }))}
           value={draft.transport}
-          bg={POPUP_BG}
+          bg={t.bgPopup}
         />
-        <box flexGrow={1} backgroundColor={POPUP_BG} />
-        <KeyCap keyName="^T" label="cycle" bg={POPUP_BG} />
+        <box flexGrow={1} backgroundColor={t.bgPopup} />
+        <KeyCap keyName="^T" label="cycle" bg={t.bgPopup} />
       </box>
 
       {/* Scope */}
       <box
         flexDirection="row"
-        backgroundColor={POPUP_BG}
+        backgroundColor={t.bgPopup}
         paddingX={1}
         width={innerW}
         flexShrink={0}
@@ -1277,10 +1279,10 @@ function FormBody({
             { value: "global", label: "global" },
           ]}
           value={draft.scope}
-          bg={POPUP_BG}
+          bg={t.bgPopup}
         />
-        <box flexGrow={1} backgroundColor={POPUP_BG} />
-        <KeyCap keyName="^G" label="toggle" bg={POPUP_BG} />
+        <box flexGrow={1} backgroundColor={t.bgPopup} />
+        <KeyCap keyName="^G" label="toggle" bg={t.bgPopup} />
       </box>
 
       <Sep w={innerW} />
@@ -1288,7 +1290,7 @@ function FormBody({
       {/* Input fields */}
       {fields.map((field) => {
         const active = activeField === field;
-        const bg = active ? POPUP_HL : POPUP_BG;
+        const bg = active ? t.bgPopupHighlight : t.bgPopup;
 
         return (
           <box key={field} flexDirection="column">
@@ -1310,13 +1312,13 @@ function FormBody({
               )}
             </box>
             {active && (
-              <box paddingLeft={4} paddingRight={2} width={innerW} backgroundColor={POPUP_BG}>
+              <box paddingLeft={4} paddingRight={2} width={innerW} backgroundColor={t.bgPopup}>
                 <box
                   borderStyle="rounded"
                   border={true}
                   borderColor={t.brandDim}
                   width={inputW}
-                  backgroundColor={POPUP_BG}
+                  backgroundColor={t.bgPopup}
                   paddingX={1}
                 >
                   <input
@@ -1325,7 +1327,7 @@ function FormBody({
                     onSubmit={advanceField}
                     placeholder={HINT[field]}
                     focused={focused && active}
-                    backgroundColor={POPUP_BG}
+                    backgroundColor={t.bgPopup}
                   />
                 </box>
               </box>

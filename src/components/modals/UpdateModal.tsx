@@ -12,7 +12,7 @@ import {
   performUpgrade,
 } from "../../core/version.js";
 import { useVersionStore } from "../../stores/version.js";
-import { POPUP_BG } from "../layout/shared.js";
+import {} from "../layout/shared.js";
 import { PremiumPopup, Divider, VSpacer } from "../ui/index.js";
 
 type Phase = "info" | "upgrading" | "success" | "failed";
@@ -225,7 +225,7 @@ export function UpdateModal({ visible, onClose }: Props) {
   const iw = pw - 2;
   const maxChangelog = Math.max(6, Math.floor(termRows * 0.5) - 10);
   const logH = Math.max(3, Math.min(6, Math.floor(termRows * 0.2)));
-  const bg = POPUP_BG;
+  const bg = t.bgPopup;
 
   // Animate spinner + cycle quips during upgrade
   useEffect(() => {
