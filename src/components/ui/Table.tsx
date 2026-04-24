@@ -155,8 +155,9 @@ function TableImpl<Row>({
                 </text>
                 {columns.map((c, i) => {
                   const cellW = widths[i] ?? 0;
-                  const raw = c.render
-                    ? null
+                  const align = c.align ?? "left";
+                  const rendered = c.render
+                    ? String(c.render(row) ?? "")
                     : String((row as Record<string, unknown>)[c.key] ?? "");
                   return (
                     <text
@@ -165,11 +166,7 @@ function TableImpl<Row>({
                       fg={rowFg}
                       attributes={isSelected ? BOLD : undefined}
                     >
-                      {c.render ? (
-                        <span bg={rowBg}>{c.render(row) as string}</span>
-                      ) : (
-                        pad(raw ?? "", cellW, c.align ?? "left")
-                      )}
+                      {pad(rendered, cellW, align)}
                       {"  "}
                     </text>
                   );

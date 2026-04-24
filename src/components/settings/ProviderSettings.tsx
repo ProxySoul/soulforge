@@ -14,7 +14,7 @@ import { CONFIG_SCOPES } from "../layout/shared.js";
 import { Divider, Hint, PremiumPopup, SegmentedControl, Toggle } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 110;
-const CHROME_ROWS = 7;
+const CHROME_ROWS = 10;
 
 type ItemType = "cycle" | "toggle" | "budget";
 
@@ -440,7 +440,15 @@ export function ProviderSettings({
         { key: "Esc", label: "close" },
       ]}
     >
-      <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
+      <box
+        flexDirection="column"
+        flexGrow={1}
+        flexShrink={1}
+        minHeight={0}
+        paddingX={2}
+        paddingY={1}
+        overflow="hidden"
+      >
         {items.slice(scrollOffset, scrollOffset + maxVisible).map((item, vi) => {
           const i = vi + scrollOffset;
           const isSelected = i === cursor;
@@ -451,34 +459,32 @@ export function ProviderSettings({
           const srcTag = srcScope === "project" ? "proj" : "glob";
           const srcColor = srcScope === "project" ? t.info : t.textMuted;
 
+          const caption = (
+            <text bg={bg} fg={t.textFaint}>
+              {"      "}
+              {item.desc}
+            </text>
+          );
+
+          let body: React.ReactNode;
           if (item.type === "toggle") {
-            return (
-              <box key={item.key} flexDirection="column" flexShrink={0} backgroundColor={bg}>
-                <box flexDirection="row" backgroundColor={bg}>
-                  <Toggle label={item.label} on={!!raw} focused={isSelected && !disabled} bg={bg} />
-                  <box flexGrow={1} backgroundColor={bg} />
-                  <text bg={bg} fg={srcColor}>
-                    {srcTag}
-                    {"  "}
-                  </text>
-                </box>
-                <text bg={bg} fg={t.textFaint}>
-                  {"      "}
-                  {item.desc}
+            body = (
+              <box flexDirection="row" backgroundColor={bg}>
+                <Toggle label={item.label} on={!!raw} focused={isSelected && !disabled} bg={bg} />
+                <box flexGrow={1} backgroundColor={bg} />
+                <text bg={bg} fg={srcColor}>
+                  {srcTag}
+                  {"  "}
                 </text>
               </box>
             );
-          }
+          } else {
+            const opts = item.options ?? [];
+            const currentValue = item.type === "budget" ? String(vals.budgetTokens) : String(raw);
+            const optsFit = opts.length > 0 && opts.join("  ").length + labelW + 4 <= contentW - 10;
 
-          // cycle / budget — render as SegmentedControl when options are short,
-          // otherwise fall back to a single value chip with a right-arrow hint.
-          const opts = item.options ?? [];
-          const currentValue = item.type === "budget" ? String(vals.budgetTokens) : String(raw);
-          const optsFit = opts.length > 0 && opts.join("  ").length + labelW + 4 <= contentW - 10;
-
-          if (optsFit) {
-            return (
-              <box key={item.key} flexDirection="column" flexShrink={0} backgroundColor={bg}>
+            if (optsFit) {
+              body = (
                 <box flexDirection="row" backgroundColor={bg}>
                   <SegmentedControl
                     label={item.label}
@@ -494,47 +500,50 @@ export function ProviderSettings({
                     {"  "}
                   </text>
                 </box>
-                <text bg={bg} fg={t.textFaint}>
-                  {"    "}
-                  {item.desc}
-                </text>
-              </box>
-            );
+              );
+            } else {
+              const valColor = disabled ? t.textFaint : raw === "off" ? t.textMuted : t.brandAlt;
+              body = (
+                <box flexDirection="row" backgroundColor={bg}>
+                  <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
+                    {isSelected ? "▸ " : "  "}
+                  </text>
+                  <text
+                    bg={bg}
+                    fg={disabled ? t.textFaint : isSelected ? t.brand : t.textPrimary}
+                    attributes={isSelected ? 1 : undefined}
+                  >
+                    {item.label.padEnd(labelW)}
+                  </text>
+                  <text bg={bg} fg={valColor} attributes={1}>
+                    [{currentValue}]
+                  </text>
+                  {isSelected && !disabled ? (
+                    <text bg={bg} fg={t.textDim}>
+                      {"  ← →"}
+                    </text>
+                  ) : null}
+                  <box flexGrow={1} backgroundColor={bg} />
+                  <text bg={bg} fg={srcColor}>
+                    {srcTag}
+                    {"  "}
+                  </text>
+                </box>
+              );
+            }
           }
 
-          // Long option lists — show current value + cycle arrow.
-          const valColor = disabled ? t.textFaint : raw === "off" ? t.textMuted : t.brandAlt;
           return (
-            <box key={item.key} flexDirection="column" flexShrink={0} backgroundColor={bg}>
-              <box flexDirection="row" backgroundColor={bg}>
-                <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
-                  {isSelected ? "▸ " : "  "}
-                </text>
-                <text
-                  bg={bg}
-                  fg={disabled ? t.textFaint : isSelected ? t.brand : t.textPrimary}
-                  attributes={isSelected ? 1 : undefined}
-                >
-                  {item.label.padEnd(labelW)}
-                </text>
-                <text bg={bg} fg={valColor} attributes={1}>
-                  [{currentValue}]
-                </text>
-                {isSelected && !disabled ? (
-                  <text bg={bg} fg={t.textDim}>
-                    {"  ← →"}
-                  </text>
-                ) : null}
-                <box flexGrow={1} backgroundColor={bg} />
-                <text bg={bg} fg={srcColor}>
-                  {srcTag}
-                  {"  "}
-                </text>
-              </box>
-              <text bg={bg} fg={t.textFaint}>
-                {"      "}
-                {item.desc}
-              </text>
+            <box
+              key={item.key}
+              flexDirection="column"
+              flexShrink={0}
+              backgroundColor={bg}
+              paddingX={1}
+              marginBottom={1}
+            >
+              {body}
+              {caption}
             </box>
           );
         })}
@@ -542,7 +551,7 @@ export function ProviderSettings({
       </box>
 
       <Divider width={contentW} />
-      <box paddingX={2} backgroundColor={t.bgPopup}>
+      <box paddingX={2} paddingY={1} backgroundColor={t.bgPopup}>
         <SegmentedControl
           label="Save to"
           labelWidth={8}
