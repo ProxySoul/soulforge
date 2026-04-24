@@ -11,9 +11,9 @@ import {
   setSecret,
 } from "../../../../core/secrets.js";
 import { useTheme } from "../../../../core/theme/index.js";
-import { PopupFooterHints, PopupRow, usePopupColors } from "../../../layout/shared.js";
-import { Gap, StepHeader } from "../primitives.js";
+import { StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
+import { Field, KeyCaps, Search, VSpacer } from "../../../ui/index.js";
 
 // ── Data ──
 
@@ -87,69 +87,61 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 function ProviderRow({
   p,
   isSelected,
-  iw,
   autoAvailable,
 }: {
   p: ProviderEntry;
   isSelected: boolean;
-  iw: number;
   autoAvailable?: boolean;
 }) {
   const t = useTheme();
-  const { bg: popupBg, hl: popupHl } = usePopupColors();
-  const bg = isSelected ? popupHl : popupBg;
+  const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
   const configured = hasKey(p.id);
   const tag = getStatusTag(p.id);
 
   return (
-    <PopupRow w={iw}>
-      <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
-        {isSelected ? " › " : "   "}
-        {p.icon}
-        {"  "}
+    <box flexDirection="row" paddingX={2} backgroundColor={bg}>
+      <text bg={bg}>
+        <span fg={isSelected ? t.brand : t.textFaint}>
+          {isSelected ? "› " : "  "}
+          {p.icon}
+          {"  "}
+        </span>
+        <span fg={isSelected ? t.textPrimary : t.textSecondary} attributes={BOLD}>
+          {p.label}
+        </span>
+        <span fg={t.textFaint}>
+          {" — "}
+          {p.desc}
+        </span>
+        {configured ? (
+          <span fg={t.success}>
+            {"  ✓ "}
+            {tag}
+          </span>
+        ) : null}
+        {!configured && autoAvailable ? <span fg={t.success}>{"  ✓ auto"}</span> : null}
       </text>
-      <text bg={bg} fg={isSelected ? t.textPrimary : t.textSecondary} attributes={BOLD}>
-        {p.label}
-      </text>
-      <text bg={bg} fg={t.textFaint}>
-        {" — "}
-        {p.desc}
-      </text>
-      {configured && (
-        <text bg={bg} fg={t.success}>
-          {"  ✓ "}
-          {tag}
-        </text>
-      )}
-      {!configured && autoAvailable && (
-        <text bg={bg} fg={t.success}>
-          {"  ✓ auto"}
-        </text>
-      )}
-    </PopupRow>
+    </box>
   );
 }
 
-function ModelRow({ m, isSelected, iw }: { m: ModelEntry; isSelected: boolean; iw: number }) {
+function ModelRow({ m, isSelected }: { m: ModelEntry; isSelected: boolean }) {
   const t = useTheme();
-  const { bg: popupBg, hl: popupHl } = usePopupColors();
-  const bg = isSelected ? popupHl : popupBg;
+  const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
 
   return (
-    <PopupRow w={iw}>
-      <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
-        {isSelected ? " › " : "   "}
+    <box flexDirection="row" paddingX={2} backgroundColor={bg}>
+      <text bg={bg}>
+        <span fg={isSelected ? t.brand : t.textFaint}>{isSelected ? "› " : "  "}</span>
+        {m.group ? (
+          <span fg={t.textFaint}>
+            {m.group}
+            {" › "}
+          </span>
+        ) : null}
+        <span fg={isSelected ? t.textPrimary : t.textSecondary}>{m.name}</span>
       </text>
-      {m.group && (
-        <text bg={bg} fg={t.textFaint}>
-          {m.group}
-          {" › "}
-        </text>
-      )}
-      <text bg={bg} fg={isSelected ? t.textPrimary : t.textSecondary}>
-        {m.name}
-      </text>
-    </PopupRow>
+    </box>
   );
 }
 
@@ -173,526 +165,453 @@ export function SetupStep({
   onForward,
   setActive,
 }: SetupStepProps) {
-  const t = useTheme();
-  const { bg: popupBg, hl: popupHl } = usePopupColors();
+  {
+    const t = useTheme();
 
-  const [phase, setPhase] = useState<Phase>("provider");
-  const [cursor, setCursor] = useState(0);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderEntry | null>(null);
+    const [phase, setPhase] = useState<Phase>("provider");
+    const [cursor, setCursor] = useState(0);
+    const [selectedProvider, setSelectedProvider] = useState<ProviderEntry | null>(null);
 
-  // Key input
-  const [keyInput, setKeyInput] = useState("");
+    // Key input
+    const [keyInput, setKeyInput] = useState("");
 
-  // Model state
-  const [allModels, setAllModels] = useState<ModelEntry[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [modelCursor, setModelCursor] = useState(0);
+    // Model state
+    const [allModels, setAllModels] = useState<ModelEntry[]>([]);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [modelCursor, setModelCursor] = useState(0);
 
-  // Feedback
-  const [flash, setFlash] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
+    // Feedback
+    const [flash, setFlash] = useState<string | null>(null);
+    const [errorMsg, setErrorMsg] = useState("");
+    const [spinnerFrame, setSpinnerFrame] = useState(0);
 
-  const [tick, setTick] = useState(0);
-  const [autoAvailMap, setAutoAvailMap] = useState<Record<string, boolean>>({});
-  const spinnerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const inputWidth = Math.min(Math.floor(iw * 0.8), 60);
-  const refresh = () => setTick((n) => n + 1);
-  void tick; // dependency: refresh() increments tick after key save, recomputing anyKeySet
-  const anyKeySet =
-    PROVIDERS.some((p) => hasKey(p.id)) || Object.values(autoAvailMap).some(Boolean);
+    const [tick, setTick] = useState(0);
+    const [autoAvailMap, setAutoAvailMap] = useState<Record<string, boolean>>({});
+    const spinnerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const inputWidth = Math.min(Math.floor(iw * 0.8), 60);
+    const refresh = () => setTick((n) => n + 1);
+    void tick;
+    const anyKeySet =
+      PROVIDERS.some((p) => hasKey(p.id)) || Object.values(autoAvailMap).some(Boolean);
 
-  useEffect(() => {
-    for (const p of PROVIDERS) {
-      if (!p.autoDetect) continue;
-      const prov = getProvider(p.providerId);
-      if (prov?.checkAvailability) {
-        prov.checkAvailability().then((ok) => {
-          setAutoAvailMap((m) => ({ ...m, [p.id]: ok }));
-        });
-      }
-    }
-  }, []);
-
-  // Tell parent when we're handling input
-  const isInputPhase = phase !== "provider";
-  useEffect(() => {
-    setActive(isInputPhase);
-  }, [isInputPhase, setActive]);
-
-  // Spinner
-  useEffect(() => {
-    if (phase === "fetching") {
-      spinnerRef.current = setInterval(
-        () => setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length),
-        80,
-      );
-      return () => {
-        if (spinnerRef.current) clearInterval(spinnerRef.current);
-      };
-    }
-    if (spinnerRef.current) {
-      clearInterval(spinnerRef.current);
-      spinnerRef.current = null;
-    }
-    return undefined;
-  }, [phase]);
-
-  // Reset on mount
-  useEffect(() => {
-    setPhase("provider");
-    setCursor(0);
-  }, []);
-
-  const filteredModels = searchQuery
-    ? allModels.filter(
-        (m) => fuzzyMatch(searchQuery, m.name) || fuzzyMatch(searchQuery, m.group ?? ""),
-      )
-    : allModels;
-
-  // Clamp model cursor when filter changes
-  useEffect(() => {
-    if (modelCursor >= filteredModels.length) {
-      setModelCursor(Math.max(0, filteredModels.length - 1));
-    }
-  }, [filteredModels.length, modelCursor]);
-
-  const fetchModels = async (provider: ProviderEntry) => {
-    setPhase("fetching");
-    setAllModels([]);
-    setSearchQuery("");
-    setModelCursor(0);
-
-    try {
-      const providerDef = getProvider(provider.providerId);
-      let modelList: ModelEntry[] = [];
-
-      if (providerDef?.grouped) {
-        const result = await fetchGroupedModels(provider.providerId);
-        if (result.error) {
-          setErrorMsg(result.error);
-          setPhase("error");
-          return;
+    useEffect(() => {
+      for (const p of PROVIDERS) {
+        if (!p.autoDetect) continue;
+        const prov = getProvider(p.providerId);
+        if (prov?.checkAvailability) {
+          prov.checkAvailability().then((ok) => {
+            setAutoAvailMap((m) => ({ ...m, [p.id]: ok }));
+          });
         }
-        for (const sub of result.subProviders) {
-          const subModels = result.modelsByProvider[sub.id] ?? [];
-          for (const m of subModels) {
-            modelList.push({ id: `${sub.id}/${m.id}`, name: m.name, group: sub.name });
+      }
+    }, []);
+
+    const isInputPhase = phase !== "provider";
+    useEffect(() => {
+      setActive(isInputPhase);
+    }, [isInputPhase, setActive]);
+
+    useEffect(() => {
+      if (phase === "fetching") {
+        spinnerRef.current = setInterval(
+          () => setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length),
+          80,
+        );
+        return () => {
+          if (spinnerRef.current) clearInterval(spinnerRef.current);
+        };
+      }
+      if (spinnerRef.current) {
+        clearInterval(spinnerRef.current);
+        spinnerRef.current = null;
+      }
+      return undefined;
+    }, [phase]);
+
+    useEffect(() => {
+      setPhase("provider");
+      setCursor(0);
+    }, []);
+
+    const filteredModels = searchQuery
+      ? allModels.filter(
+          (m) => fuzzyMatch(searchQuery, m.name) || fuzzyMatch(searchQuery, m.group ?? ""),
+        )
+      : allModels;
+
+    useEffect(() => {
+      if (modelCursor >= filteredModels.length) {
+        setModelCursor(Math.max(0, filteredModels.length - 1));
+      }
+    }, [filteredModels.length, modelCursor]);
+
+    const fetchModels = async (provider: ProviderEntry) => {
+      setPhase("fetching");
+      setAllModels([]);
+      setSearchQuery("");
+      setModelCursor(0);
+
+      try {
+        const providerDef = getProvider(provider.providerId);
+        let modelList: ModelEntry[] = [];
+
+        if (providerDef?.grouped) {
+          const result = await fetchGroupedModels(provider.providerId);
+          if (result.error) {
+            setErrorMsg(result.error);
+            setPhase("error");
+            return;
           }
+          for (const sub of result.subProviders) {
+            const subModels = result.modelsByProvider[sub.id] ?? [];
+            for (const m of subModels) {
+              modelList.push({ id: `${sub.id}/${m.id}`, name: m.name, group: sub.name });
+            }
+          }
+        } else {
+          const result = await fetchProviderModels(provider.providerId);
+          if (result.error) {
+            setErrorMsg(result.error);
+            setPhase("error");
+            return;
+          }
+          modelList = result.models.map((m: ProviderModelInfo) => ({
+            id: `${provider.providerId}/${m.id}`,
+            name: m.name,
+          }));
         }
-      } else {
-        const result = await fetchProviderModels(provider.providerId);
-        if (result.error) {
-          setErrorMsg(result.error);
+
+        if (modelList.length === 0) {
+          setErrorMsg("No models returned. Check your API key.");
           setPhase("error");
           return;
         }
-        modelList = result.models.map((m: ProviderModelInfo) => ({
-          id: `${provider.providerId}/${m.id}`,
-          name: m.name,
-        }));
-      }
 
-      if (modelList.length === 0) {
-        setErrorMsg("No models returned. Check your API key.");
+        setAllModels(modelList);
+        setPhase("models");
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : "Failed to fetch models");
         setPhase("error");
-        return;
       }
+    };
 
-      setAllModels(modelList);
-      setPhase("models");
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to fetch models");
-      setPhase("error");
-    }
-  };
-
-  // ── Keyboard ──
-
-  const handleKeyboard = (evt: import("@opentui/core").KeyEvent) => {
-    // ── Models: search + select ──
-    if (phase === "models") {
-      if (evt.name === "escape") {
-        if (searchQuery) {
-          setSearchQuery("");
+    const handleKeyboard = (evt: import("@opentui/core").KeyEvent) => {
+      if (phase === "models") {
+        if (evt.name === "escape") {
+          if (searchQuery) {
+            setSearchQuery("");
+            setModelCursor(0);
+          } else {
+            setPhase("provider");
+          }
+          return;
+        }
+        if (evt.name === "up") {
+          setModelCursor((c) => (c > 0 ? c - 1 : filteredModels.length - 1));
+          return;
+        }
+        if (evt.name === "down") {
+          setModelCursor((c) => (c < filteredModels.length - 1 ? c + 1 : 0));
+          return;
+        }
+        if (evt.name === "return") {
+          const selected = filteredModels[modelCursor];
+          if (selected) {
+            onSelectModel(selected.id);
+            setFlash(`✓ ${selected.name}`);
+            setPhase("provider");
+            setTimeout(() => {
+              setFlash(null);
+              onForward();
+            }, 600);
+          }
+          return;
+        }
+        if (evt.name === "backspace") {
+          setSearchQuery((q) => q.slice(0, -1));
           setModelCursor(0);
-        } else {
-          setPhase("provider");
+          return;
+        }
+        if (evt.sequence && evt.sequence.length === 1 && !evt.ctrl && !evt.meta) {
+          setSearchQuery((q) => q + evt.sequence);
+          setModelCursor(0);
         }
         return;
       }
+
+      if (phase === "error") {
+        if (evt.name === "return") {
+          setPhase("key");
+          setKeyInput("");
+          return;
+        }
+        if (evt.name === "escape") {
+          setPhase("provider");
+          return;
+        }
+        return;
+      }
+
+      if (phase === "fetching") return;
+
+      if (phase === "key") {
+        if (evt.name === "escape") {
+          setPhase("provider");
+          setKeyInput("");
+          return;
+        }
+        if (evt.name === "return") {
+          if (selectedProvider && keyInput.trim()) {
+            const result = setSecret(selectedProvider.id, keyInput.trim());
+            if (result.success) {
+              refresh();
+              fetchModels(selectedProvider);
+              return;
+            }
+          }
+          return;
+        }
+        if (evt.name === "backspace") {
+          setKeyInput((v) => v.slice(0, -1));
+          return;
+        }
+        if (evt.sequence && evt.sequence.length === 1 && !evt.ctrl && !evt.meta) {
+          setKeyInput((v) => v + evt.sequence);
+        }
+        return;
+      }
+
       if (evt.name === "up") {
-        setModelCursor((c) => (c > 0 ? c - 1 : filteredModels.length - 1));
+        setCursor((c) => (c > 0 ? c - 1 : PROVIDERS.length - 1));
         return;
       }
       if (evt.name === "down") {
-        setModelCursor((c) => (c < filteredModels.length - 1 ? c + 1 : 0));
+        setCursor((c) => (c < PROVIDERS.length - 1 ? c + 1 : 0));
         return;
       }
       if (evt.name === "return") {
-        const selected = filteredModels[modelCursor];
-        if (selected) {
-          onSelectModel(selected.id);
-          setFlash(`✓ ${selected.name}`);
-          setPhase("provider");
-          setTimeout(() => {
-            setFlash(null);
-            onForward();
-          }, 600);
+        const provider = PROVIDERS[cursor];
+        if (!provider) return;
+        setSelectedProvider(provider);
+        if (hasKey(provider.id) || (provider.autoDetect && autoAvailMap[provider.id])) {
+          fetchModels(provider);
+        } else {
+          setPhase("key");
+          setKeyInput("");
         }
-        return;
       }
-      if (evt.name === "backspace") {
-        setSearchQuery((q) => q.slice(0, -1));
-        setModelCursor(0);
-        return;
-      }
-      if (evt.sequence && evt.sequence.length === 1 && !evt.ctrl && !evt.meta) {
-        setSearchQuery((q) => q + evt.sequence);
-        setModelCursor(0);
-      }
-      return;
-    }
+    };
 
-    // ── Error ──
-    if (phase === "error") {
-      if (evt.name === "return") {
-        setPhase("key");
-        setKeyInput("");
-        return;
-      }
-      if (evt.name === "escape") {
-        setPhase("provider");
-        return;
-      }
-      return;
-    }
+    useKeyboard(handleKeyboard);
 
-    // ── Fetching: block ──
-    if (phase === "fetching") return;
-
-    // ── Key input ──
-    if (phase === "key") {
-      if (evt.name === "escape") {
-        setPhase("provider");
-        setKeyInput("");
-        return;
-      }
-      if (evt.name === "return") {
-        if (selectedProvider && keyInput.trim()) {
-          const result = setSecret(selectedProvider.id, keyInput.trim());
-          if (result.success) {
-            refresh();
-            fetchModels(selectedProvider);
-            return;
-          }
-        }
-        return;
-      }
-      if (evt.name === "backspace") {
-        setKeyInput((v) => v.slice(0, -1));
-        return;
-      }
-      if (evt.sequence && evt.sequence.length === 1 && !evt.ctrl && !evt.meta) {
-        setKeyInput((v) => v + evt.sequence);
-      }
-      return;
-    }
-
-    // ── Provider selection ──
-    if (evt.name === "up") {
-      setCursor((c) => (c > 0 ? c - 1 : PROVIDERS.length - 1));
-      return;
-    }
-    if (evt.name === "down") {
-      setCursor((c) => (c < PROVIDERS.length - 1 ? c + 1 : 0));
-      return;
-    }
-    if (evt.name === "return") {
-      const provider = PROVIDERS[cursor];
-      if (!provider) return;
-      setSelectedProvider(provider);
-      if (hasKey(provider.id) || (provider.autoDetect && autoAvailMap[provider.id])) {
-        fetchModels(provider);
-      } else {
-        setPhase("key");
-        setKeyInput("");
-      }
-    }
-  };
-
-  useKeyboard(handleKeyboard);
-
-  // ── Render: Fetching ──
-  if (phase === "fetching" && selectedProvider) {
-    return (
-      <>
-        <Gap iw={iw} />
-        <StepHeader iw={iw} ic={selectedProvider.icon} title={selectedProvider.label} />
-        <Gap iw={iw} />
-        <PopupRow w={iw}>
-          <text fg={t.info} bg={popupBg}>
-            {"   "}
+    // ── Render: Fetching ──
+    if (phase === "fetching" && selectedProvider) {
+      return (
+        <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
+          <VSpacer />
+          <StepHeader ic={selectedProvider.icon} title={selectedProvider.label} />
+          <VSpacer />
+          <text bg={t.bgPopup} fg={t.info}>
+            {" "}
             {SPINNER_FRAMES[spinnerFrame]}
             {" Fetching models..."}
           </text>
-        </PopupRow>
-      </>
-    );
-  }
+        </box>
+      );
+    }
 
-  // ── Render: Model picker with search ──
-  if (phase === "models" && selectedProvider) {
-    const maxVisible = Math.min(10, filteredModels.length);
-    const half = Math.floor(maxVisible / 2);
-    const scrollOffset = Math.max(
-      0,
-      Math.min(modelCursor - half, filteredModels.length - maxVisible),
-    );
-    const visible = filteredModels.slice(scrollOffset, scrollOffset + maxVisible);
+    // ── Render: Model picker with search ──
+    if (phase === "models" && selectedProvider) {
+      const maxVisible = Math.min(10, filteredModels.length);
+      const half = Math.floor(maxVisible / 2);
+      const scrollOffset = Math.max(
+        0,
+        Math.min(modelCursor - half, filteredModels.length - maxVisible),
+      );
+      const visible = filteredModels.slice(scrollOffset, scrollOffset + maxVisible);
 
-    return (
-      <>
-        <Gap iw={iw} />
-        <StepHeader
-          iw={iw}
-          ic={selectedProvider.icon}
-          title={`${selectedProvider.label} — Pick a Model`}
-        />
-        <Gap iw={iw} />
-
-        {/* Search bar */}
-        <PopupRow w={iw}>
-          <text fg={t.textFaint} bg={popupBg}>
-            {"   🔍 "}
-          </text>
-          <text fg={searchQuery ? t.textPrimary : t.textFaint} bg={popupHl}>
-            {" "}
-            {searchQuery || "type to filter..."}{" "}
-          </text>
-          {filteredModels.length !== allModels.length && (
-            <text fg={t.textFaint} bg={popupBg}>
-              {` ${String(filteredModels.length)}/${String(allModels.length)}`}
+      return (
+        <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
+          <VSpacer />
+          <StepHeader
+            ic={selectedProvider.icon}
+            title={`${selectedProvider.label} — Pick a Model`}
+          />
+          <VSpacer />
+          <Search
+            value={searchQuery}
+            placeholder="type to filter..."
+            focused
+            count={
+              filteredModels.length !== allModels.length
+                ? `${String(filteredModels.length)}/${String(allModels.length)}`
+                : undefined
+            }
+          />
+          <VSpacer />
+          {filteredModels.length === 0 ? (
+            <text bg={t.bgPopup} fg={t.textFaint}>
+              {"  No models match your search."}
             </text>
-          )}
-        </PopupRow>
-
-        <Gap iw={iw} />
-
-        {filteredModels.length === 0 ? (
-          <PopupRow w={iw}>
-            <text fg={t.textFaint} bg={popupBg}>
-              {"   No models match your search."}
-            </text>
-          </PopupRow>
-        ) : (
-          <>
-            {visible.map((m, i) => {
-              const realIdx = scrollOffset + i;
-              return <ModelRow key={m.id} m={m} isSelected={realIdx === modelCursor} iw={iw} />;
-            })}
-
-            {filteredModels.length > maxVisible && (
-              <PopupRow w={iw}>
-                <text fg={t.textFaint} bg={popupBg}>
-                  {"   "}
+          ) : (
+            <>
+              {visible.map((m, i) => {
+                const realIdx = scrollOffset + i;
+                return <ModelRow key={m.id} m={m} isSelected={realIdx === modelCursor} />;
+              })}
+              {filteredModels.length > maxVisible ? (
+                <text bg={t.bgPopup} fg={t.textFaint}>
+                  {"  "}
                   {`${String(modelCursor + 1)} of ${String(filteredModels.length)}`}
                 </text>
-              </PopupRow>
-            )}
-          </>
-        )}
+              ) : null}
+            </>
+          )}
+          <VSpacer />
+          <KeyCaps
+            hints={[
+              { key: "↑↓", label: "navigate" },
+              { key: "⏎", label: "select" },
+              { key: "Esc", label: searchQuery ? "clear search" : "back" },
+            ]}
+          />
+        </box>
+      );
+    }
 
-        <Gap iw={iw} />
-        <PopupRow w={iw}>
-          <text fg={t.textFaint} bg={popupBg}>
-            {"   ↑↓ navigate · ⏎ select · esc "}
-            {searchQuery ? "clear search" : "back"}
-          </text>
-        </PopupRow>
-      </>
-    );
-  }
-
-  // ── Render: Error ──
-  if (phase === "error" && selectedProvider) {
-    return (
-      <>
-        <Gap iw={iw} />
-        <StepHeader iw={iw} ic={selectedProvider.icon} title={selectedProvider.label} />
-        <Gap iw={iw} />
-        <PopupRow w={iw}>
-          <text fg={t.error} bg={popupBg}>
-            {"   ✗ "}
+    // ── Render: Error ──
+    if (phase === "error" && selectedProvider) {
+      return (
+        <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
+          <VSpacer />
+          <StepHeader ic={selectedProvider.icon} title={selectedProvider.label} />
+          <VSpacer />
+          <text bg={t.bgPopup} fg={t.error}>
+            {"  ✗ "}
             {errorMsg.length > iw - 10 ? `${errorMsg.slice(0, iw - 13)}...` : errorMsg}
           </text>
-        </PopupRow>
-        <Gap iw={iw} />
-        <PopupFooterHints
-          w={iw}
-          hints={[
-            { key: "⏎", label: "re-enter key" },
-            { key: "esc", label: "back" },
-          ]}
-        />
-      </>
-    );
-  }
+          <VSpacer />
+          <KeyCaps
+            hints={[
+              { key: "⏎", label: "re-enter key" },
+              { key: "Esc", label: "back" },
+            ]}
+          />
+        </box>
+      );
+    }
 
-  // ── Render: Key input ──
-  if (phase === "key" && selectedProvider) {
-    const masked =
-      keyInput.length > 0
-        ? `${"*".repeat(Math.max(0, keyInput.length - 4))}${keyInput.slice(-4)}`
-        : "";
-    const displayMask = masked.length > inputWidth ? `…${masked.slice(-(inputWidth - 1))}` : masked;
+    // ── Render: Key input ──
+    if (phase === "key" && selectedProvider) {
+      const masked =
+        keyInput.length > 0
+          ? `${"*".repeat(Math.max(0, keyInput.length - 4))}${keyInput.slice(-4)}`
+          : "";
+      const displayMask =
+        masked.length > inputWidth ? `…${masked.slice(-(inputWidth - 1))}` : masked;
 
-    return (
-      <>
-        <Gap iw={iw} />
-        <StepHeader iw={iw} ic="⚿" title={`Set ${selectedProvider.label} Key`} />
-        <Gap iw={iw} />
+      return (
+        <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
+          <VSpacer />
+          <StepHeader ic="⚿" title={`Set ${selectedProvider.label} Key`} />
+          <VSpacer />
 
-        <PopupRow w={iw}>
-          <text fg={t.textSecondary} bg={popupBg}>
-            {"   Get your key at "}
-          </text>
-          <text bg={popupBg}>
+          <text bg={t.bgPopup}>
+            <span fg={t.textSecondary}>{"  Get your key at "}</span>
             <a href={selectedProvider.url}>
               <span fg={t.info} attributes={TextAttributes.UNDERLINE}>
                 {selectedProvider.url.replace("https://", "").replace(/\?.*$/, "")}
               </span>
             </a>
           </text>
-        </PopupRow>
 
-        <Gap iw={iw} />
+          <VSpacer />
+          <Field label="API key" value={displayMask || " "} focused />
+          <VSpacer />
 
-        <PopupRow w={iw}>
-          <text fg={t.textMuted} bg={popupBg}>
-            {"   Paste your API key:"}
-          </text>
-        </PopupRow>
+          <KeyCaps
+            hints={[
+              { key: "⏎", label: "save & fetch" },
+              { key: "Esc", label: "cancel" },
+            ]}
+          />
+        </box>
+      );
+    }
 
-        <PopupRow w={iw}>
-          <text bg={popupBg}>{"   "}</text>
-          <text bg={popupHl} fg={t.info}>
-            {" "}
-            {displayMask || " "}
-          </text>
-          <text bg={popupHl} fg={t.brandSecondary}>
-            {"▎"}
-          </text>
-          <text bg={popupHl}>{" ".repeat(Math.max(0, inputWidth - (displayMask.length + 3)))}</text>
-        </PopupRow>
-
-        <Gap iw={iw} />
-
-        <PopupFooterHints
-          w={iw}
-          hints={[
-            { key: "⏎", label: "save & fetch" },
-            { key: "esc", label: "cancel" },
-          ]}
-        />
-      </>
-    );
-  }
-
-  // ── Render: Provider selection ──
-  return (
-    <>
-      <Gap iw={iw} />
-      <StepHeader iw={iw} ic="◈" title="Choose a Provider" />
-      <Gap iw={iw} />
-
-      <PopupRow w={iw}>
-        <text fg={t.textSecondary} bg={popupBg}>
-          {"   Select a provider and press ⏎ to set up."}
+    // ── Render: Provider selection ──
+    return (
+      <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
+        <VSpacer />
+        <StepHeader ic="◈" title="Choose a Provider" />
+        <VSpacer />
+        <text bg={t.bgPopup} fg={t.textSecondary}>
+          {"  Select a provider and press ⏎ to set up."}
         </text>
-      </PopupRow>
+        <VSpacer />
 
-      <Gap iw={iw} />
+        {PROVIDERS.map((p, i) => (
+          <ProviderRow
+            key={p.id}
+            p={p}
+            isSelected={i === cursor}
+            autoAvailable={p.autoDetect ? autoAvailMap[p.id] : undefined}
+          />
+        ))}
 
-      {PROVIDERS.map((p, i) => (
-        <ProviderRow
-          key={p.id}
-          p={p}
-          isSelected={i === cursor}
-          iw={iw}
-          autoAvailable={p.autoDetect ? autoAvailMap[p.id] : undefined}
-        />
-      ))}
-
-      {/* Copilot disclaimer */}
-      {PROVIDERS[cursor]?.providerId === "copilot" && (
-        <>
-          <Gap iw={iw} />
-          <PopupRow w={iw}>
-            <text fg={t.textMuted} bg={popupBg}>
-              {"   Unofficial. Use gh auth token or GITHUB_TOKEN."}
+        {PROVIDERS[cursor]?.providerId === "copilot" ? (
+          <>
+            <VSpacer />
+            <text bg={t.bgPopup} fg={t.textMuted}>
+              {"  Unofficial. Use gh auth token or GITHUB_TOKEN."}
             </text>
-          </PopupRow>
-        </>
-      )}
+          </>
+        ) : null}
 
-      {/* Gateway link — contextual, only when gateway selected and no key */}
-      {PROVIDERS[cursor]?.id === "llmgateway-api-key" && !hasKey("llmgateway-api-key") && (
-        <>
-          <Gap iw={iw} />
-          <PopupRow w={iw}>
-            <text fg={t.textFaint} bg={popupBg}>
-              {"   "}
-            </text>
-            <text bg={popupBg}>
+        {PROVIDERS[cursor]?.id === "llmgateway-api-key" && !hasKey("llmgateway-api-key") ? (
+          <>
+            <VSpacer />
+            <text bg={t.bgPopup}>
+              <span fg={t.textFaint}>{"  "}</span>
               <a href={GATEWAY_REF}>
                 <span fg={t.info} attributes={TextAttributes.UNDERLINE}>
                   llmgateway.io
                 </span>
               </a>
+              <span fg={t.textFaint}>{" — one key for all models"}</span>
             </text>
-            <text fg={t.textFaint} bg={popupBg}>
-              {" — one key for all models"}
-            </text>
-          </PopupRow>
-        </>
-      )}
+          </>
+        ) : null}
 
-      {hasModel && (
-        <>
-          <Gap iw={iw} />
-          <PopupRow w={iw}>
-            <text fg={t.success} attributes={BOLD} bg={popupBg}>
-              {"   ✓ "}
+        {hasModel ? (
+          <>
+            <VSpacer />
+            <text bg={t.bgPopup} attributes={BOLD}>
+              <span fg={t.success}>{"  ✓ "}</span>
+              <span fg={t.textPrimary}>{activeModel}</span>
             </text>
-            <text fg={t.textPrimary} attributes={BOLD} bg={popupBg}>
-              {activeModel}
-            </text>
-          </PopupRow>
-        </>
-      )}
+          </>
+        ) : null}
 
-      {flash && (
-        <>
-          <Gap iw={iw} />
-          <PopupRow w={iw}>
-            <text fg={t.success} attributes={BOLD} bg={popupBg}>
-              {"   "}
+        {flash ? (
+          <>
+            <VSpacer />
+            <text bg={t.bgPopup} fg={t.success} attributes={BOLD}>
+              {"  "}
               {flash}
             </text>
-          </PopupRow>
-        </>
-      )}
+          </>
+        ) : null}
 
-      <Gap iw={iw} />
-      <PopupFooterHints
-        w={iw}
-        hints={[
-          { key: "↑↓", label: "select" },
-          { key: "⏎", label: "set up" },
-          { key: anyKeySet ? "→" : "esc", label: anyKeySet ? "next step" : "close" },
-        ]}
-      />
-    </>
-  );
+        <VSpacer />
+        <KeyCaps
+          hints={[
+            { key: "↑↓", label: "select" },
+            { key: "⏎", label: "set up" },
+            { key: anyKeySet ? "→" : "Esc", label: anyKeySet ? "next step" : "close" },
+          ]}
+        />
+      </box>
+    );
+  }
 }

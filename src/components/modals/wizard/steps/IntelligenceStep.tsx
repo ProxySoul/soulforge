@@ -1,58 +1,48 @@
 import { memo } from "react";
 import { icon } from "../../../../core/icons.js";
 import { useTheme } from "../../../../core/theme/index.js";
-import { PopupRow, usePopupColors } from "../../../layout/shared.js";
 import { INTELLIGENCE_ITEMS } from "../data.js";
-import { Gap, StepHeader } from "../primitives.js";
+import { StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
+import { VSpacer } from "../../../ui/index.js";
 
-export const IntelligenceStep = memo(function IntelligenceStep({ iw }: { iw: number }) {
+export const IntelligenceStep = memo(function IntelligenceStep() {
   const t = useTheme();
-  const { bg } = usePopupColors();
   return (
-    <>
-      <Gap iw={iw} />
-      <StepHeader iw={iw} ic={icon("brain")} title="Codebase Intelligence" />
-      <Gap iw={iw} />
+    <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
+      <VSpacer />
+      <StepHeader ic={icon("brain")} title="Codebase Intelligence" />
+      <VSpacer />
 
-      <PopupRow w={iw}>
-        <text fg={t.textSecondary} bg={bg}>
-          {"  "}SoulForge understands your code before the AI even reads it:
-        </text>
-      </PopupRow>
+      <text bg={t.bgPopup} fg={t.textSecondary}>
+        SoulForge understands your code before the AI even reads it:
+      </text>
 
       {INTELLIGENCE_ITEMS.map((item) => (
-        <box key={item.cmd} flexDirection="column" backgroundColor={bg}>
-          <Gap iw={iw} />
-          <PopupRow w={iw}>
-            <text fg={t.brand} bg={bg}>
-              {"  "}
-              {icon(item.ic)}{" "}
-            </text>
-            <text fg={t.textPrimary} attributes={BOLD} bg={bg}>
+        <box key={item.cmd} flexDirection="column" backgroundColor={t.bgPopup}>
+          <VSpacer />
+          <text bg={t.bgPopup}>
+            <span fg={t.brand}>{icon(item.ic)} </span>
+            <span fg={t.textPrimary} attributes={BOLD}>
               {item.title}
-            </text>
-            <text fg={t.info} bg={bg}>
+            </span>
+            <span fg={t.info}>
               {"  "}
               {item.cmd}
-            </text>
-          </PopupRow>
-          <PopupRow w={iw}>
-            <text fg={t.textSecondary} bg={bg}>
-              {"      "}
-              {item.desc}
-            </text>
-          </PopupRow>
+            </span>
+          </text>
+          <text bg={t.bgPopup} fg={t.textSecondary}>
+            {"    "}
+            {item.desc}
+          </text>
           {item.bullets.map((b) => (
-            <PopupRow key={b} w={iw}>
-              <text fg={t.textDim} bg={bg}>
-                {"      "}
-                <span fg={t.textFaint}>•</span> {b}
-              </text>
-            </PopupRow>
+            <text key={b} bg={t.bgPopup} fg={t.textDim}>
+              {"    "}
+              <span fg={t.textFaint}>•</span> {b}
+            </text>
           ))}
         </box>
       ))}
-    </>
+    </box>
   );
 });

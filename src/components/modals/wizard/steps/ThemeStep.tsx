@@ -5,7 +5,7 @@ import { loadConfig, saveGlobalConfig } from "../../../../config/index.js";
 import { applyTheme, listThemes, useTheme, useThemeStore } from "../../../../core/theme/index.js";
 import type { BorderStrength } from "../../../../core/theme/loader.js";
 import { usePopupScroll } from "../../../../hooks/usePopupScroll.js";
-import { PopupRow, usePopupColors } from "../../../layout/shared.js";
+import {} from "../../../layout/shared.js";
 import { Gap, Hr, StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
 
@@ -33,7 +33,8 @@ const CHROME_ROWS = 19;
 
 export function ThemeStep({ iw, setActive }: ThemeStepProps) {
   const t = useTheme();
-  const { bg: popupBg, hl: popupHl } = usePopupColors();
+  const popupBg = t.bgPopup;
+  const popupHl = t.bgPopupHighlight;
   const themes = useMemo(() => listThemes(), []);
   const currentName = useThemeStore((s) => s.name);
   const isTransparent = useThemeStore((s) => s.tokens.bgApp === "transparent");
@@ -162,14 +163,14 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
     <>
       <Gap iw={iw} />
       <StepHeader iw={iw} ic="◎" title="Pick Your Theme" />
-      <PopupRow w={iw}>
+      <box flexDirection="row" backgroundColor={popupBg}>
         <text fg={t.textDim} bg={popupBg}>
           {"  Tip: add your own tailwind-style theme in "}
         </text>
         <text fg={t.info} bg={popupBg} attributes={BOLD}>
           {"~/.soulforge/themes.json"}
         </text>
-      </PopupRow>
+      </box>
       <Gap iw={iw} />
 
       <OptionRow
@@ -200,7 +201,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
         const variantIcon = th.variant === "light" ? "☀" : "☾";
 
         return (
-          <PopupRow key={th.id} w={iw}>
+          <box key={th.id} flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={isSelected ? t.textPrimary : t.textMuted}>
               {isSelected ? "› " : "  "}
             </text>
@@ -215,33 +216,33 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
                 {" ✓"}
               </text>
             )}
-          </PopupRow>
+          </box>
         );
       })}
 
       {themes.length > maxVisible && (
-        <PopupRow w={iw}>
+        <box flexDirection="row" backgroundColor={popupBg}>
           <text fg={t.textMuted} bg={popupBg}>
             {"  "}
             {scrollOffset > 0 ? "↑ " : "  "}
             {String(cursor + 1)}/{String(themes.length)}
             {scrollOffset + maxVisible < themes.length ? " ↓" : ""}
           </text>
-        </PopupRow>
+        </box>
       )}
 
       <Gap iw={iw} />
-      <PopupRow w={iw}>
+      <box flexDirection="row" backgroundColor={popupBg}>
         <text fg={t.textDim} bg={popupBg}>
           {"  ↑↓ preview · ⏎ apply · tab/m/d/b toggle options · → next"}
         </text>
-      </PopupRow>
+      </box>
     </>
   );
 }
 
 function OptionRow({
-  iw,
+  iw: _iw,
   label,
   value,
   key_,
@@ -254,9 +255,9 @@ function OptionRow({
   active: boolean;
 }) {
   const t = useTheme();
-  const { bg } = usePopupColors();
+  const bg = t.bgPopup;
   return (
-    <PopupRow w={iw}>
+    <box flexDirection="row" backgroundColor={bg}>
       <text fg={t.textSecondary} bg={bg}>
         {"  "}
         {label.padEnd(14)}
@@ -270,6 +271,6 @@ function OptionRow({
         {"  "}
         {key_}
       </text>
-    </PopupRow>
+    </box>
   );
 }

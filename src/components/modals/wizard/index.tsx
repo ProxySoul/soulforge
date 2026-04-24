@@ -1,7 +1,6 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
-import { useTheme } from "../../../core/theme/index.js";
-import { Overlay, usePopupColors } from "../../layout/shared.js";
+import { PremiumPopup } from "../../ui/index.js";
 import { MAX_W, STEPS } from "./data.js";
 import { FooterNav } from "./FooterNav.js";
 import { ProgressBar } from "./ProgressBar.js";
@@ -83,52 +82,49 @@ export function FirstRunWizard({ visible, hasModel, activeModel, onSelectModel, 
 
   useKeyboard(handleKeyboard);
 
-  const t = useTheme();
-  const { bg } = usePopupColors();
-
   if (!visible) return null;
 
   const maxH = Math.max(24, Math.floor(termRows * 0.7));
 
   return (
-    <Overlay>
-      <box
-        flexDirection="column"
-        borderStyle="rounded"
-        border={true}
-        borderColor={t.brandAlt}
-        backgroundColor={bg}
-        width={pw}
-        height={maxH}
-      >
-        <ProgressBar iw={iw} stepIdx={stepIdx} />
-        <Hr iw={iw} />
-
-        <box flexDirection="column" flexGrow={1} overflow="hidden">
-          {step === "welcome" && <WelcomeStep iw={iw} />}
-          {step === "setup" && (
-            <SetupStep
-              iw={iw}
-              hasModel={hasModel}
-              activeModel={activeModel}
-              onSelectModel={onSelectModel}
-              onForward={goForward}
-              active={setupActive}
-              setActive={setSetupActive}
-            />
-          )}
-          {step === "intelligence" && <IntelligenceStep iw={iw} />}
-          {step === "workflow" && <WorkflowStep iw={iw} />}
-          {step === "shortcuts" && <ShortcutsStep iw={iw} />}
-          {step === "theme" && (
-            <ThemeStep iw={iw} active={setupActive} setActive={setSetupActive} />
-          )}
-          {step === "ready" && <ReadyStep iw={iw} />}
-        </box>
-
-        <Hr iw={iw} />
-        <FooterNav iw={iw} stepIdx={stepIdx} step={step} />
+    <PremiumPopup
+      visible={visible}
+      width={pw}
+      height={maxH}
+      title="Welcome to SoulForge"
+      titleIcon="ghost"
+      blurb={`Step ${stepIdx + 1} of 7`}
+      footerHints={[]}
+    >
+      <box flexDirection="column" flexShrink={0}>
+        <ProgressBar stepIdx={stepIdx} />
+        <Hr />
       </box>
-    </Overlay>
+
+      <box flexDirection="column" flexGrow={1} overflow="hidden">
+        {step === "welcome" && <WelcomeStep />}
+        {step === "setup" && (
+          <SetupStep
+            iw={iw}
+            hasModel={hasModel}
+            activeModel={activeModel}
+            onSelectModel={onSelectModel}
+            onForward={goForward}
+            active={setupActive}
+            setActive={setSetupActive}
+          />
+        )}
+        {step === "intelligence" && <IntelligenceStep />}
+        {step === "workflow" && <WorkflowStep />}
+        {step === "shortcuts" && <ShortcutsStep />}
+        {step === "theme" && <ThemeStep iw={iw} active={setupActive} setActive={setSetupActive} />}
+        {step === "ready" && <ReadyStep />}
+      </box>
+
+      <box flexDirection="column" flexShrink={0}>
+        <Hr />
+        <FooterNav stepIdx={stepIdx} step={step} />
+      </box>
+    </PremiumPopup>
   );
 }

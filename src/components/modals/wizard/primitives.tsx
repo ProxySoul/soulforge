@@ -1,91 +1,80 @@
 import { useTheme } from "../../../core/theme/index.js";
-import { PopupRow, usePopupColors } from "../../layout/shared.js";
+import { VSpacer } from "../../ui/index.js";
 import { BOLD } from "./theme.js";
 
-export function Gap({ iw, n = 1 }: { iw: number; n?: number }) {
-  const { bg } = usePopupColors();
-  const rows = [];
-  for (let i = 0; i < n; i++)
-    rows.push(
-      <PopupRow key={i} w={iw}>
-        <text bg={bg}> </text>
-      </PopupRow>,
-    );
-  return <>{rows}</>;
+export function Gap({ n = 1, iw: _iw }: { n?: number; iw?: number }) {
+  return <VSpacer rows={n} />;
 }
 
-export function Hr({ iw }: { iw: number }) {
+export function Hr({ iw: _iw }: { iw?: number } = {}) {
   const t = useTheme();
-  const { bg } = usePopupColors();
   return (
-    <PopupRow w={iw}>
-      <text fg={t.textFaint} bg={bg}>
-        {"─".repeat(iw - 4)}
-      </text>
-    </PopupRow>
+    <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup} flexShrink={0}>
+      <box flexGrow={1} height={1} backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup} fg={t.textFaint}>
+          {"─".repeat(120)}
+        </text>
+      </box>
+    </box>
   );
 }
 
-export function StepHeader({ iw, ic, title }: { iw: number; ic: string; title: string }) {
+export function StepHeader({ ic, title, iw: _iw }: { ic: string; title: string; iw?: number }) {
   const t = useTheme();
-  const { bg } = usePopupColors();
   return (
-    <PopupRow w={iw}>
-      <text fg={t.brand} attributes={BOLD} bg={bg}>
+    <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup} flexShrink={0}>
+      <text bg={t.bgPopup} fg={t.brand} attributes={BOLD}>
         {ic}
       </text>
-      <text fg={t.textPrimary} attributes={BOLD} bg={bg}>
+      <text bg={t.bgPopup} fg={t.textPrimary} attributes={BOLD}>
         {" "}
         {title}
       </text>
-    </PopupRow>
+    </box>
   );
 }
 
-export function SectionLabel({ iw, label }: { iw: number; label: string }) {
+/** Muted bold label — used to label groups inside a step. */
+export function SectionLabel({ label }: { label: string }) {
   const t = useTheme();
-  const { bg } = usePopupColors();
   return (
-    <PopupRow w={iw}>
-      <text fg={t.textMuted} attributes={BOLD} bg={bg}>
+    <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup} flexShrink={0}>
+      <text bg={t.bgPopup} fg={t.textMuted} attributes={BOLD}>
         {label}
       </text>
-    </PopupRow>
+    </box>
   );
 }
 
+/** Feature row: icon + bold title + (keys) + — desc. */
 export function Feat({
-  iw,
   ic,
   title,
   keys,
   desc,
 }: {
-  iw: number;
   ic: string;
   title: string;
   keys: string;
   desc: string;
 }) {
   const t = useTheme();
-  const { bg } = usePopupColors();
   return (
-    <PopupRow w={iw}>
-      <text fg={t.brand} bg={bg}>
-        {"  "}
-        {ic}{" "}
+    <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup} flexShrink={0}>
+      <text bg={t.bgPopup}>
+        <span fg={t.brand}>
+          {"  "}
+          {ic}{" "}
+        </span>
+        <span fg={t.textPrimary} attributes={BOLD}>
+          {title}
+        </span>
+        <span fg={t.info}> ({keys})</span>
+        <span fg={t.textDim}>
+          {" — "}
+          {desc}
+        </span>
       </text>
-      <text fg={t.textPrimary} attributes={BOLD} bg={bg}>
-        {title}
-      </text>
-      <text fg={t.info} bg={bg}>
-        {" "}
-        ({keys})
-      </text>
-      <text fg={t.textDim} bg={bg}>
-        {" — "}
-        {desc}
-      </text>
-    </PopupRow>
+    </box>
   );
 }
