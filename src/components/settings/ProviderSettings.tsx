@@ -1,7 +1,6 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type {
   AppConfig,
   ContextManagementConfig,
@@ -11,7 +10,7 @@ import type {
 } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
 import { CONFIG_SCOPES } from "../layout/shared.js";
-import { Divider, Hint, PremiumPopup, SegmentedControl, Toggle } from "../ui/index.js";
+import { Divider, Hint, PremiumPopup, SegmentedControl, Toggle, VirtualList } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 110;
 const CHROME_ROWS = 10;
@@ -308,7 +307,7 @@ export function ProviderSettings({
 
   const t = useTheme();
   const [tab, setTab] = useState<ProviderTab>("claude");
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxVisible);
+  const [cursor, setCursor] = useState(0);
   const [scope, setScope] = useState<ConfigScope>(() => detectInitialScope(projectConfig));
   const vals = effectiveValues(globalConfig, projectConfig);
 
@@ -321,8 +320,8 @@ export function ProviderSettings({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: tab triggers scroll reset on tab change
   useEffect(() => {
-    resetScroll();
-  }, [tab, resetScroll]);
+    setCursor(0);
+  }, [tab]);
 
   const isBudgetDisabled = vals.thinkingMode !== "enabled";
   const isThinkingDisabled = vals.thinkingMode === "off" || vals.thinkingMode === "disabled";
@@ -370,19 +369,11 @@ export function ProviderSettings({
       return;
     }
     if (evt.name === "up") {
-      setCursor((c) => {
-        const next = c > 0 ? c - 1 : items.length - 1;
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((c) => (c > 0 ? c - 1 : items.length - 1));
       return;
     }
     if (evt.name === "down") {
-      setCursor((c) => {
-        const next = c < items.length - 1 ? c + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((c) => (c < items.length - 1 ? c + 1 : 0));
       return;
     }
     if (evt.name === "return" || evt.name === " ") {
@@ -449,105 +440,119 @@ export function ProviderSettings({
         paddingY={1}
         overflow="hidden"
       >
-        {items.slice(scrollOffset, scrollOffset + maxVisible).map((item, vi) => {
-          const i = vi + scrollOffset;
-          const isSelected = i === cursor;
-          const disabled = isItemDisabled(item.key);
-          const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
-          const raw = vals[item.key as keyof CurrentValues];
-          const srcScope = detectValueScope(item.key, projectConfig);
-          const srcTag = srcScope === "project" ? "proj" : "glob";
-          const srcColor = srcScope === "project" ? t.info : t.textMuted;
+        {items.length === 0 ? (
+          <Hint>No options for this provider yet.</Hint>
+        ) : (
+          <VirtualList
+            items={items}
+            selectedIndex={cursor}
+            width={contentW}
+            maxRows={Math.max(1, Math.floor(maxVisible / 3))}
+            rowHeight={3}
+            keyExtractor={(item) => item.key}
+            renderItem={(item, { selected }) => {
+              const disabled = isItemDisabled(item.key);
+              const bg = selected ? t.bgPopupHighlight : t.bgPopup;
+              const raw = vals[item.key as keyof CurrentValues];
+              const srcScope = detectValueScope(item.key, projectConfig);
+              const srcTag = srcScope === "project" ? "proj" : "glob";
+              const srcColor = srcScope === "project" ? t.info : t.textMuted;
 
-          const caption = (
-            <text bg={bg} fg={t.textFaint}>
-              {"      "}
-              {item.desc}
-            </text>
-          );
-
-          let body: React.ReactNode;
-          if (item.type === "toggle") {
-            body = (
-              <box flexDirection="row" backgroundColor={bg}>
-                <Toggle label={item.label} on={!!raw} focused={isSelected && !disabled} bg={bg} />
-                <box flexGrow={1} backgroundColor={bg} />
-                <text bg={bg} fg={srcColor}>
-                  {srcTag}
-                  {"  "}
+              const caption = (
+                <text bg={bg} fg={t.textFaint}>
+                  {"      "}
+                  {item.desc}
                 </text>
-              </box>
-            );
-          } else {
-            const opts = item.options ?? [];
-            const currentValue = item.type === "budget" ? String(vals.budgetTokens) : String(raw);
-            const optsFit = opts.length > 0 && opts.join("  ").length + labelW + 4 <= contentW - 10;
-
-            if (optsFit) {
-              body = (
-                <box flexDirection="row" backgroundColor={bg}>
-                  <SegmentedControl
-                    label={item.label}
-                    labelWidth={labelW}
-                    options={opts.map((o) => ({ value: o, label: o }))}
-                    value={currentValue}
-                    focused={isSelected && !disabled}
-                    bg={bg}
-                  />
-                  <box flexGrow={1} backgroundColor={bg} />
-                  <text bg={bg} fg={srcColor}>
-                    {srcTag}
-                    {"  "}
-                  </text>
-                </box>
               );
-            } else {
-              const valColor = disabled ? t.textFaint : raw === "off" ? t.textMuted : t.brandAlt;
-              body = (
-                <box flexDirection="row" backgroundColor={bg}>
-                  <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
-                    {isSelected ? "▸ " : "  "}
-                  </text>
-                  <text
-                    bg={bg}
-                    fg={disabled ? t.textFaint : isSelected ? t.brand : t.textPrimary}
-                    attributes={isSelected ? 1 : undefined}
-                  >
-                    {item.label.padEnd(labelW)}
-                  </text>
-                  <text bg={bg} fg={valColor} attributes={1}>
-                    [{currentValue}]
-                  </text>
-                  {isSelected && !disabled ? (
-                    <text bg={bg} fg={t.textDim}>
-                      {"  ← →"}
+
+              let body: React.ReactNode;
+              if (item.type === "toggle") {
+                body = (
+                  <box flexDirection="row" backgroundColor={bg}>
+                    <Toggle label={item.label} on={!!raw} focused={selected && !disabled} bg={bg} />
+                    <box flexGrow={1} backgroundColor={bg} />
+                    <text bg={bg} fg={srcColor}>
+                      {srcTag}
+                      {"  "}
                     </text>
-                  ) : null}
-                  <box flexGrow={1} backgroundColor={bg} />
-                  <text bg={bg} fg={srcColor}>
-                    {srcTag}
-                    {"  "}
-                  </text>
+                  </box>
+                );
+              } else {
+                const opts = item.options ?? [];
+                const currentValue =
+                  item.type === "budget" ? String(vals.budgetTokens) : String(raw);
+                const optsFit =
+                  opts.length > 0 && opts.join("  ").length + labelW + 4 <= contentW - 10;
+
+                if (optsFit) {
+                  body = (
+                    <box flexDirection="row" backgroundColor={bg}>
+                      <SegmentedControl
+                        label={item.label}
+                        labelWidth={labelW}
+                        options={opts.map((o) => ({ value: o, label: o }))}
+                        value={currentValue}
+                        focused={selected && !disabled}
+                        bg={bg}
+                      />
+                      <box flexGrow={1} backgroundColor={bg} />
+                      <text bg={bg} fg={srcColor}>
+                        {srcTag}
+                        {"  "}
+                      </text>
+                    </box>
+                  );
+                } else {
+                  const valColor = disabled
+                    ? t.textFaint
+                    : raw === "off"
+                      ? t.textMuted
+                      : t.brandAlt;
+                  body = (
+                    <box flexDirection="row" backgroundColor={bg}>
+                      <text bg={bg} fg={selected ? t.brand : t.textFaint}>
+                        {selected ? "▸ " : "  "}
+                      </text>
+                      <text
+                        bg={bg}
+                        fg={disabled ? t.textFaint : selected ? t.brand : t.textPrimary}
+                        attributes={selected ? 1 : undefined}
+                      >
+                        {item.label.padEnd(labelW)}
+                      </text>
+                      <text bg={bg} fg={valColor} attributes={1}>
+                        [{currentValue}]
+                      </text>
+                      {selected && !disabled ? (
+                        <text bg={bg} fg={t.textDim}>
+                          {"  ← →"}
+                        </text>
+                      ) : null}
+                      <box flexGrow={1} backgroundColor={bg} />
+                      <text bg={bg} fg={srcColor}>
+                        {srcTag}
+                        {"  "}
+                      </text>
+                    </box>
+                  );
+                }
+              }
+
+              return (
+                <box
+                  flexDirection="column"
+                  flexShrink={0}
+                  backgroundColor={bg}
+                  paddingX={1}
+                  height={3}
+                >
+                  {body}
+                  {caption}
                 </box>
               );
-            }
-          }
-
-          return (
-            <box
-              key={item.key}
-              flexDirection="column"
-              flexShrink={0}
-              backgroundColor={bg}
-              paddingX={1}
-              marginBottom={1}
-            >
-              {body}
-              {caption}
-            </box>
-          );
-        })}
-        {items.length === 0 && <Hint>No options for this provider yet.</Hint>}
+            }}
+          />
+        )}
       </box>
 
       <Divider width={contentW} />

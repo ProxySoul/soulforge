@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { icon } from "../../core/icons.js";
 import type { MCPManager } from "../../core/mcp/manager.js";
 import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
+
 import { type MCPServerState, type MCPServerStatus, useMCPStore } from "../../stores/mcp.js";
 import type { MCPServerConfig } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
@@ -12,14 +12,37 @@ import { Spinner } from "../layout/shared.js";
 
 import {
   Divider,
+  Field,
   KeyCap,
-  KeyCaps,
   PremiumPopup,
   Search,
   SegmentedControl,
-  Field,
   VSpacer,
 } from "../ui/index.js";
+
+function useListScroll(maxVisible: number, totalItems?: number) {
+  const [cursor, setCursor] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const adjustScroll = useCallback(
+    (nextCursor: number) => {
+      setScrollOffset((prev) => {
+        let next = prev;
+        if (nextCursor < prev) next = nextCursor;
+        else if (nextCursor >= prev + maxVisible) next = nextCursor - maxVisible + 1;
+        if (totalItems != null && totalItems > maxVisible) {
+          next = Math.min(next, totalItems - maxVisible);
+        }
+        return Math.max(0, next);
+      });
+    },
+    [maxVisible, totalItems],
+  );
+  const resetScroll = useCallback(() => {
+    setCursor(0);
+    setScrollOffset(0);
+  }, []);
+  return { cursor, setCursor, scrollOffset, setScrollOffset, adjustScroll, resetScroll };
+}
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -86,14 +109,14 @@ const EMPTY: Draft = {
   scope: "project",
 };
 
-type Field = "name" | "command" | "url" | "args" | "env" | "headers";
+type DraftField = "name" | "command" | "url" | "args" | "env" | "headers";
 
-function fieldsFor(t: Draft["transport"]): Field[] {
+function fieldsFor(t: Draft["transport"]): DraftField[] {
   if (t === "stdio") return ["name", "command", "args", "env"];
   return ["name", "url", "headers", "env"];
 }
 
-const LABEL: Record<Field, string> = {
+const LABEL: Record<DraftField, string> = {
   name: "Name",
   command: "Command",
   url: "URL",
@@ -101,7 +124,7 @@ const LABEL: Record<Field, string> = {
   env: "Environment",
   headers: "Headers",
 };
-const HINT: Record<Field, string> = {
+const HINT: Record<DraftField, string> = {
   name: "unique id (e.g. github, postgres)",
   command: "executable (e.g. npx, uvx, docker)",
   url: "https://mcp.example.com/mcp",
@@ -250,7 +273,7 @@ export function MCPSettings({
   const [toolFilter, setToolFilter] = useState("");
   const [serverFilter, setServerFilter] = useState("");
   const [draft, setDraft] = useState<Draft>({ ...EMPTY });
-  const [activeField, setActiveField] = useState<Field>("name");
+  const [activeField, setActiveField] = useState<DraftField>("name");
   const [editingName, setEditingName] = useState<string | null>(null);
   const [detailName, setDetailName] = useState<string | null>(null);
   const [errorExpanded, setErrorExpanded] = useState(false);
@@ -283,7 +306,7 @@ export function MCPSettings({
   const pageSize = view === "list" ? serverPageSize : toolPageSize;
   const listCount =
     view === "list" ? filteredServers.length : view === "tools" ? filteredTools.length : 0;
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(
+  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = useListScroll(
     pageSize,
     listCount,
   );
@@ -717,18 +740,6 @@ export function MCPSettings({
             </box>
           </>
         )}
-
-        <Divider width={innerW} />
-        <box flexDirection="row" paddingX={1} backgroundColor={t.bgPopup}>
-          <KeyCaps
-            hints={mcpFooterHints(
-              view,
-              isForm,
-              detailName ? runtimeServers[detailName]?.status === "disabled" : undefined,
-            )}
-            bg={t.bgPopup}
-          />
-        </box>
       </box>
     </PremiumPopup>
   );
@@ -1225,8 +1236,8 @@ function FormBody({
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
-  activeField: Field;
-  setActiveField: React.Dispatch<React.SetStateAction<Field>>;
+  activeField: DraftField;
+  setActiveField: React.Dispatch<React.SetStateAction<DraftField>>;
   onSave: () => void;
   innerW: number;
   focused: boolean;

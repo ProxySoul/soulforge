@@ -18,10 +18,9 @@ import {
 } from "../../core/intelligence/backends/lsp/installer.js";
 import { clearProbeCache } from "../../core/intelligence/backends/lsp/server-registry.js";
 import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type { AppConfig } from "../../types/index.js";
-import { type ConfigScope } from "../layout/shared.js";
-import { PremiumPopup, Radio } from "../ui/index.js";
+import type { ConfigScope } from "../layout/shared.js";
+import { PremiumPopup, Radio, VirtualList } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 130;
 const CHROME_ROWS = 10;
@@ -192,7 +191,8 @@ export function LspInstallSearch({
   const maxVisible = Math.max(4, Math.floor(containerRows * 0.85) - CHROME_ROWS);
   const contentW = popupWidth - 22 - 3;
   const innerW = contentW;
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxVisible);
+  const [cursor, setCursor] = useState(0);
+  const resetScroll = useCallback(() => setCursor(0), []);
 
   const refreshAll = useCallback(async () => {
     setRegistryLoading(true);
@@ -458,20 +458,12 @@ export function LspInstallSearch({
 
     if (evt.name === "up") {
       const len = currentItems.length;
-      setCursor((prev) => {
-        const next = prev > 0 ? prev - 1 : Math.max(0, len - 1);
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((prev) => (prev > 0 ? prev - 1 : Math.max(0, len - 1)));
       return;
     }
     if (evt.name === "down") {
       const len = currentItems.length;
-      setCursor((prev) => {
-        const next = prev < len - 1 ? prev + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((prev) => (prev < len - 1 ? prev + 1 : 0));
       return;
     }
 
@@ -534,7 +526,6 @@ export function LspInstallSearch({
   useKeyboard(handleKeyboard);
 
   if (!visible) return null;
-  const visibleItems = currentItems.slice(scrollOffset, scrollOffset + maxVisible);
 
   return (
     <PremiumPopup
@@ -628,43 +619,23 @@ export function LspInstallSearch({
           </text>
         </box>
       ) : (
-        <box
-          flexDirection="column"
-          height={Math.min(currentItems.length || 1, maxVisible)}
-          overflow="hidden"
-        >
-          {currentItems.length === 0 ? (
-            <box flexDirection="row" backgroundColor={t.bgPopup}>
-              <text fg={t.textMuted} bg={t.bgPopup}>
-                {query ? "no matching packages" : "no packages"}
-              </text>
-            </box>
-          ) : (
-            visibleItems.map((status, i) => {
-              const idx = scrollOffset + i;
-              return (
-                <PackageRow
-                  key={status.pkg.name}
-                  status={status}
-                  isActive={idx === cursor}
-                  isDisabled={disabledServers.includes(status.pkg.name)}
-                  isRecommended={recommendedNames.has(status.pkg.name)}
-                  innerW={innerW}
-                />
-              );
-            })
+        <VirtualList
+          items={currentItems}
+          selectedIndex={cursor}
+          width={innerW}
+          maxRows={maxVisible}
+          keyExtractor={(s) => s.pkg.name}
+          emptyMessage={query ? "no matching packages" : "no packages"}
+          renderItem={(status, { selected }) => (
+            <PackageRow
+              status={status}
+              isActive={selected}
+              isDisabled={disabledServers.includes(status.pkg.name)}
+              isRecommended={recommendedNames.has(status.pkg.name)}
+              innerW={innerW}
+            />
           )}
-        </box>
-      )}
-
-      {currentItems.length > maxVisible && (
-        <box flexDirection="row" backgroundColor={t.bgPopup}>
-          <text fg={t.textMuted} bg={t.bgPopup}>
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {String(cursor + 1)}/{String(currentItems.length)}
-            {scrollOffset + maxVisible < currentItems.length ? " ↓" : ""}
-          </text>
-        </box>
+        />
       )}
 
       {pendingToggle && (

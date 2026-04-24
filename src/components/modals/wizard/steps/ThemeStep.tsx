@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadConfig, saveGlobalConfig } from "../../../../config/index.js";
 import { applyTheme, listThemes, useTheme, useThemeStore } from "../../../../core/theme/index.js";
 import type { BorderStrength } from "../../../../core/theme/loader.js";
-import { usePopupScroll } from "../../../../hooks/usePopupScroll.js";
-import {} from "../../../layout/shared.js";
+import { VirtualList } from "../../../ui/index.js";
 import { Gap, Hr, StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
 
@@ -55,10 +54,7 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
   const maxH = Math.max(24, Math.floor(termRows * 0.7));
   const maxVisible = Math.max(4, maxH - CHROME_ROWS);
 
-  const { cursor, setCursor, scrollOffset, adjustScroll } = usePopupScroll(
-    maxVisible,
-    themes.length,
-  );
+  const [cursor, setCursor] = useState(0);
 
   const applyAll = useCallback(
     (name: string, tp: boolean, mOp: number, dOp: number, bdr: BorderStrength) => {
@@ -85,11 +81,8 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
   // Initialize cursor to current theme
   useEffect(() => {
     const idx = themes.findIndex((th) => th.id === currentName);
-    if (idx >= 0) {
-      setCursor(idx);
-      adjustScroll(idx);
-    }
-  }, [currentName, themes, setCursor, adjustScroll]);
+    if (idx >= 0) setCursor(idx);
+  }, [currentName, themes]);
 
   useEffect(() => {
     setActive(false);
@@ -100,7 +93,6 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
     if (evt.name === "up") {
       const next = cursor > 0 ? cursor - 1 : themes.length - 1;
       setCursor(next);
-      adjustScroll(next);
       const th = themes[next];
       if (th) applyAll(th.id, isTransparent, msgOpacity, diffOpacity, borderStr);
       return;
@@ -108,7 +100,6 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
     if (evt.name === "down") {
       const next = cursor < themes.length - 1 ? cursor + 1 : 0;
       setCursor(next);
-      adjustScroll(next);
       const th = themes[next];
       if (th) applyAll(th.id, isTransparent, msgOpacity, diffOpacity, borderStr);
       return;
@@ -153,8 +144,6 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
     }
   });
 
-  const visibleThemes = themes.slice(scrollOffset, scrollOffset + maxVisible);
-
   const msgLabel = OPACITY_LABELS[opacityToIndex(msgOpacity)] ?? "Solid";
   const diffLabel = OPACITY_LABELS[opacityToIndex(diffOpacity)] ?? "Solid";
   const bdrLabel = BORDER_LABELS[BORDER_OPTIONS.indexOf(borderStr)] ?? "Default";
@@ -193,43 +182,36 @@ export function ThemeStep({ iw, setActive }: ThemeStepProps) {
       <Hr iw={iw} />
       <Gap iw={iw} />
 
-      {visibleThemes.map((th, vi) => {
-        const i = vi + scrollOffset;
-        const isSelected = i === cursor;
-        const bg = isSelected ? popupHl : popupBg;
-        const isCurrent = th.id === currentName;
-        const variantIcon = th.variant === "light" ? "☀" : "☾";
-
-        return (
-          <box key={th.id} flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={isSelected ? t.textPrimary : t.textMuted}>
-              {isSelected ? "› " : "  "}
-            </text>
-            <text bg={bg} fg={th.brand} attributes={BOLD}>
-              {"■■ "}
-            </text>
-            <text bg={bg} fg={isSelected ? t.textPrimary : t.textSecondary}>
-              {variantIcon} {th.label}
-            </text>
-            {isCurrent && (
-              <text bg={bg} fg={t.success} attributes={TextAttributes.BOLD}>
-                {" ✓"}
+      <VirtualList
+        items={themes}
+        selectedIndex={cursor}
+        width={iw}
+        maxRows={maxVisible}
+        keyExtractor={(th) => th.id}
+        renderItem={(th, { selected }) => {
+          const bg = selected ? popupHl : popupBg;
+          const isCurrent = th.id === currentName;
+          const variantIcon = th.variant === "light" ? "☀" : "☾";
+          return (
+            <box flexDirection="row" backgroundColor={bg}>
+              <text bg={bg} fg={selected ? t.textPrimary : t.textMuted}>
+                {selected ? "› " : "  "}
               </text>
-            )}
-          </box>
-        );
-      })}
-
-      {themes.length > maxVisible && (
-        <box flexDirection="row" backgroundColor={popupBg}>
-          <text fg={t.textMuted} bg={popupBg}>
-            {"  "}
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {String(cursor + 1)}/{String(themes.length)}
-            {scrollOffset + maxVisible < themes.length ? " ↓" : ""}
-          </text>
-        </box>
-      )}
+              <text bg={bg} fg={th.brand} attributes={BOLD}>
+                {"■■ "}
+              </text>
+              <text bg={bg} fg={selected ? t.textPrimary : t.textSecondary}>
+                {variantIcon} {th.label}
+              </text>
+              {isCurrent && (
+                <text bg={bg} fg={t.success} attributes={TextAttributes.BOLD}>
+                  {" ✓"}
+                </text>
+              )}
+            </box>
+          );
+        }}
+      />
 
       <Gap iw={iw} />
       <box flexDirection="row" backgroundColor={popupBg}>

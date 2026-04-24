@@ -15,9 +15,7 @@ import {
   searchSkills,
 } from "../../core/skills/manager.js";
 import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
-import {} from "../layout/shared.js";
-import { PremiumPopup, Radio } from "../ui/index.js";
+import { PremiumPopup, Radio, VirtualList } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 120;
 const CHROME_ROWS = 9;
@@ -172,7 +170,8 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
   const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.88));
   const maxVisible = Math.max(4, Math.floor(containerRows * 0.85) - CHROME_ROWS);
   const contentW = popupWidth - 22 - 3;
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxVisible);
+  const [cursor, setCursor] = useState(0);
+  const resetScroll = useCallback(() => setCursor(0), []);
 
   const filterQuery = query.toLowerCase().trim();
 
@@ -214,7 +213,7 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
         .then((r) => setPopular(r))
         .catch(() => {});
     }
-  }, [visible, setCursor, refreshActive, refreshInstalled]);
+  }, [visible, refreshActive, refreshInstalled]);
 
   useEffect(() => {
     if (!visible || tab !== "search") return;
@@ -244,7 +243,7 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, visible, tab, popular.length, setCursor]);
+  }, [query, visible, tab, popular.length]);
 
   useEffect(() => {
     setQuery("");
@@ -335,20 +334,12 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
 
     if (evt.name === "up") {
       const len = currentListLen;
-      setCursor((prev) => {
-        const next = prev > 0 ? prev - 1 : Math.max(0, len - 1);
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((prev) => (prev > 0 ? prev - 1 : Math.max(0, len - 1)));
       return;
     }
     if (evt.name === "down") {
       const len = currentListLen;
-      setCursor((prev) => {
-        const next = prev < len - 1 ? prev + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((prev) => (prev < len - 1 ? prev + 1 : 0));
       return;
     }
 
@@ -482,51 +473,32 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
 
       {tab === "search" && (
         <>
-          <box
-            flexDirection="column"
-            height={Math.min(displayResults.length || 1, maxVisible)}
-            overflow="hidden"
-          >
-            {searching ? (
-              <box flexDirection="row" backgroundColor={popupBg}>
-                <text fg={t.brand} bg={popupBg}>
-                  searching...
-                </text>
-              </box>
-            ) : displayResults.length === 0 ? (
-              <box flexDirection="row" backgroundColor={popupBg}>
-                <text fg={t.textMuted} bg={popupBg}>
-                  {query ? "no results" : "loading popular skills..."}
-                </text>
-              </box>
-            ) : (
-              displayResults.slice(scrollOffset, scrollOffset + maxVisible).map((skill, i) => {
-                const idx = scrollOffset + i;
-                return (
-                  <SearchSkillRow
-                    key={skill.id}
-                    skill={skill}
-                    isSelected={idx === cursor}
-                    isInstalled={
-                      installedNames.has(skill.skillId) || installedNames.has(skill.name)
-                    }
-                    isLoaded={
-                      activeSkills.includes(skill.skillId) || activeSkills.includes(skill.name)
-                    }
-                    innerW={contentW}
-                  />
-                );
-              })
-            )}
-          </box>
-          {displayResults.length > maxVisible && (
+          {searching ? (
             <box flexDirection="row" backgroundColor={popupBg}>
-              <text fg={t.textMuted} bg={popupBg}>
-                {scrollOffset > 0 ? "↑ " : "  "}
-                {String(cursor + 1)}/{String(displayResults.length)}
-                {scrollOffset + maxVisible < displayResults.length ? " ↓" : ""}
+              <text fg={t.brand} bg={popupBg}>
+                searching...
               </text>
             </box>
+          ) : (
+            <VirtualList
+              items={displayResults}
+              selectedIndex={cursor}
+              width={contentW}
+              maxRows={maxVisible}
+              keyExtractor={(s) => s.id}
+              emptyMessage={query ? "no results" : "loading popular skills..."}
+              renderItem={(skill, { selected }) => (
+                <SearchSkillRow
+                  skill={skill}
+                  isSelected={selected}
+                  isInstalled={installedNames.has(skill.skillId) || installedNames.has(skill.name)}
+                  isLoaded={
+                    activeSkills.includes(skill.skillId) || activeSkills.includes(skill.name)
+                  }
+                  innerW={contentW}
+                />
+              )}
+            />
           )}
 
           {pendingInstall && (
@@ -563,82 +535,36 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
       )}
 
       {tab === "installed" && (
-        <>
-          <box
-            flexDirection="column"
-            height={Math.min(filteredInstalled.length || 1, maxVisible)}
-            overflow="hidden"
-          >
-            {filteredInstalled.length === 0 ? (
-              <box flexDirection="row" backgroundColor={popupBg}>
-                <text fg={t.textMuted} bg={popupBg}>
-                  {query ? "no matching skills" : "no installed skills found"}
-                </text>
-              </box>
-            ) : (
-              filteredInstalled.slice(scrollOffset, scrollOffset + maxVisible).map((skill, i) => {
-                const idx = scrollOffset + i;
-                return (
-                  <InstalledSkillRow
-                    key={skill.path}
-                    skill={skill}
-                    isSelected={idx === cursor}
-                    isLoaded={activeSkills.includes(skill.name)}
-                    innerW={contentW}
-                  />
-                );
-              })
-            )}
-          </box>
-          {filteredInstalled.length > maxVisible && (
-            <box flexDirection="row" backgroundColor={popupBg}>
-              <text fg={t.textMuted} bg={popupBg}>
-                {scrollOffset > 0 ? "↑ " : "  "}
-                {String(cursor + 1)}/{String(filteredInstalled.length)}
-                {scrollOffset + maxVisible < filteredInstalled.length ? " ↓" : ""}
-              </text>
-            </box>
+        <VirtualList
+          items={filteredInstalled}
+          selectedIndex={cursor}
+          width={contentW}
+          maxRows={maxVisible}
+          keyExtractor={(s) => s.path}
+          emptyMessage={query ? "no matching skills" : "no installed skills found"}
+          renderItem={(skill, { selected }) => (
+            <InstalledSkillRow
+              skill={skill}
+              isSelected={selected}
+              isLoaded={activeSkills.includes(skill.name)}
+              innerW={contentW}
+            />
           )}
-        </>
+        />
       )}
 
       {tab === "active" && (
-        <>
-          <box
-            flexDirection="column"
-            height={Math.min(filteredActive.length || 1, maxVisible)}
-            overflow="hidden"
-          >
-            {filteredActive.length === 0 ? (
-              <box flexDirection="row" backgroundColor={popupBg}>
-                <text fg={t.textMuted} bg={popupBg}>
-                  {query ? "no matching skills" : "no active skills — load from Installed tab"}
-                </text>
-              </box>
-            ) : (
-              filteredActive.slice(scrollOffset, scrollOffset + maxVisible).map((name, i) => {
-                const idx = scrollOffset + i;
-                return (
-                  <ActiveSkillRow
-                    key={name}
-                    name={name}
-                    isSelected={idx === cursor}
-                    innerW={contentW}
-                  />
-                );
-              })
-            )}
-          </box>
-          {filteredActive.length > maxVisible && (
-            <box flexDirection="row" backgroundColor={popupBg}>
-              <text fg={t.textMuted} bg={popupBg}>
-                {scrollOffset > 0 ? "↑ " : "  "}
-                {String(cursor + 1)}/{String(filteredActive.length)}
-                {scrollOffset + maxVisible < filteredActive.length ? " ↓" : ""}
-              </text>
-            </box>
+        <VirtualList
+          items={filteredActive}
+          selectedIndex={cursor}
+          width={contentW}
+          maxRows={maxVisible}
+          keyExtractor={(name) => name}
+          emptyMessage={query ? "no matching skills" : "no active skills — load from Installed tab"}
+          renderItem={(name, { selected }) => (
+            <ActiveSkillRow name={name} isSelected={selected} innerW={contentW} />
           )}
-        </>
+        />
       )}
     </PremiumPopup>
   );

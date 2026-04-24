@@ -1,11 +1,30 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type { ConfigScope } from "../layout/shared.js";
 import { CONFIG_SCOPES } from "../layout/shared.js";
 import { KeyCap, PremiumPopup, SegmentedControl, Toggle } from "../ui/index.js";
+
+// CommandPicker owns its own cursor/scroll because list rows have variable
+// height (some options include a description line) which `VirtualList` does
+// not model. Keeping this inline keeps the variable-row math here.
+function useListScroll(maxVisible: number) {
+  const [cursor, setCursor] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const adjustScroll = useCallback(
+    (nextCursor: number) => {
+      setScrollOffset((prev) => {
+        let next = prev;
+        if (nextCursor < prev) next = nextCursor;
+        else if (nextCursor >= prev + maxVisible) next = nextCursor - maxVisible + 1;
+        return Math.max(0, next);
+      });
+    },
+    [maxVisible],
+  );
+  return { cursor, setCursor, scrollOffset, setScrollOffset, adjustScroll };
+}
 
 const MAX_POPUP_WIDTH = 60;
 const CHROME_ROWS = 7;
@@ -178,7 +197,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
   const extraChrome = controlRows > 0 ? controlRows + 1 : 0; // +1 for separator
   const maxVisible = Math.max(4, Math.floor(containerRows * 0.8) - CHROME_ROWS - extraChrome);
   const { cursor, setCursor, scrollOffset, setScrollOffset, adjustScroll } =
-    usePopupScroll(maxVisible);
+    useListScroll(maxVisible);
   const [scope, setScope] = useState<ConfigScope>("project");
   const [search, setSearch] = useState("");
   const [toggleState, setToggleState] = useState<Record<string, boolean>>({});

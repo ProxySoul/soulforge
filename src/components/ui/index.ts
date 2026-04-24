@@ -19,7 +19,7 @@ export type { KeyCapProps, KeyCapsProps } from "./KeyCap.js";
 export { KeyCap, KeyCaps } from "./KeyCap.js";
 export { handleCursorNavKey, handleTextInputKey, type KeyEvt } from "./keyboard.js";
 export type {
-  DividerProps,
+  Field as FormFieldops,
   FieldProps,
   FlashProps,
   HintProps,
@@ -45,3 +45,5 @@ export type { Segment, SegmentedControlProps } from "./SegmentedControl.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export type { TableAlign, TableColumn, TableProps } from "./Table.js";
 export { Table } from "./Table.js";
+export type { VirtualListProps } from "./VirtualList.js";
+export { VirtualList } from "./VirtualList.js";
