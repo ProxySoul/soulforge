@@ -50,16 +50,15 @@ function useTypewriter(text: string, ms: number) {
 export const WelcomeStep = memo(function WelcomeStep() {
   const t = useTheme();
   const { typed, cursorOn } = useTypewriter(WELCOME_TITLE, TYPEWRITER_MS);
-  const ghostIc = icon("ghost");
+  const smithy = icon("smithy");
 
   return (
-    <box flexDirection="column" paddingX={2} backgroundColor={t.bgPopup}>
-      <VSpacer rows={2} />
+    <box flexDirection="column" paddingX={3} paddingY={2} backgroundColor={t.bgPopup}>
       <box flexDirection="row" backgroundColor={t.bgPopup}>
         <text bg={t.bgPopup}>
           <span fg={t.brand} attributes={BOLD}>
-            {" "}
-            {ghostIc}{" "}
+            {smithy}
+            {"  "}
           </span>
           <span fg={t.textPrimary} attributes={BOLD}>
             {typed}
@@ -67,21 +66,37 @@ export const WelcomeStep = memo(function WelcomeStep() {
           <span fg={t.brand}>{cursorOn ? "▌" : " "}</span>
         </text>
       </box>
-      <VSpacer />
       <text bg={t.bgPopup} fg={t.textSecondary} attributes={ITALIC}>
-        {" Graph-Powered Code Intelligence"}
+        Code-aware terminal AI that works with symbols, not strings.
       </text>
       <VSpacer rows={2} />
+      <text bg={t.bgPopup} fg={t.textMuted}>
+        What Forge does differently:
+      </text>
+      <VSpacer />
       {WELCOME_BULLETS.map((b) => (
         <text key={b} bg={t.bgPopup}>
-          <span fg={t.brand}>{" ◆ "}</span>
+          <span fg={t.brandSecondary}>{" ▸ "}</span>
           <span fg={t.textSecondary}>{b}</span>
         </text>
       ))}
       <VSpacer rows={2} />
-      <text bg={t.bgPopup} fg={t.textMuted} attributes={ITALIC}>
-        {" Press → or Enter to begin setup"}
-      </text>
+      <box flexDirection="row" backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup}>
+          <span fg={t.textFaint}>[</span>
+          <span fg={t.brandSecondary} attributes={BOLD}>
+            →
+          </span>
+          <span fg={t.textFaint}>]</span>
+          <span fg={t.textMuted}> next step</span>
+          <span fg={t.textFaint}> · [</span>
+          <span fg={t.brandSecondary} attributes={BOLD}>
+            Esc
+          </span>
+          <span fg={t.textFaint}>]</span>
+          <span fg={t.textMuted}> skip the tour</span>
+        </text>
+      </box>
     </box>
   );
 });

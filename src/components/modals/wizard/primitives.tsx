@@ -46,7 +46,6 @@ export function SectionLabel({ label }: { label: string }) {
   );
 }
 
-/** Feature row: icon + bold title + (keys) + — desc. */
 export function Feat({
   ic,
   title,
@@ -75,6 +74,77 @@ export function Feat({
           {desc}
         </span>
       </text>
+    </box>
+  );
+}
+
+/**
+ * FeatureList — renders a docs-style list of features with icon, title,
+ * command, description, and bullets. Used by most content steps.
+ */
+export function FeatureList({
+  heading,
+  headerIcon,
+  intro,
+  items,
+}: {
+  heading: string;
+  headerIcon: string;
+  intro?: string;
+  items: readonly {
+    readonly ic: string;
+    readonly title: string;
+    readonly cmd: string;
+    readonly desc: string;
+    readonly bullets: readonly string[];
+  }[];
+}) {
+  const t = useTheme();
+  return (
+    <box flexDirection="column" paddingX={2} paddingY={1} backgroundColor={t.bgPopup}>
+      <box flexDirection="row" backgroundColor={t.bgPopup}>
+        <text bg={t.bgPopup}>
+          <span fg={t.brand} attributes={BOLD}>
+            {headerIcon} {heading}
+          </span>
+        </text>
+      </box>
+      {intro ? (
+        <text bg={t.bgPopup} fg={t.textMuted}>
+          {intro}
+        </text>
+      ) : null}
+      {items.map((item) => (
+        <box key={item.title} flexDirection="column" backgroundColor={t.bgPopup} marginTop={1}>
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup}>
+              <span fg={t.brandSecondary}>
+                {item.ic}
+                {"  "}
+              </span>
+              <span fg={t.textPrimary} attributes={BOLD}>
+                {item.title}
+              </span>
+              {item.cmd && item.cmd !== "—" ? (
+                <span fg={t.info}>
+                  {"   "}
+                  {item.cmd}
+                </span>
+              ) : null}
+            </text>
+          </box>
+          <text bg={t.bgPopup} fg={t.textSecondary}>
+            {"  "}
+            {item.desc}
+          </text>
+          {item.bullets.map((b) => (
+            <text key={b} bg={t.bgPopup} fg={t.textDim}>
+              {"    "}
+              <span fg={t.textFaint}>·</span> {b}
+            </text>
+          ))}
+        </box>
+      ))}
     </box>
   );
 }

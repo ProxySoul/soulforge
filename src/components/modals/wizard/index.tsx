@@ -1,12 +1,13 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useRef, useState } from "react";
-import { PremiumPopup } from "../../ui/index.js";
-import { MAX_W, STEPS } from "./data.js";
-import { FooterNav } from "./FooterNav.js";
-import { ProgressBar } from "./ProgressBar.js";
-import { Hr } from "./primitives.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PremiumPopup, type SidebarTab } from "../../ui/index.js";
+import { MAX_W, SIDEBAR_W, STEP_BLURBS, STEP_ICONS, STEP_LABELS, STEPS } from "./data.js";
+import { AutomationStep } from "./steps/AutomationStep.js";
+import { EditingStep } from "./steps/EditingStep.js";
 import { IntelligenceStep } from "./steps/IntelligenceStep.js";
+import { ModesStep } from "./steps/ModesStep.js";
 import { ReadyStep } from "./steps/ReadyStep.js";
+import { RemoteStep } from "./steps/RemoteStep.js";
 import { SetupStep } from "./steps/SetupStep.js";
 import { ShortcutsStep } from "./steps/ShortcutsStep.js";
 import { ThemeStep } from "./steps/ThemeStep.js";
@@ -24,25 +25,34 @@ interface Props {
 export function FirstRunWizard({ visible, hasModel, activeModel, onSelectModel, onClose }: Props) {
   const { width: termCols, height: termRows } = useTerminalDimensions();
   const pw = Math.min(MAX_W, Math.floor(termCols * 0.92));
-  const iw = pw - 2;
+  const contentW = pw - SIDEBAR_W - 3;
 
   const [stepIdx, setStepIdx] = useState(0);
   const step = STEPS[stepIdx] ?? "welcome";
-  const [setupActive, setSetupActive] = useState(false);
+  const [inputLocked, setInputLocked] = useState(false);
+  const [visited, setVisited] = useState<Set<number>>(() => new Set([0]));
 
   const hasOpened = useRef(false);
 
-  // Reset only on first open, not on reopen from model picker
   useEffect(() => {
     if (!visible) return;
     if (!hasOpened.current) {
       hasOpened.current = true;
       setStepIdx(0);
+      setVisited(new Set([0]));
     }
-    setSetupActive(false);
+    setInputLocked(false);
   }, [visible]);
 
-  // Navigation
+  useEffect(() => {
+    setVisited((v) => {
+      if (v.has(stepIdx)) return v;
+      const next = new Set(v);
+      next.add(stepIdx);
+      return next;
+    });
+  }, [stepIdx]);
+
   const goForward = () => {
     if (stepIdx < STEPS.length - 1) setStepIdx((i) => i + 1);
     else onClose();
@@ -54,23 +64,12 @@ export function FirstRunWizard({ visible, hasModel, activeModel, onSelectModel, 
 
   const handleKeyboard = (evt: import("@opentui/core").KeyEvent) => {
     if (!visible) return;
-    if (setupActive) return;
+    if (inputLocked) return;
     if (evt.name === "escape") {
       onClose();
       return;
     }
-    if (step === "setup" || step === "theme") {
-      if (evt.name === "right" || evt.name === "l") {
-        goForward();
-        return;
-      }
-      if (evt.name === "left" || evt.name === "h") {
-        goBack();
-        return;
-      }
-      return;
-    }
-    if (evt.name === "return" || evt.name === "right" || evt.name === "l") {
+    if (evt.name === "right" || evt.name === "l" || evt.name === "tab") {
       goForward();
       return;
     }
@@ -78,52 +77,72 @@ export function FirstRunWizard({ visible, hasModel, activeModel, onSelectModel, 
       goBack();
       return;
     }
+    if (evt.name === "return" && step !== "setup" && step !== "theme") {
+      goForward();
+      return;
+    }
   };
 
   useKeyboard(handleKeyboard);
 
+  const tabs = useMemo<SidebarTab<(typeof STEPS)[number]>[]>(
+    () =>
+      STEPS.map((s, i) => ({
+        id: s,
+        label: STEP_LABELS[s],
+        icon: STEP_ICONS[s],
+        blurb: i === stepIdx ? STEP_BLURBS[s] : undefined,
+        status:
+          i === stepIdx ? "warning" : visited.has(i) ? "online" : i < stepIdx ? "online" : "idle",
+      })),
+    [stepIdx, visited],
+  );
+
   if (!visible) return null;
 
-  const maxH = Math.max(24, Math.floor(termRows * 0.7));
+  const maxH = Math.max(26, Math.floor(termRows * 0.78));
+  const isLast = stepIdx === STEPS.length - 1;
 
   return (
     <PremiumPopup
       visible={visible}
       width={pw}
       height={maxH}
-      title="Welcome to SoulForge"
-      titleIcon="ghost"
-      blurb={`Step ${stepIdx + 1} of 7`}
-      footerHints={[]}
+      title="SoulForge"
+      titleIcon="smithy"
+      tabs={tabs}
+      activeTab={step}
+      sidebarWidth={SIDEBAR_W}
+      footerHints={[
+        ...(stepIdx > 0 ? [{ key: "←", label: "back" }] : []),
+        { key: isLast ? "⏎" : "→", label: isLast ? "start forging" : "next" },
+        { key: "Esc", label: isLast ? "close" : "skip" },
+      ]}
     >
-      <box flexDirection="column" flexShrink={0}>
-        <ProgressBar stepIdx={stepIdx} />
-        <Hr />
-      </box>
-
-      <box flexDirection="column" flexGrow={1} overflow="hidden">
+      <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         {step === "welcome" && <WelcomeStep />}
         {step === "setup" && (
           <SetupStep
-            iw={iw}
+            iw={contentW}
             hasModel={hasModel}
             activeModel={activeModel}
             onSelectModel={onSelectModel}
             onForward={goForward}
-            active={setupActive}
-            setActive={setSetupActive}
+            active={inputLocked}
+            setActive={setInputLocked}
           />
         )}
         {step === "intelligence" && <IntelligenceStep />}
+        {step === "editing" && <EditingStep />}
+        {step === "modes" && <ModesStep />}
         {step === "workflow" && <WorkflowStep />}
+        {step === "automation" && <AutomationStep />}
+        {step === "remote" && <RemoteStep />}
         {step === "shortcuts" && <ShortcutsStep />}
-        {step === "theme" && <ThemeStep iw={iw} active={setupActive} setActive={setSetupActive} />}
+        {step === "theme" && (
+          <ThemeStep iw={contentW} active={inputLocked} setActive={setInputLocked} />
+        )}
         {step === "ready" && <ReadyStep />}
-      </box>
-
-      <box flexDirection="column" flexShrink={0}>
-        <Hr />
-        <FooterNav stepIdx={stepIdx} step={step} />
       </box>
     </PremiumPopup>
   );

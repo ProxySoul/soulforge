@@ -24,11 +24,10 @@ function opacityToIndex(opacity: number): number {
   return idx >= 0 ? idx : OPACITY_LEVELS.length - 1;
 }
 
-// Chrome rows within the wizard popup that aren't part of the theme list:
-// border(2) + progress(1) + hr(1) + gap(1) + header(1) + tip(1) + gap(1)
-// + transparent(1) + msgBg(1) + diffBg(1) + borders(1) + hr(1) + gap(1)
-// + scroll(1) + gap(1) + help(1) + hr(1) + footer(1) = 19
-const CHROME_ROWS = 19;
+// Chrome rows inside the wizard content pane (PremiumPopup shell already owns
+// border + sidebar + footer): TabHeader(3) + gap(1) + header(1) + tip(1) +
+// gap(1) + 4 option rows + hr(1) + gap(1) + counter(1) + gap(1) + help(1) = 16
+const CHROME_ROWS = 16;
 
 export function ThemeStep({ iw, setActive }: ThemeStepProps) {
   const t = useTheme();
