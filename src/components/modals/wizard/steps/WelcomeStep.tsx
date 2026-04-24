@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { icon } from "../../../../core/icons.js";
 import { useTheme } from "../../../../core/theme/index.js";
+import { VSpacer } from "../../../ui/index.js";
 import {
   BLINK_COUNT,
   BLINK_INITIAL_MS,
@@ -10,7 +11,6 @@ import {
   WELCOME_TITLE,
 } from "../data.js";
 import { BOLD, ITALIC } from "../theme.js";
-import { VSpacer } from "../../../ui/index.js";
 
 function useTypewriter(text: string, ms: number) {
   const [len, setLen] = useState(0);

@@ -117,7 +117,7 @@ const NERD: Record<string, string> = {
   cloud: "󰒍",
   rewind: "󰕌",
   checkpoint: "󰜉",
-  morph: "",
+  morph: "󰩟",
   note: "\uF0F6",
   scroll: "\uF0F6",
   prompt: "\uF075",

@@ -273,7 +273,7 @@ export class DiscordSurface extends BaseSurface {
     // The prior `allowed.length > 0 && !allowed.includes(...)` form fell open
     // for any channel that wasn't explicitly configured.
     const allowed = this.allowedByChannel[msg.channel_id];
-    if (!allowed || !allowed.includes(msg.author.id)) return;
+    if (!allowed?.includes(msg.author.id)) return;
     // H5: DM-only — `member` is only present in guild interactions. Any DM
     // adapter receiving a guild-scoped MESSAGE_CREATE is a misconfiguration
     // (we request DIRECT_MESSAGES intent only); drop defensively.
@@ -305,7 +305,7 @@ export class DiscordSurface extends BaseSurface {
       return;
     }
     const allowed = this.allowedByChannel[chanId];
-    if (!allowed || !allowed.includes(interactorId)) {
+    if (!allowed?.includes(interactorId)) {
       void this.respondInteraction(interaction, "not authorised");
       return;
     }

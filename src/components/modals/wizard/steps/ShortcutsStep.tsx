@@ -1,10 +1,10 @@
 import { memo } from "react";
 import { icon } from "../../../../core/icons.js";
 import { useTheme } from "../../../../core/theme/index.js";
+import { VSpacer } from "../../../ui/index.js";
 import { SHORTCUTS } from "../data.js";
 import { SectionLabel, StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
-import { VSpacer } from "../../../ui/index.js";
 
 export const ShortcutsStep = memo(function ShortcutsStep() {
   const t = useTheme();

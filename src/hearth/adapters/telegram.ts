@@ -320,7 +320,7 @@ export class TelegramSurface extends BaseSurface {
     const senderId = String(msg.from.id);
     const chatId = String(msg.chat.id);
     const allowed = this.allowedUserIdsByChat[chatId];
-    if (!allowed || !allowed.includes(msg.from.id)) {
+    if (!allowed?.includes(msg.from.id)) {
       // Silent drop — no reply. Never disclose the bot's presence to strangers.
       return;
     }
@@ -412,7 +412,7 @@ export class TelegramSurface extends BaseSurface {
       return;
     }
     const allowed = this.allowedUserIdsByChat[chatIdForAllow];
-    if (!allowed || !allowed.includes(q.from.id)) {
+    if (!allowed?.includes(q.from.id)) {
       this.sendAnswerCallback(q.id, "not authorised");
       return;
     }

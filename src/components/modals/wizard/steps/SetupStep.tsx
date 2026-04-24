@@ -11,9 +11,9 @@ import {
   setSecret,
 } from "../../../../core/secrets.js";
 import { useTheme } from "../../../../core/theme/index.js";
+import { Field, KeyCaps, Search, VSpacer } from "../../../ui/index.js";
 import { StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
-import { Field, KeyCaps, Search, VSpacer } from "../../../ui/index.js";
 
 // ── Data ──
 

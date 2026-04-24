@@ -12,8 +12,7 @@ import {
   performUpgrade,
 } from "../../core/version.js";
 import { useVersionStore } from "../../stores/version.js";
-import {} from "../layout/shared.js";
-import { PremiumPopup, Divider, VSpacer } from "../ui/index.js";
+import { Divider, PremiumPopup, VSpacer } from "../ui/index.js";
 
 type Phase = "info" | "upgrading" | "success" | "failed";
 

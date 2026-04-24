@@ -1,10 +1,10 @@
 import { memo } from "react";
 import { icon } from "../../../../core/icons.js";
 import { useTheme } from "../../../../core/theme/index.js";
+import { VSpacer } from "../../../ui/index.js";
 import { QUICK_START } from "../data.js";
 import { SectionLabel, StepHeader } from "../primitives.js";
 import { ITALIC } from "../theme.js";
-import { VSpacer } from "../../../ui/index.js";
 
 export const ReadyStep = memo(function ReadyStep() {
   const t = useTheme();

@@ -13,7 +13,6 @@ import {
   getInstallCommands,
   type PrerequisiteStatus,
 } from "../../core/setup/prerequisites.js";
-import {} from "../../core/theme/index.js";
 import {
   buildGroupedRows,
   type GroupedItem,

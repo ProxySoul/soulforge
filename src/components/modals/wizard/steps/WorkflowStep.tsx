@@ -1,10 +1,10 @@
 import { memo } from "react";
 import { icon } from "../../../../core/icons.js";
 import { useTheme } from "../../../../core/theme/index.js";
+import { VSpacer } from "../../../ui/index.js";
 import { WORKFLOW_ITEMS } from "../data.js";
 import { StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
-import { VSpacer } from "../../../ui/index.js";
 
 export const WorkflowStep = memo(function WorkflowStep() {
   const t = useTheme();

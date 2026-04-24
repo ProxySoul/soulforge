@@ -84,7 +84,6 @@ export const astEditTool = {
   name: "ast_edit",
   description:
     "AST edit for TS/JS (.ts/.tsx/.js/.jsx/.mts/.cts/.mjs/.cjs). Default editor for these files — ts-morph locates symbols by {target, name}, no oldString, no line drift. " +
-    "Locates symbols via ts-morph by {target, name} — no oldString, no line drift. " +
     "Single op: {action, target, name, value?, newCode?, index?}. " +
     "Multi-op (atomic, same file): {operations:[{...}, ...]} — all-or-nothing rollback. " +
     "Create files: action='create_file', newCode=<full content>. " +

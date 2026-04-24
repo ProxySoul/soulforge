@@ -1,18 +1,17 @@
-import {} from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { type RepoMapStatus, useRepoMapStore } from "../../stores/repomap.js";
 import { SPINNER_FRAMES } from "../layout/shared.js";
 import {
+  Divider,
+  Field,
   Hint,
   KeyCap,
   PremiumPopup,
+  Section,
   SegmentedControl,
   Toggle,
-  Divider,
-  Field,
-  Section,
   VSpacer,
 } from "../ui/index.js";
 

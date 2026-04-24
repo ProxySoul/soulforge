@@ -165,5 +165,3 @@ export function Overlay({ children }: { children: React.ReactNode }) {
     </box>
   );
 }
-
-// ── Popup compound component ──────────────────────────────────────────
