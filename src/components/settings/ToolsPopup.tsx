@@ -46,7 +46,6 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
           label: name,
           meta: desc,
           active: !disabledTools.has(name),
-          keyHint: !disabledTools.has(name) ? "✓" : " ",
         })),
       },
     ];
