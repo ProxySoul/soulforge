@@ -34,50 +34,6 @@ export function StepHeader({ ic, title, iw: _iw }: { ic: string; title: string; 
   );
 }
 
-/** Muted bold label — used to label groups inside a step. */
-export function SectionLabel({ label }: { label: string }) {
-  const t = useTheme();
-  return (
-    <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup} flexShrink={0}>
-      <text bg={t.bgPopup} fg={t.textMuted} attributes={BOLD}>
-        {label}
-      </text>
-    </box>
-  );
-}
-
-export function Feat({
-  ic,
-  title,
-  keys,
-  desc,
-}: {
-  ic: string;
-  title: string;
-  keys: string;
-  desc: string;
-}) {
-  const t = useTheme();
-  return (
-    <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup} flexShrink={0}>
-      <text bg={t.bgPopup}>
-        <span fg={t.brand}>
-          {"  "}
-          {ic}{" "}
-        </span>
-        <span fg={t.textPrimary} attributes={BOLD}>
-          {title}
-        </span>
-        <span fg={t.info}> ({keys})</span>
-        <span fg={t.textDim}>
-          {" — "}
-          {desc}
-        </span>
-      </text>
-    </box>
-  );
-}
-
 /**
  * FeatureList — renders a docs-style list of features with icon, title,
  * command, description, and bullets. Used by most content steps.
