@@ -1,254 +1,150 @@
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { memo } from "react";
-import { icon } from "../../core/icons.js";
+import { useMemo, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type { TaskRouter } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
-import { CONFIG_SCOPES, POPUP_BG, POPUP_HL, Popup, PopupRow } from "../layout/shared.js";
+import { CONFIG_SCOPES } from "../layout/shared.js";
+import {
+  buildGroupedRows,
+  type GroupedItem,
+  GroupedList,
+  type GroupedListGroup,
+  Hint,
+  handleCursorNavKey,
+  PremiumPopup,
+  Section,
+  SegmentedControl,
+  VSpacer,
+} from "../ui/index.js";
 
-const MAX_POPUP_WIDTH = 76;
-const CHROME_ROWS = 12;
-
-// ── Section / slot definitions ──────────────────────────────────────────
-
-interface SlotRow {
+interface SlotDef {
   kind: "slot";
   key: keyof TaskRouter;
   label: string;
+  icon: string;
   hint: string;
 }
 
-interface PickerRow {
+interface PickerDef {
   kind: "picker";
   key: "maxConcurrentAgents";
   label: string;
+  icon: string;
   hint: string;
   options: number[];
   defaultValue: number;
 }
 
-interface SectionRow {
-  kind: "section";
+type Def = SlotDef | PickerDef;
+
+interface SectionDef {
+  id: string;
   title: string;
   subtitle: string;
+  defs: Def[];
 }
 
-type ListRow = SlotRow | PickerRow | SectionRow;
-type SelectableRow = SlotRow | PickerRow;
-
-const ROWS: ListRow[] = [
-  // ── Main Agent ──
+const SECTIONS: SectionDef[] = [
   {
-    kind: "section",
+    id: "main",
     title: "Main Agent",
     subtitle: "Model that handles your conversation",
+    defs: [
+      {
+        kind: "slot",
+        key: "default",
+        label: "Default",
+        icon: "model",
+        hint: "Fallback for background tasks when no specific model is set",
+      },
+    ],
   },
   {
-    kind: "slot",
-    key: "default",
-    label: `${icon("model")} Default`,
-    hint: "Fallback for background tasks when no specific model is set",
-  },
-  // ── Dispatch ──
-  {
-    kind: "section",
+    id: "dispatch",
     title: "Dispatch",
     subtitle: "Models for parallel subagents",
+    defs: [
+      {
+        kind: "slot",
+        key: "spark",
+        label: "Explore",
+        icon: "read_only",
+        hint: "Read-only agents — searches, reads, analyzes",
+      },
+      {
+        kind: "slot",
+        key: "ember",
+        label: "Code",
+        icon: "edit",
+        hint: "Edit agents — reads files, makes changes",
+      },
+      {
+        kind: "slot",
+        key: "webSearch",
+        label: "Web",
+        icon: "web",
+        hint: "Searches the web & fetches pages",
+      },
+      {
+        kind: "picker",
+        key: "maxConcurrentAgents",
+        label: "Concurrency",
+        icon: "dispatch",
+        hint: "Max parallel agents per dispatch (default 3)",
+        options: [2, 3, 4, 5, 6, 7, 8],
+        defaultValue: 3,
+      },
+    ],
   },
   {
-    kind: "slot",
-    key: "spark",
-    label: `${icon("read_only")} Explore`,
-    hint: "Read-only agents — searches, reads, analyzes (doppelganger)",
-  },
-  {
-    kind: "slot",
-    key: "ember",
-    label: `${icon("edit")} Code`,
-    hint: "Edit agents — reads files, makes changes",
-  },
-  {
-    kind: "slot",
-    key: "webSearch",
-    label: `${icon("web")} Web`,
-    hint: "Searches the web & fetches pages",
-  },
-  {
-    kind: "picker",
-    key: "maxConcurrentAgents",
-    label: `${icon("dispatch")} Concurrency`,
-    hint: "Max parallel agents per dispatch (default 3)",
-    options: [2, 3, 4, 5, 6, 7, 8],
-    defaultValue: 3,
-  },
-  // ── Post-Dispatch ──
-  {
-    kind: "section",
+    id: "post",
     title: "Post-Dispatch",
     subtitle: "Quality checks after code agents finish",
+    defs: [
+      {
+        kind: "slot",
+        key: "desloppify",
+        label: "Cleanup",
+        icon: "cleanup",
+        hint: "Post-dispatch polish & style fixes",
+      },
+      {
+        kind: "slot",
+        key: "verify",
+        label: "Review",
+        icon: "review",
+        hint: "Adversarial review after code agents",
+      },
+    ],
   },
   {
-    kind: "slot",
-    key: "desloppify",
-    label: `${icon("cleanup")} Cleanup`,
-    hint: "Post-dispatch polish & style fixes",
-  },
-  {
-    kind: "slot",
-    key: "verify",
-    label: `${icon("review")} Review`,
-    hint: "Adversarial review after code agents",
-  },
-
-  // ── Background ──
-  {
-    kind: "section",
+    id: "bg",
     title: "Background",
     subtitle: "Internal tasks — usually fine on defaults",
-  },
-  {
-    kind: "slot",
-    key: "compact",
-    label: `${icon("compact_task")} Compaction`,
-    hint: "Summarizes old context when conversation grows long",
-  },
-  {
-    kind: "slot",
-    key: "semantic",
-    label: `${icon("repomap")} Soul Map`,
-    hint: "Generates symbol summaries for the repo map",
+    defs: [
+      {
+        kind: "slot",
+        key: "compact",
+        label: "Compaction",
+        icon: "compact_task",
+        hint: "Summarizes old context when conversation grows long",
+      },
+      {
+        kind: "slot",
+        key: "semantic",
+        label: "Soul Map",
+        icon: "repomap",
+        hint: "Generates symbol summaries for the repo map",
+      },
+    ],
   },
 ];
 
-// Flat list of only selectable (slot/picker) rows, with their index into ROWS
-const SELECTABLE: { row: SelectableRow; rowIdx: number }[] = ROWS.reduce<
-  { row: SelectableRow; rowIdx: number }[]
->((acc, r, i) => {
-  if (r.kind === "slot" || r.kind === "picker") acc.push({ row: r, rowIdx: i });
-  return acc;
-}, []);
+const ALL_DEFS: Def[] = SECTIONS.flatMap((s) => s.defs);
 
-// ── Sub-components ──────────────────────────────────────────────────────
-
-const SectionHeader = memo(function SectionHeader({
-  title,
-  subtitle,
-  innerW,
-}: {
-  title: string;
-  subtitle: string;
-  innerW: number;
-}) {
-  const t = useTheme();
-  const lineW = Math.max(0, innerW - title.length - 5);
-  return (
-    <>
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG}>{""}</text>
-      </PopupRow>
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
-          {title}
-        </text>
-        <text bg={POPUP_BG} fg={t.textSubtle}>
-          {" "}
-          {"─".repeat(lineW)}
-        </text>
-      </PopupRow>
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textMuted}>
-          {subtitle}
-        </text>
-      </PopupRow>
-    </>
-  );
-});
-
-const SlotRowView = memo(function SlotRowView({
-  slot,
-  modelId,
-  activeModel,
-  selected,
-  innerW,
-}: {
-  slot: SlotRow;
-  modelId: string | null;
-  activeModel: string;
-  selected: boolean;
-  innerW: number;
-}) {
-  const t = useTheme();
-  const bg = selected ? POPUP_HL : POPUP_BG;
-  const displayModel = modelId ?? activeModel;
-  const isCustom = !!modelId;
-  const labelW = 16;
-  const modelMaxW = Math.max(10, innerW - labelW - 8);
-  const truncModel =
-    displayModel.length > modelMaxW ? `${displayModel.slice(0, modelMaxW - 3)}...` : displayModel;
-
-  return (
-    <PopupRow bg={bg} w={innerW}>
-      <text bg={bg} fg={selected ? t.brand : t.textDim}>
-        {selected ? "› " : "  "}
-      </text>
-      <text
-        bg={bg}
-        fg={selected ? "white" : t.textPrimary}
-        attributes={selected ? TextAttributes.BOLD : undefined}
-      >
-        {slot.label.padEnd(labelW)}
-      </text>
-      <text bg={bg} fg={isCustom ? t.success : t.textMuted}>
-        {isCustom ? "" : "↳ "}
-        {truncModel}
-      </text>
-    </PopupRow>
-  );
-});
-
-const PickerRowView = memo(function PickerRowView({
-  picker,
-  value,
-  selected,
-  innerW,
-}: {
-  picker: PickerRow;
-  value: number;
-  selected: boolean;
-  innerW: number;
-}) {
-  const t = useTheme();
-  const bg = selected ? POPUP_HL : POPUP_BG;
-  const labelW = 16;
-  return (
-    <PopupRow bg={bg} w={innerW}>
-      <text bg={bg} fg={selected ? t.brand : t.textDim}>
-        {selected ? "› " : "  "}
-      </text>
-      <text
-        bg={bg}
-        fg={selected ? "white" : t.textPrimary}
-        attributes={selected ? TextAttributes.BOLD : undefined}
-      >
-        {picker.label.padEnd(labelW)}
-      </text>
-      {picker.options.map((opt) => (
-        <text
-          key={opt}
-          bg={bg}
-          fg={opt === value ? t.brand : t.textDim}
-          attributes={opt === value ? TextAttributes.BOLD : undefined}
-        >
-          {opt === value ? ` [${String(opt)}] ` : `  ${String(opt)}  `}
-        </text>
-      ))}
-    </PopupRow>
-  );
-});
-
-// ── Main component ──────────────────────────────────────────────────────
+interface SlotRow extends GroupedItem {
+  def: Def;
+}
 
 interface Props {
   visible: boolean;
@@ -274,206 +170,166 @@ export function RouterSettings({
   onClose,
 }: Props) {
   const t = useTheme();
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.85));
-  const innerW = popupWidth - 2;
-  const maxVisible = Math.max(6, termRows - CHROME_ROWS);
-  const { cursor, setCursor, scrollOffset, adjustScroll } = usePopupScroll(maxVisible);
+  const { width: tw, height: th } = useTerminalDimensions();
+  const [cursor, setCursor] = useState(0);
+
+  const popupW = Math.min(100, Math.max(72, Math.floor(tw * 0.78)));
+  const popupH = Math.min(36, Math.max(22, th - 4));
+  const contentW = popupW - 4;
+
+  const groups = useMemo<GroupedListGroup<SlotRow>[]>(() => {
+    return SECTIONS.map((s) => ({
+      id: s.id,
+      label: s.title,
+      accent: t.brandAlt,
+      meta: s.subtitle,
+      items: s.defs
+        .filter((def) => def.kind === "slot")
+        .map<SlotRow>((def) => {
+          const raw = router?.[def.key] ?? null;
+          const modelId = typeof raw === "string" ? raw : null;
+          return {
+            id: def.key,
+            label: def.label,
+            icon: def.icon,
+            meta: modelId ?? `↳ ${activeModel}`,
+            active: !!modelId,
+            def,
+          };
+        }),
+    }));
+  }, [router, activeModel, t]);
+
+  // Pickers are separate controls (SegmentedControl) rendered outside the list
+  const pickerDefs = useMemo(() => ALL_DEFS.filter((d): d is PickerDef => d.kind === "picker"), []);
+
+  const expanded = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
+  const rows = useMemo(() => buildGroupedRows(groups, expanded), [groups, expanded]);
+
+  const selectedRow = rows[cursor];
+  const selectedDef = selectedRow?.kind === "item" ? (selectedRow.item as SlotRow).def : null;
+
+  // Move cursor to next/prev item (skip group headers)
+  const moveItem = (dir: 1 | -1) => {
+    const total = rows.length;
+    if (total === 0) return;
+    let i = cursor + dir;
+    for (let n = 0; n < total; n++) {
+      if (i < 0) i = total - 1;
+      else if (i >= total) i = 0;
+      if (rows[i]?.kind === "item") {
+        setCursor(i);
+        return;
+      }
+      i += dir;
+    }
+  };
 
   useKeyboard((evt) => {
     if (!visible) return;
+
     if (evt.name === "escape" || evt.name === "q") {
       onClose();
       return;
     }
+
     if (evt.name === "up" || evt.name === "k") {
-      setCursor((c) => {
-        const next = c > 0 ? c - 1 : SELECTABLE.length - 1;
-        adjustScroll(next);
-        return next;
-      });
+      moveItem(-1);
       return;
     }
     if (evt.name === "down" || evt.name === "j") {
-      setCursor((c) => {
-        const next = c < SELECTABLE.length - 1 ? c + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
+      moveItem(1);
       return;
     }
     if (evt.name === "return") {
-      const sel = SELECTABLE[cursor];
-      if (sel && sel.row.kind === "slot") onPickSlot(sel.row.key);
+      if (selectedDef?.kind === "slot") onPickSlot(selectedDef.key);
       return;
     }
     if (evt.name === "d" || evt.name === "delete" || evt.name === "backspace") {
-      const sel = SELECTABLE[cursor];
-      if (sel && sel.row.kind === "slot") onClearSlot(sel.row.key);
-      if (sel && sel.row.kind === "picker") onPickerChange(sel.row.key, sel.row.defaultValue);
+      if (selectedDef?.kind === "slot") onClearSlot(selectedDef.key);
+      else if (selectedDef?.kind === "picker")
+        onPickerChange(selectedDef.key, selectedDef.defaultValue);
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
-      const sel = SELECTABLE[cursor];
-      if (sel && sel.row.kind === "picker") {
-        const { options, key } = sel.row;
-        const cur = router?.[key] ?? sel.row.defaultValue;
-        const idx = options.indexOf(cur);
+      if (selectedDef?.kind === "picker") {
+        const cur = router?.[selectedDef.key] ?? selectedDef.defaultValue;
+        const curNum = typeof cur === "number" ? cur : selectedDef.defaultValue;
+        const idx = selectedDef.options.indexOf(curNum);
+        const base = idx < 0 ? selectedDef.options.indexOf(selectedDef.defaultValue) : idx;
         const nextIdx =
           evt.name === "left"
-            ? Math.max(0, (idx < 0 ? options.indexOf(sel.row.defaultValue) : idx) - 1)
-            : Math.min(
-                options.length - 1,
-                (idx < 0 ? options.indexOf(sel.row.defaultValue) : idx) + 1,
-              );
-        onPickerChange(key, options[nextIdx] ?? sel.row.defaultValue);
+            ? Math.max(0, base - 1)
+            : Math.min(selectedDef.options.length - 1, base + 1);
+        onPickerChange(selectedDef.key, selectedDef.options[nextIdx] ?? selectedDef.defaultValue);
         return;
       }
-      const idx = CONFIG_SCOPES.indexOf(scope);
+      const sIdx = CONFIG_SCOPES.indexOf(scope);
       const next =
         evt.name === "left"
-          ? CONFIG_SCOPES[(idx - 1 + CONFIG_SCOPES.length) % CONFIG_SCOPES.length]
-          : CONFIG_SCOPES[(idx + 1) % CONFIG_SCOPES.length];
-      if (next !== scope) onScopeChange(next as ConfigScope, scope);
+          ? CONFIG_SCOPES[(sIdx - 1 + CONFIG_SCOPES.length) % CONFIG_SCOPES.length]
+          : CONFIG_SCOPES[(sIdx + 1) % CONFIG_SCOPES.length];
+      if (next && next !== scope) onScopeChange(next, scope);
       return;
     }
+    handleCursorNavKey(evt, setCursor, rows.length);
   });
 
   if (!visible) return null;
 
-  // Build the visible rows — we render ALL rows (sections + slots) but only
-  // slots are selectable. We need to figure out which ROWS are visible based
-  // on the scroll window over SELECTABLE items.
-  const visibleSelectableStart = scrollOffset;
-  const visibleSelectableEnd = Math.min(scrollOffset + maxVisible, SELECTABLE.length);
-
-  // Find the ROWS range that covers the visible selectable items
-  const firstRowIdx =
-    visibleSelectableStart < SELECTABLE.length
-      ? (SELECTABLE[visibleSelectableStart]?.rowIdx ?? 0)
-      : 0;
-  const lastRowIdx =
-    visibleSelectableEnd > 0
-      ? (SELECTABLE[visibleSelectableEnd - 1]?.rowIdx ?? ROWS.length - 1)
-      : ROWS.length - 1;
-
-  // Include section headers that appear before the first visible slot
-  let renderStart = firstRowIdx;
-  while (renderStart > 0 && ROWS[renderStart - 1]?.kind === "section") {
-    renderStart--;
-  }
-
-  const selectedSlot = SELECTABLE[cursor];
-  const selectedHint = selectedSlot?.row.hint ?? "";
+  const customCount = ALL_DEFS.filter(
+    (d) => d.kind === "slot" && typeof router?.[d.key] === "string",
+  ).length;
+  const slotCount = ALL_DEFS.filter((d) => d.kind === "slot").length;
 
   return (
-    <Popup
-      width={popupWidth}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={popupH}
       title="Task Router"
-      icon={icon("router")}
-      headerRight={
-        <text bg={POPUP_BG} fg={t.textMuted}>
-          {" — assign models to different tasks"}
-        </text>
-      }
-      footer={[
-        { key: "↑↓", label: "navigate" },
-        { key: "⏎", label: "pick model" },
+      titleIcon="router"
+      blurb={`${customCount} / ${slotCount} slots customized · scope: ${scope}`}
+      footerHints={[
+        { key: "↑↓", label: "nav" },
+        { key: "Enter", label: "pick model" },
         { key: "d", label: "reset" },
-        { key: "←→", label: "scope" },
-        { key: "esc", label: "close" },
+        { key: "←→", label: "scope / value" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      {/* ── Scrollable body ── */}
-      <box flexDirection="column" overflow="hidden">
-        {ROWS.slice(renderStart, lastRowIdx + 1).map((row, _vi) => {
-          if (row.kind === "section") {
-            return (
-              <SectionHeader
-                key={row.title}
-                title={row.title}
-                subtitle={row.subtitle}
-                innerW={innerW}
-              />
-            );
-          }
-          // Find which selectable index this slot corresponds to
-          const selIdx = SELECTABLE.findIndex((s) => s.row.key === row.key);
-          const isSelected = selIdx === cursor;
-          if (row.kind === "picker") {
-            const val = router?.[row.key] ?? row.defaultValue;
-            return (
-              <PickerRowView
-                key={row.key}
-                picker={row}
-                value={typeof val === "number" ? val : row.defaultValue}
-                selected={isSelected}
-                innerW={innerW}
-              />
-            );
-          }
-          const raw = router?.[row.key] ?? null;
-          const modelId = typeof raw === "string" ? raw : null;
+      <Section>
+        <GroupedList
+          groups={groups}
+          expanded={expanded}
+          selectedIndex={cursor}
+          width={contentW}
+          maxRows={Math.max(6, popupH - 16)}
+        />
+        <VSpacer />
+        {pickerDefs.map((def) => {
+          const cur = router?.[def.key];
+          const num = typeof cur === "number" ? cur : def.defaultValue;
           return (
-            <SlotRowView
-              key={row.key}
-              slot={row}
-              modelId={modelId}
-              activeModel={activeModel}
-              selected={isSelected}
-              innerW={innerW}
+            <SegmentedControl
+              key={def.key}
+              label={def.label}
+              labelWidth={14}
+              options={def.options.map((o) => ({ value: o, label: String(o) }))}
+              value={num}
             />
           );
         })}
-      </box>
-
-      {/* ── Scroll indicator ── */}
-      {SELECTABLE.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {"  "}
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {String(cursor + 1)}/{String(SELECTABLE.length)}
-            {visibleSelectableEnd < SELECTABLE.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
-      )}
-
-      {/* ── Selected slot hint ── */}
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textSubtle}>
-          {"─".repeat(innerW - 2)}
-        </text>
-      </PopupRow>
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textSecondary}>
-          {selectedHint}
-        </text>
-      </PopupRow>
-
-      {/* ── Scope selector ── */}
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textSubtle}>
-          {"─".repeat(innerW - 2)}
-        </text>
-      </PopupRow>
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textMuted}>
-          {"Scope "}
-        </text>
-        {CONFIG_SCOPES.map((s) => (
-          <text
-            key={s}
-            bg={POPUP_BG}
-            fg={s === scope ? t.brandAlt : t.textDim}
-            attributes={s === scope ? TextAttributes.BOLD : undefined}
-          >
-            {s === scope ? ` [${s}] ` : `  ${s}  `}
-          </text>
-        ))}
-      </PopupRow>
-
-      {/* ── Keybindings ── */}
-    </Popup>
+        <VSpacer />
+        {selectedDef ? <Hint>{selectedDef.hint}</Hint> : null}
+        <VSpacer />
+        <SegmentedControl
+          label="Scope"
+          labelWidth={14}
+          options={CONFIG_SCOPES.map((s) => ({ value: s, label: s }))}
+          value={scope}
+        />
+      </Section>
+    </PremiumPopup>
   );
 }

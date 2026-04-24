@@ -1,17 +1,20 @@
-import { TextAttributes } from "@opentui/core";
+import {} from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
-import { icon } from "../../core/icons.js";
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
 import { type RepoMapStatus, useRepoMapStore } from "../../stores/repomap.js";
+import { SPINNER_FRAMES } from "../layout/shared.js";
 import {
-  Overlay,
-  POPUP_BG,
-  POPUP_HL,
-  PopupFooterHints,
-  PopupRow,
-  SPINNER_FRAMES,
-} from "../layout/shared.js";
+  Hint,
+  KeyCap,
+  PremiumPopup,
+  SegmentedControl,
+  Toggle,
+  Divider,
+  Field,
+  Section,
+  VSpacer,
+} from "../ui/index.js";
 
 const LABEL_W = 18;
 const POPUP_W = 72;
@@ -114,7 +117,7 @@ export function RepoMapStatusPopup({
   onApply,
 }: Props) {
   const t = useTheme();
-  const { width: termCols } = useTerminalDimensions();
+  const { width: termCols, height: termRows } = useTerminalDimensions();
   const popupWidth = Math.min(POPUP_W, Math.floor(termCols * 0.8));
   const innerW = popupWidth - 2;
 
@@ -377,16 +380,6 @@ export function RepoMapStatusPopup({
     ...(scanError ? [{ label: "Error", value: scanError, valueColor: t.error }] : []),
   ];
 
-  const modeChips = SEMANTIC_MODES.map((m) => {
-    const active = m === selectedMode;
-    return { mode: m, label: MODE_LABELS[m] as string, active };
-  });
-
-  const limitPresetChips = LLM_LIMIT_PRESETS.map((v) => ({
-    value: v,
-    active: v === selectedLimit,
-  }));
-
   const budgetChips = [
     {
       value: undefined as number | undefined,
@@ -401,292 +394,157 @@ export function RepoMapStatusPopup({
   ];
 
   const showLimitRow = selectedMode === "llm" || selectedMode === "full";
-  const modeBg = focusRow === FocusRow.Mode ? POPUP_HL : POPUP_BG;
-  const limitBg = focusRow === FocusRow.Limit ? POPUP_HL : POPUP_BG;
-  const budgetBg = focusRow === FocusRow.Budget ? POPUP_HL : POPUP_BG;
+
+  const popupH = Math.min(Math.max(18, Math.floor(termRows * 0.85)), termRows - 2);
+  const headerBlurb = hasConfig
+    ? `Soul Map · ${selectedScope}${isModified ? " (modified)" : ""}`
+    : `Soul Map · ${status}`;
+  const footerHints = hasConfig
+    ? [
+        { key: "↑↓", label: "focus" },
+        { key: "←→", label: "change" },
+        { key: "Tab", label: "scope" },
+        { key: "1-5", label: "mode" },
+        { key: "Enter", label: "apply" },
+        { key: "Esc", label: "close" },
+      ]
+    : [
+        { key: "E", label: enabled ? "disable" : "enable" },
+        { key: "R", label: "refresh" },
+        { key: "X", label: "clear" },
+        { key: "Tab", label: "scope" },
+        { key: "Esc", label: "close" },
+      ];
 
   return (
-    <Overlay>
-      <box
-        flexDirection="column"
-        borderStyle="rounded"
-        border={true}
-        borderColor={t.brandAlt}
-        width={popupWidth}
-      >
-        <PopupRow w={innerW}>
-          <text bg={POPUP_BG} fg={t.brand}>
-            {`${icon("repomap")} `}
-          </text>
-          <text bg={POPUP_BG} fg={t.textPrimary} attributes={TextAttributes.BOLD}>
-            Soul Map
-          </text>
-          {hasConfig && (
-            <text bg={POPUP_BG} fg={selectedScope === "project" ? t.info : t.warning}>
-              {`  [${selectedScope}]`}
-            </text>
-          )}
-          {isModified && (
-            <text bg={POPUP_BG} fg={t.warning}>
-              {" [modified]"}
-            </text>
-          )}
-        </PopupRow>
+    <PremiumPopup
+      visible={visible}
+      width={popupWidth}
+      height={popupH}
+      title="Soul Map"
+      titleIcon="repomap"
+      blurb={headerBlurb}
+      footerHints={footerHints}
+    >
+      <box flexDirection="column" paddingX={1}>
+        <VSpacer />
 
-        <PopupRow w={innerW}>
-          <text bg={POPUP_BG} fg={t.textFaint}>
-            {"\u2500".repeat(innerW - 2)}
-          </text>
-        </PopupRow>
-
-        <PopupRow w={innerW}>
-          <text bg={POPUP_BG}>{""}</text>
-        </PopupRow>
-
-        {rows.map((row) => (
-          <PopupRow key={row.label} w={innerW}>
-            <text bg={POPUP_BG} fg={t.brandSecondary} attributes={TextAttributes.BOLD}>
-              {row.label.padEnd(LABEL_W).slice(0, LABEL_W)}
-            </text>
-            <text bg={POPUP_BG} fg={row.valueColor ?? t.textMuted}>
-              {row.value.length > innerW - LABEL_W
-                ? `${row.value.slice(0, innerW - LABEL_W - 1)}\u2026`
-                : row.value}
-            </text>
-          </PopupRow>
-        ))}
+        <Section>
+          {rows.map((row) => (
+            <Field
+              key={row.label}
+              label={row.label}
+              labelWidth={LABEL_W}
+              value={
+                <text bg={t.bgPopup} fg={row.valueColor ?? t.textMuted}>
+                  {row.value.length > innerW - LABEL_W
+                    ? `${row.value.slice(0, innerW - LABEL_W - 1)}\u2026`
+                    : row.value}
+                </text>
+              }
+            />
+          ))}
+        </Section>
 
         {(onToggle || onRefresh || onClear) && (
           <>
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>
-                {"  "}
-                {onToggle && (
-                  <span fg={enabled ? t.brandSecondary : t.success}>
-                    {enabled ? "[E] disable" : "[E] enable"}
-                    {"   "}
-                  </span>
-                )}
-                {enabled && <span fg={t.info}>{"[R] refresh"}</span>}
-                {enabled && <span fg={t.warning}>{"   [X] clear index"}</span>}
-              </text>
-            </PopupRow>
+            <VSpacer />
+            <box flexDirection="row" paddingX={1} backgroundColor={t.bgPopup}>
+              {onToggle ? (
+                <KeyCap
+                  keyName="E"
+                  label={enabled ? "disable" : "enable"}
+                  accent={enabled ? t.brandSecondary : t.success}
+                />
+              ) : null}
+              {onToggle && enabled ? <text bg={t.bgPopup}>{"   "}</text> : null}
+              {enabled && onRefresh ? <KeyCap keyName="R" label="refresh" accent={t.info} /> : null}
+              {enabled && onRefresh && onClear ? <text bg={t.bgPopup}>{"   "}</text> : null}
+              {enabled && onClear ? (
+                <KeyCap keyName="X" label="clear index" accent={t.warning} />
+              ) : null}
+            </box>
             {!enabled && (
-              <PopupRow w={innerW}>
-                <text bg={POPUP_BG} fg={t.warning}>
-                  {"  Soul map disabled — soul tools inactive, saves ~4-8k prompt tokens"}
-                </text>
-              </PopupRow>
+              <Hint kind="warn">
+                Soul map disabled — soul tools inactive, saves ~4-8k prompt tokens
+              </Hint>
             )}
           </>
         )}
 
         {hasConfig && enabled && (
           <>
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
+            <VSpacer />
+            <Divider width={innerW - 2} />
+            <Section title="Semantic Summaries">
+              <SegmentedControl
+                label="Mode"
+                options={SEMANTIC_MODES.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+                value={selectedMode}
+                focused={focusRow === FocusRow.Mode}
+              />
 
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG} fg={t.textFaint}>
-                {"\u2500".repeat(innerW - 2)}
-              </text>
-            </PopupRow>
+              {showLimitRow ? (
+                <>
+                  <SegmentedControl
+                    label="LLM Limit"
+                    options={LLM_LIMIT_PRESETS.map((v) => ({ value: v, label: String(v) }))}
+                    value={selectedLimit}
+                    focused={focusRow === FocusRow.Limit}
+                    suffix="symbols"
+                  />
+                  <Toggle
+                    label="Auto-regen  [A]"
+                    description="costs tokens on each file change"
+                    on={selectedAutoRegen}
+                  />
+                </>
+              ) : null}
 
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG} fg={t.brand} attributes={TextAttributes.BOLD}>
-                Semantic Summaries
-              </text>
-            </PopupRow>
+              <Hint>
+                {selectedMode} — {MODE_DESCRIPTIONS[selectedMode]}
+              </Hint>
 
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
+              <VSpacer />
+              <box flexDirection="row" paddingX={1} backgroundColor={t.bgPopup}>
+                {onRegenerate ? <KeyCap keyName="G" label="regenerate" accent={t.info} /> : null}
+                {onRegenerate && onClearSummaries ? <text bg={t.bgPopup}>{"   "}</text> : null}
+                {onClearSummaries ? (
+                  confirmClear ? (
+                    <KeyCap
+                      keyName="C"
+                      label="CONFIRM clear (preserves LLM)"
+                      accent={t.brandSecondary}
+                    />
+                  ) : (
+                    <KeyCap keyName="C" label="clear summaries" accent={t.warning} />
+                  )
+                ) : null}
+                {onLspEnrich ? <text bg={t.bgPopup}>{"   "}</text> : null}
+                {onLspEnrich ? <KeyCap keyName="L" label="lsp enrich" accent={t.success} /> : null}
+              </box>
+            </Section>
 
-            <PopupRow bg={modeBg} w={innerW}>
-              <text bg={modeBg} fg={focusRow === FocusRow.Mode ? t.brandSecondary : t.textMuted}>
-                {focusRow === FocusRow.Mode ? "\u203A " : "  "}
-              </text>
-              <text
-                bg={modeBg}
-                fg={focusRow === FocusRow.Mode ? "white" : t.textSecondary}
-                attributes={focusRow === FocusRow.Mode ? TextAttributes.BOLD : undefined}
-              >
-                {"Mode  "}
-              </text>
-              {modeChips.map((chip) => (
-                <text
-                  key={chip.mode}
-                  bg={modeBg}
-                  fg={chip.active ? t.success : t.textMuted}
-                  attributes={chip.active ? TextAttributes.BOLD : undefined}
-                >
-                  {chip.active ? `[${chip.label}]` : ` ${chip.label} `}{" "}
-                </text>
-              ))}
-            </PopupRow>
-
-            {showLimitRow && (
-              <PopupRow bg={limitBg} w={innerW}>
-                <text
-                  bg={limitBg}
-                  fg={focusRow === FocusRow.Limit ? t.brandSecondary : t.textMuted}
-                >
-                  {focusRow === FocusRow.Limit ? "\u203A " : "  "}
-                </text>
-                <text
-                  bg={limitBg}
-                  fg={focusRow === FocusRow.Limit ? "white" : t.textSecondary}
-                  attributes={focusRow === FocusRow.Limit ? TextAttributes.BOLD : undefined}
-                >
-                  {"LLM Limit  "}
-                </text>
-                {limitPresetChips.map((chip) => (
-                  <text
-                    key={chip.value}
-                    bg={limitBg}
-                    fg={chip.active ? t.success : t.textMuted}
-                    attributes={chip.active ? TextAttributes.BOLD : undefined}
-                  >
-                    {chip.active ? `[${String(chip.value)}]` : ` ${String(chip.value)} `}{" "}
-                  </text>
-                ))}
-                <text bg={limitBg} fg={t.textMuted}>
-                  symbols
-                </text>
-              </PopupRow>
-            )}
-
-            {showLimitRow && (
-              <PopupRow w={innerW}>
-                <text bg={POPUP_BG}>
-                  {"    "}
-                  <span fg={t.textMuted}>{"Auto-regen  "}</span>
-                  <span
-                    fg={selectedAutoRegen ? t.success : t.textMuted}
-                    attributes={TextAttributes.BOLD}
-                  >
-                    {selectedAutoRegen ? "[on]" : "[off]"}
-                  </span>
-                  <span fg={t.textDim}>{" (a toggle) — costs tokens on each file change"}</span>
-                </text>
-              </PopupRow>
-            )}
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG} fg={t.textMuted}>
-                {`  ${selectedMode.padEnd(11)}\u2014 ${MODE_DESCRIPTIONS[selectedMode]}`}
-              </text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>
-                {"  "}
-                <span fg={t.info}>{"[G] regenerate"}</span>
-                {confirmClear ? (
-                  <span fg={t.brandSecondary} attributes={TextAttributes.BOLD}>
-                    {"   [C] CONFIRM clear (preserves LLM)"}
-                  </span>
-                ) : (
-                  <span fg={t.warning}>{"   [C] clear summaries"}</span>
-                )}
-                {onLspEnrich ? <span fg={t.success}>{"   [L] lsp enrich"}</span> : null}
-              </text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG} fg={t.textFaint}>
-                {"\u2500".repeat(innerW - 2)}
-              </text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG} fg={t.brand} attributes={TextAttributes.BOLD}>
-                Map Token Budget
-              </text>
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG}>{""}</text>
-            </PopupRow>
-
-            <PopupRow bg={budgetBg} w={innerW}>
-              <text
-                bg={budgetBg}
-                fg={focusRow === FocusRow.Budget ? t.brandSecondary : t.textMuted}
-              >
-                {focusRow === FocusRow.Budget ? "\u203A " : "  "}
-              </text>
-              <text
-                bg={budgetBg}
-                fg={focusRow === FocusRow.Budget ? "white" : t.textSecondary}
-                attributes={focusRow === FocusRow.Budget ? TextAttributes.BOLD : undefined}
-              >
-                {"Budget  "}
-              </text>
-              {budgetChips.map((chip) => (
-                <text
-                  key={chip.label}
-                  bg={budgetBg}
-                  fg={chip.active ? t.success : t.textMuted}
-                  attributes={chip.active ? TextAttributes.BOLD : undefined}
-                >
-                  {chip.active ? `[${chip.label}]` : ` ${chip.label} `}{" "}
-                </text>
-              ))}
-            </PopupRow>
-
-            <PopupRow w={innerW}>
-              <text bg={POPUP_BG} fg={t.textDim}>
-                {"    "}
+            <Divider width={innerW - 2} />
+            <Section title="Map Token Budget">
+              <SegmentedControl
+                label="Budget"
+                options={budgetChips.map((c) => ({
+                  value: c.value ?? "auto",
+                  label: c.label,
+                }))}
+                value={selectedTokenBudget ?? "auto"}
+                focused={focusRow === FocusRow.Budget}
+              />
+              <Hint>
                 {selectedTokenBudget === undefined
                   ? "scales with conversation length (1.5k\u20134k)"
                   : `fixed ${String(selectedTokenBudget / 1000)}k tokens — more files visible, higher prompt cost`}
-              </text>
-            </PopupRow>
-
-            <PopupFooterHints
-              w={innerW}
-              hints={[
-                { key: "↑↓", label: "focus" },
-                { key: "←→", label: "change" },
-                { key: "tab", label: "scope" },
-                { key: "1-5", label: "mode" },
-                { key: "⏎", label: "apply" },
-                { key: "esc", label: "close" },
-              ]}
-            />
+              </Hint>
+            </Section>
           </>
         )}
-
-        {!hasConfig && (
-          <PopupFooterHints
-            w={innerW}
-            hints={[
-              { key: "E", label: enabled ? "disable" : "enable" },
-              { key: "R", label: "refresh" },
-              { key: "X", label: "clear" },
-              { key: "tab", label: "scope" },
-              { key: "esc", label: "close" },
-            ]}
-          />
-        )}
       </box>
-    </Overlay>
+    </PremiumPopup>
   );
 }

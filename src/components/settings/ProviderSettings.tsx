@@ -1,7 +1,5 @@
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useState } from "react";
-import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type {
@@ -12,9 +10,10 @@ import type {
   ThinkingMode,
 } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
-import { CONFIG_SCOPES, POPUP_BG, POPUP_HL, Popup, PopupRow } from "../layout/shared.js";
+import { CONFIG_SCOPES } from "../layout/shared.js";
+import { Divider, Hint, PremiumPopup, SegmentedControl, Toggle } from "../ui/index.js";
 
-const MAX_POPUP_WIDTH = 88;
+const MAX_POPUP_WIDTH = 110;
 const CHROME_ROWS = 7;
 
 type ItemType = "cycle" | "toggle" | "budget";
@@ -29,16 +28,6 @@ interface SettingItem {
 
 type ProviderTab = "claude" | "openai" | "general";
 const TABS: ProviderTab[] = ["claude", "openai", "general"];
-const TAB_LABELS: Record<ProviderTab, string> = {
-  claude: "Claude",
-  openai: "OpenAI",
-  general: "General",
-};
-const TAB_ICONS: Record<ProviderTab, string> = {
-  claude: "󱜙",
-  openai: "󰧑",
-  general: "󰒍",
-};
 
 const CLAUDE_ITEMS: SettingItem[] = [
   {
@@ -315,7 +304,6 @@ export function ProviderSettings({
   const { width: termCols, height: termRows } = useTerminalDimensions();
   const containerRows = termRows - 2;
   const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.85));
-  const innerW = popupWidth - 2;
   const maxVisible = Math.max(4, Math.floor(containerRows * 0.85) - CHROME_ROWS);
 
   const t = useTheme();
@@ -428,135 +416,140 @@ export function ProviderSettings({
 
   if (!visible) return null;
 
-  const labelW = 20;
-  const valW = 10;
+  const sidebarW = 22;
+  const contentW = popupWidth - sidebarW - 3;
+  const labelW = 22;
 
   return (
-    <Popup
+    <PremiumPopup
+      visible={visible}
       width={popupWidth}
+      height={Math.min(Math.max(20, Math.floor(termRows * 0.85)), termRows - 2)}
       title="Provider Options"
-      icon={icon("system")}
-      footer={[
-        { key: "tab", label: "switch" },
-        { key: "\u2191\u2193", label: "nav" },
-        { key: "\u23CE", label: "cycle" },
-        { key: "\u2190\u2192", label: "scope" },
-        { key: "esc", label: "close" },
+      titleIcon="system"
+      tabs={[
+        { id: "claude", label: "Claude", icon: "ai", blurb: "thinking · reasoning · beta" },
+        { id: "openai", label: "OpenAI", icon: "ai", blurb: "reasoning effort · summary" },
+        { id: "general", label: "General", icon: "cloud", blurb: "shared provider options" },
+      ]}
+      activeTab={tab}
+      footerHints={[
+        { key: "Tab", label: "switch tab" },
+        { key: "↑↓", label: "nav" },
+        { key: "Enter/←→", label: "cycle" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      <PopupRow w={innerW}>
-        {TABS.map((tabItem, i) => (
-          <text key={tabItem} bg={POPUP_BG}>
-            {i > 0 ? (
-              <span fg={t.textFaint} bg={POPUP_BG}>
-                {" │ "}
-              </span>
-            ) : (
-              ""
-            )}
-            <span
-              fg={tabItem === tab ? t.brandSecondary : t.textMuted}
-              attributes={tabItem === tab ? TextAttributes.BOLD : undefined}
-              bg={tabItem === tab ? POPUP_HL : POPUP_BG}
-            >
-              {` ${TAB_ICONS[tabItem]} ${TAB_LABELS[tabItem]} `}
-            </span>
-          </text>
-        ))}
-      </PopupRow>
-
-      <PopupRow w={innerW}>
-        <text fg={t.textFaint} bg={POPUP_BG}>
-          {"─".repeat(innerW - 2)}
-        </text>
-      </PopupRow>
-
       <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
         {items.slice(scrollOffset, scrollOffset + maxVisible).map((item, vi) => {
           const i = vi + scrollOffset;
           const isSelected = i === cursor;
           const disabled = isItemDisabled(item.key);
-          const bg = isSelected ? POPUP_HL : POPUP_BG;
+          const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
           const raw = vals[item.key as keyof CurrentValues];
-
-          const valColor = disabled
-            ? t.textFaint
-            : item.type === "toggle"
-              ? raw
-                ? t.success
-                : t.textMuted
-              : raw === "off"
-                ? t.textMuted
-                : t.brandAlt;
-
-          const displayVal =
-            item.type === "toggle" ? (raw ? "x" : " ") : String(raw).padStart(valW - 2);
-
           const srcScope = detectValueScope(item.key, projectConfig);
           const srcTag = srcScope === "project" ? "proj" : "glob";
           const srcColor = srcScope === "project" ? t.info : t.textMuted;
 
-          return (
-            <box key={item.key} flexDirection="column" flexShrink={0}>
-              <PopupRow bg={bg} w={innerW}>
-                <text bg={bg} fg={isSelected ? t.brandSecondary : t.textMuted}>
-                  {isSelected ? "› " : "  "}
+          if (item.type === "toggle") {
+            return (
+              <box key={item.key} flexDirection="column" flexShrink={0} backgroundColor={bg}>
+                <box flexDirection="row" backgroundColor={bg}>
+                  <Toggle label={item.label} on={!!raw} focused={isSelected && !disabled} bg={bg} />
+                  <box flexGrow={1} backgroundColor={bg} />
+                  <text bg={bg} fg={srcColor}>
+                    {srcTag}
+                    {"  "}
+                  </text>
+                </box>
+                <text bg={bg} fg={t.textFaint}>
+                  {"      "}
+                  {item.desc}
                 </text>
-                <text
-                  bg={bg}
-                  fg={disabled ? t.textFaint : "white"}
-                  attributes={TextAttributes.BOLD}
-                >
-                  {item.label.padEnd(labelW)}
-                </text>
-                <text bg={bg} fg={valColor}>
-                  [{displayVal}]
-                </text>
-                <text bg={bg} fg={srcColor}>
-                  {" "}
-                  {srcTag}
-                </text>
-              </PopupRow>
-              <PopupRow bg={bg} w={innerW}>
-                <text bg={bg} fg={t.textDim}>
+              </box>
+            );
+          }
+
+          // cycle / budget — render as SegmentedControl when options are short,
+          // otherwise fall back to a single value chip with a right-arrow hint.
+          const opts = item.options ?? [];
+          const currentValue = item.type === "budget" ? String(vals.budgetTokens) : String(raw);
+          const optsFit = opts.length > 0 && opts.join("  ").length + labelW + 4 <= contentW - 10;
+
+          if (optsFit) {
+            return (
+              <box key={item.key} flexDirection="column" flexShrink={0} backgroundColor={bg}>
+                <box flexDirection="row" backgroundColor={bg}>
+                  <SegmentedControl
+                    label={item.label}
+                    labelWidth={labelW}
+                    options={opts.map((o) => ({ value: o, label: o }))}
+                    value={currentValue}
+                    focused={isSelected && !disabled}
+                    bg={bg}
+                  />
+                  <box flexGrow={1} backgroundColor={bg} />
+                  <text bg={bg} fg={srcColor}>
+                    {srcTag}
+                    {"  "}
+                  </text>
+                </box>
+                <text bg={bg} fg={t.textFaint}>
                   {"    "}
                   {item.desc}
                 </text>
-              </PopupRow>
+              </box>
+            );
+          }
+
+          // Long option lists — show current value + cycle arrow.
+          const valColor = disabled ? t.textFaint : raw === "off" ? t.textMuted : t.brandAlt;
+          return (
+            <box key={item.key} flexDirection="column" flexShrink={0} backgroundColor={bg}>
+              <box flexDirection="row" backgroundColor={bg}>
+                <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
+                  {isSelected ? "▸ " : "  "}
+                </text>
+                <text
+                  bg={bg}
+                  fg={disabled ? t.textFaint : isSelected ? t.brand : t.textPrimary}
+                  attributes={isSelected ? 1 : undefined}
+                >
+                  {item.label.padEnd(labelW)}
+                </text>
+                <text bg={bg} fg={valColor} attributes={1}>
+                  [{currentValue}]
+                </text>
+                {isSelected && !disabled ? (
+                  <text bg={bg} fg={t.textDim}>
+                    {"  ← →"}
+                  </text>
+                ) : null}
+                <box flexGrow={1} backgroundColor={bg} />
+                <text bg={bg} fg={srcColor}>
+                  {srcTag}
+                  {"  "}
+                </text>
+              </box>
+              <text bg={bg} fg={t.textFaint}>
+                {"      "}
+                {item.desc}
+              </text>
             </box>
           );
         })}
-        {items.length === 0 && (
-          <PopupRow w={innerW}>
-            <text bg={POPUP_BG} fg={t.textMuted}>
-              {"  "}No options for this provider yet.
-            </text>
-          </PopupRow>
-        )}
+        {items.length === 0 && <Hint>No options for this provider yet.</Hint>}
       </box>
 
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textFaint}>
-          {"─".repeat(innerW - 2)}
-        </text>
-      </PopupRow>
-
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textMuted}>
-          {"Scope: "}
-        </text>
-        {CONFIG_SCOPES.map((s) => (
-          <text
-            key={s}
-            bg={POPUP_BG}
-            fg={s === scope ? t.brandAlt : t.textDim}
-            attributes={s === scope ? TextAttributes.BOLD : undefined}
-          >
-            {s === scope ? `[${s}]` : ` ${s} `}
-            {"  "}
-          </text>
-        ))}
-      </PopupRow>
-    </Popup>
+      <Divider width={contentW} />
+      <box paddingX={2} backgroundColor={t.bgPopup}>
+        <SegmentedControl
+          label="Save to"
+          labelWidth={8}
+          options={CONFIG_SCOPES.map((s) => ({ value: s, label: s }))}
+          value={scope}
+        />
+      </box>
+    </PremiumPopup>
   );
 }

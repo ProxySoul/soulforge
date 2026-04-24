@@ -8,13 +8,6 @@ useThemeStore.subscribe((s) => {
   POPUP_BG = s.tokens.bgPopup;
   POPUP_HL = s.tokens.bgPopupHighlight;
 });
-
-/** Hook for popup colors — use in React components */
-export function usePopupColors() {
-  const t = useTheme();
-  return { bg: t.bgPopup, hl: t.bgPopupHighlight, overlay: t.bgOverlay };
-}
-
 export type ConfigScope = "project" | "global";
 export const CONFIG_SCOPES: ConfigScope[] = ["project", "global"];
 
@@ -56,7 +49,7 @@ export function useSpinnerFrame(): number {
 
 /** Returns a ref that tracks the current spinner frame WITHOUT causing re-renders.
  * Use with imperative `.content =` updates or pass to children that read `.current`. */
-export function useSpinnerFrameRef(): React.MutableRefObject<number> {
+export function useSpinnerFrameRef(): React.RefObject<number> {
   const ref = useRef(globalFrame);
   useEffect(() => {
     const listener = (f: number) => {
@@ -180,166 +173,4 @@ export function Overlay({ children }: { children: React.ReactNode }) {
   );
 }
 
-export const PopupRow = memo(function PopupRow({
-  children,
-  bg,
-  w,
-}: {
-  children: React.ReactNode;
-  bg?: string;
-  w: number;
-}) {
-  const t = useTheme();
-  const fill = bg ?? t.bgPopup;
-  return (
-    <box width={w} height={1} overflow="hidden">
-      <box position="absolute">
-        <text bg={fill}>{" ".repeat(w)}</text>
-      </box>
-      <box position="absolute" width={w} flexDirection="row">
-        <text bg={fill}>{"  "}</text>
-        {children}
-      </box>
-    </box>
-  );
-});
-
-/** Renders a single key hint: key in accent color + label in muted */
-export function KeyHint({ keyName, label, bg }: { keyName: string; label: string; bg?: string }) {
-  const t = useTheme();
-  const fill = bg ?? t.bgPopup;
-  return (
-    <text bg={fill} fg={t.textMuted}>
-      <span fg={t.brandSecondary} attributes={1 /* BOLD */}>
-        {keyName}
-      </span>{" "}
-      {label}
-    </text>
-  );
-}
-
-/** Renders a footer row of key hints in MCP style: <key> label │ <key> label │ …
- *  Keys are bold + brandSecondary, labels are muted, separators are dim │.
- *  Automatically renders a full-width ─ separator above the hints. */
-export function PopupFooterHints({
-  hints,
-  bg,
-  w,
-}: {
-  hints: { key: string; label: string }[];
-  bg?: string;
-  w: number;
-}) {
-  const t = useTheme();
-  const fill = bg ?? t.bgPopup;
-  return (
-    <>
-      <PopupSeparator w={w} bg={bg} />
-      <PopupRow w={w} bg={bg}>
-        {hints.map((h, i) => (
-          <text key={h.key + h.label} bg={fill}>
-            {i > 0 ? <span fg={t.textFaint}>{" │ "}</span> : null}
-            <span fg={t.brandSecondary} attributes={1 /* BOLD */}>
-              {h.key}
-            </span>
-            <span fg={t.textMuted}> {h.label}</span>
-          </text>
-        ))}
-      </PopupRow>
-    </>
-  );
-}
-
-/** Renders a consistent ─ separator line inside a popup */
-export function PopupSeparator({ w, bg }: { w: number; bg?: string }) {
-  const t = useTheme();
-  const fill = bg ?? t.bgPopup;
-  return (
-    <PopupRow w={w} bg={bg}>
-      <text bg={fill} fg={t.textFaint}>
-        {"─".repeat(Math.max(0, w - 4))}
-      </text>
-    </PopupRow>
-  );
-}
-
 // ── Popup compound component ──────────────────────────────────────────
-
-export type HintPair = { key: string; label: string };
-
-export interface PopupProps {
-  /** Total outer width (border included). innerW = width - 2. */
-  width: number;
-  /** Header title text (bold, primary color). */
-  title: string;
-  /** Optional icon rendered before the title (brand color). */
-  icon?: string;
-  /** Extra content rendered after the title in the header row (e.g. status text). */
-  headerRight?: React.ReactNode;
-  /** Footer key hints — rendered with separator above. Omit to hide footer. */
-  footer?: HintPair[];
-  /** Border color override (default: brandAlt). */
-  borderColor?: string;
-  /** Body content — rendered between header separator and footer. */
-  children: React.ReactNode;
-}
-
-/**
- * Reusable popup shell — enforces consistent structure across all modals.
- *
- * Structure:
- *   ╭─ border ──────────────────────╮
- *   │  icon  Title     headerRight  │  ← header row
- *   │  ─────────────────────────────│  ← separator
- *   │  {children}                   │  ← body (you control)
- *   │  ─────────────────────────────│  ← separator (auto from footer)
- *   │  key label │ key label │ …    │  ← footer hints
- *   ╰──────────────────────────────╯
- *
- * Usage:
- *   <Popup width={72} title="Select Model" icon={icon("model")}
- *     footer={[{ key: "↑↓", label: "nav" }, { key: "esc", label: "close" }]}>
- *     <PopupRow w={innerW}>…body…</PopupRow>
- *   </Popup>
- */
-export function Popup({
-  width,
-  title,
-  icon: ic,
-  headerRight,
-  footer,
-  borderColor,
-  children,
-}: PopupProps) {
-  const t = useTheme();
-  const iw = width - 2;
-  return (
-    <Overlay>
-      <box
-        flexDirection="column"
-        borderStyle="rounded"
-        border={true}
-        borderColor={borderColor ?? t.brandAlt}
-        width={width}
-      >
-        <PopupRow w={iw}>
-          {ic ? (
-            <text bg={POPUP_BG} fg={t.brand} attributes={1 /* BOLD */}>
-              {ic}{" "}
-            </text>
-          ) : null}
-          <text bg={POPUP_BG} fg={t.textPrimary} attributes={1 /* BOLD */}>
-            {title}
-          </text>
-          {headerRight ?? null}
-        </PopupRow>
-
-        <PopupSeparator w={iw} />
-
-        {children}
-
-        {footer && footer.length > 0 ? <PopupFooterHints w={iw} hints={footer} /> : null}
-      </box>
-    </Overlay>
-  );
-}

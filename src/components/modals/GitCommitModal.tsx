@@ -1,12 +1,8 @@
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useState } from "react";
 import { getGitDiff, getGitStatus, gitAdd, gitCommit } from "../../core/git/status.js";
-import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
-import { Overlay, POPUP_BG, POPUP_HL, PopupFooterHints, PopupRow } from "../layout/shared.js";
-
-const MAX_POPUP_WIDTH = 64;
+import { Hint, PremiumPopup, Section, Toggle, VSpacer } from "../ui/index.js";
 
 interface Props {
   visible: boolean;
@@ -19,13 +15,13 @@ interface Props {
 
 export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, onRefresh }: Props) {
   const t = useTheme();
-  const { width: termCols } = useTerminalDimensions();
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.8));
-  const innerW = popupWidth - 2;
+  const { width: tw } = useTerminalDimensions();
+  const popupW = Math.min(72, Math.max(56, Math.floor(tw * 0.6)));
+
   const [message, setMessage] = useState("");
-  const [stagedFiles, setStagedFiles] = useState<string[]>([]);
-  const [modifiedFiles, setModifiedFiles] = useState<string[]>([]);
-  const [untrackedFiles, setUntrackedFiles] = useState<string[]>([]);
+  const [staged, setStaged] = useState<string[]>([]);
+  const [modified, setModified] = useState<string[]>([]);
+  const [untracked, setUntracked] = useState<string[]>([]);
   const [diffSummary, setDiffSummary] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stageAll, setStageAll] = useState(false);
@@ -38,11 +34,11 @@ export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, o
 
     Promise.all([getGitStatus(cwd), getGitDiff(cwd, true)])
       .then(([status, diff]) => {
-        setStagedFiles(status.staged);
-        setModifiedFiles(status.modified);
-        setUntrackedFiles(status.untracked);
+        setStaged(status.staged);
+        setModified(status.modified);
+        setUntracked(status.untracked);
         const lines = diff.split("\n").length;
-        setDiffSummary(lines > 1 ? `${String(lines)} lines changed` : "no staged changes");
+        setDiffSummary(lines > 1 ? `${lines} lines changed` : "no staged changes");
       })
       .catch(() => {});
   }, [visible, cwd]);
@@ -52,14 +48,10 @@ export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, o
       setError("Commit message cannot be empty");
       return;
     }
-
-    if (stageAll || stagedFiles.length === 0) {
-      const allFiles = [...modifiedFiles, ...untrackedFiles];
-      if (allFiles.length > 0) {
-        await gitAdd(cwd, allFiles);
-      }
+    if (stageAll || staged.length === 0) {
+      const files = [...modified, ...untracked];
+      if (files.length > 0) await gitAdd(cwd, files);
     }
-
     const commitMsg = coAuthor
       ? `${message.trim()}\n\nCo-Authored-By: SoulForge <noreply@soulforge.com>`
       : message.trim();
@@ -74,9 +66,9 @@ export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, o
   }, [
     message,
     stageAll,
-    stagedFiles,
-    modifiedFiles,
-    untrackedFiles,
+    staged,
+    modified,
+    untracked,
     cwd,
     coAuthor,
     onCommitted,
@@ -86,108 +78,78 @@ export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, o
 
   useKeyboard((evt) => {
     if (!visible) return;
-
     if (evt.name === "escape") {
       onClose();
       return;
     }
     if (evt.name === "tab") {
-      setStageAll((prev) => !prev);
+      setStageAll((p) => !p);
       return;
     }
   });
 
   if (!visible) return null;
 
-  const totalChanges = stagedFiles.length + modifiedFiles.length + untrackedFiles.length;
+  const totalChanges = staged.length + modified.length + untracked.length;
+  const canStageAll = modified.length > 0 || untracked.length > 0;
 
   return (
-    <Overlay>
-      <box
-        flexDirection="column"
-        borderStyle="rounded"
-        border={true}
-        borderColor={t.warning}
-        width={popupWidth}
-        backgroundColor={POPUP_BG}
-      >
-        <PopupRow w={innerW}>
-          <text fg={t.brand} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
-            {icon("git")}{" "}
-          </text>
-          <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
-            Git Commit
-          </text>
-        </PopupRow>
-        <PopupRow w={innerW}>
-          <text fg={t.textFaint} bg={POPUP_BG}>
-            {"─".repeat(innerW - 4)}
-          </text>
-        </PopupRow>
-
-        {stagedFiles.length > 0 && (
-          <PopupRow w={innerW}>
-            <text fg={t.success} bg={POPUP_BG}>
-              ● {String(stagedFiles.length)} staged
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={20}
+      title="Git Commit"
+      titleIcon="git"
+      borderColor={t.warning}
+      blurb={totalChanges === 0 ? "No changes to commit" : diffSummary}
+      footerHints={[
+        { key: "Enter", label: "commit" },
+        { key: "Tab", label: "stage all" },
+        { key: "Esc", label: "cancel" },
+      ]}
+      flash={error ? { kind: "err", message: error } : null}
+    >
+      <Section>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          {staged.length > 0 ? (
+            <text bg={t.bgPopup} fg={t.success}>
+              ● {staged.length} staged{"  "}
             </text>
-          </PopupRow>
-        )}
-        {modifiedFiles.length > 0 && (
-          <PopupRow w={innerW}>
-            <text fg={t.warning} bg={POPUP_BG}>
-              ● {String(modifiedFiles.length)} modified
+          ) : null}
+          {modified.length > 0 ? (
+            <text bg={t.bgPopup} fg={t.warning}>
+              ● {modified.length} modified{"  "}
             </text>
-          </PopupRow>
-        )}
-        {untrackedFiles.length > 0 && (
-          <PopupRow w={innerW}>
-            <text fg={t.error} bg={POPUP_BG}>
-              ● {String(untrackedFiles.length)} untracked
+          ) : null}
+          {untracked.length > 0 ? (
+            <text bg={t.bgPopup} fg={t.error}>
+              ● {untracked.length} untracked
             </text>
-          </PopupRow>
-        )}
-        {totalChanges === 0 && (
-          <PopupRow w={innerW}>
-            <text fg={t.textMuted} bg={POPUP_BG}>
-              No changes to commit
-            </text>
-          </PopupRow>
-        )}
-
-        <PopupRow w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {diffSummary}
-          </text>
-        </PopupRow>
-
-        {(modifiedFiles.length > 0 || untrackedFiles.length > 0) && (
-          <PopupRow w={innerW} bg={stageAll ? POPUP_HL : POPUP_BG}>
-            <text
-              fg={stageAll ? t.brandSecondary : t.textMuted}
-              bg={stageAll ? POPUP_HL : POPUP_BG}
-            >
-              [Tab] {stageAll ? "✓" : "○"} Stage all changes
-            </text>
-          </PopupRow>
-        )}
-
-        <PopupRow w={innerW}>
-          <text>{""}</text>
-        </PopupRow>
-
-        <PopupRow w={innerW}>
-          <text fg={t.textSecondary} bg={POPUP_BG}>
-            Message:
-          </text>
-        </PopupRow>
-        <box paddingX={2} backgroundColor={POPUP_BG}>
+          ) : null}
+        </box>
+        {canStageAll ? (
+          <>
+            <VSpacer />
+            <Toggle
+              label="Stage all changes"
+              on={stageAll}
+              focused
+              description="Press [Tab] to toggle"
+            />
+          </>
+        ) : null}
+        <VSpacer />
+        <text bg={t.bgPopup} fg={t.textMuted}>
+          Message:
+        </text>
+        <box paddingX={0} backgroundColor={t.bgPopup}>
           <box
             borderStyle="rounded"
             border={true}
             borderColor={t.brandDim}
             paddingX={1}
-            width={innerW - 2}
-            backgroundColor={POPUP_BG}
+            width={popupW - 4}
+            backgroundColor={t.bgPopup}
           >
             <input
               value={message}
@@ -195,28 +157,17 @@ export function GitCommitModal({ visible, cwd, coAuthor, onClose, onCommitted, o
               onSubmit={handleCommit}
               placeholder="describe your changes..."
               focused={visible}
-              backgroundColor={POPUP_BG}
+              backgroundColor={t.bgPopup}
             />
           </box>
         </box>
-
-        {error && (
-          <PopupRow w={innerW}>
-            <text fg={t.error} bg={POPUP_BG}>
-              {error}
-            </text>
-          </PopupRow>
-        )}
-
-        <PopupFooterHints
-          w={innerW}
-          hints={[
-            { key: "⏎", label: "commit" },
-            { key: "tab", label: "stage-all" },
-            { key: "esc", label: "cancel" },
-          ]}
-        />
-      </box>
-    </Overlay>
+        {coAuthor ? (
+          <>
+            <VSpacer />
+            <Hint>Co-authored trailer will be appended automatically.</Hint>
+          </>
+        ) : null}
+      </Section>
+    </PremiumPopup>
   );
 }

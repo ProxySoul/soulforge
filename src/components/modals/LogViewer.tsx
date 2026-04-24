@@ -1,12 +1,24 @@
-import { TextAttributes } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useState } from "react";
-import { useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
-import { copyToClipboard } from "../../utils/clipboard.js";
-import { Overlay, POPUP_BG, POPUP_HL, PopupFooterHints, PopupRow } from "../layout/shared.js";
+/**
+ * LogViewer — generic scrollable log with master/detail mode.
+ *
+ * Callers (ErrorLog, CompactionLog) provide a `LogViewerConfig` that
+ * describes rendering + filter + copy behavior. This wrapper renders
+ * list and detail views using shared primitives.
+ */
 
-const CHROME_ROWS = 7;
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "../../core/theme/index.js";
+import { copyToClipboard } from "../../utils/clipboard.js";
+import {
+  handleCursorNavKey,
+  handleTextInputKey,
+  PremiumPopup,
+  Search,
+  Section,
+  VSpacer,
+} from "../ui/index.js";
 
 export interface LogViewerEntry {
   id: string;
@@ -60,6 +72,8 @@ interface Props<T extends LogViewerEntry> {
   config: LogViewerConfig<T>;
 }
 
+const BOLD = 1;
+
 export function LogViewer<T extends LogViewerEntry>({
   visible,
   onClose,
@@ -67,67 +81,97 @@ export function LogViewer<T extends LogViewerEntry>({
   config,
 }: Props<T>) {
   const t = useTheme();
-  const [query, setQuery] = useState("");
-  const [detailIndex, setDetailIndex] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [detailScrollOffset, setDetailScrollOffset] = useState(0);
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const popupWidth = Math.max(60, Math.round(termCols * 0.85));
-  const innerW = popupWidth - 2;
-  const popupHeight = Math.max(12, Math.round(termRows * (config.heightRatio ?? 0.7)));
-  const maxListVisible = Math.max(4, popupHeight - CHROME_ROWS);
-  const maxDetailLines = Math.max(4, popupHeight - 6);
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } =
-    usePopupScroll(maxListVisible);
+  const { width: tw, height: th } = useTerminalDimensions();
 
-  const filterQuery = query.toLowerCase().trim();
-  const filtered = filterQuery ? entries.filter((e) => config.filterFn(e, filterQuery)) : entries;
+  const popupW = Math.min(120, Math.max(72, Math.floor(tw * 0.85)));
+  const popupH = Math.min(Math.max(16, Math.floor(th * (config.heightRatio ?? 0.75))), th - 4);
+  const contentW = popupW - 4;
+  const listRows = Math.max(4, popupH - 11);
+  const detailRows = Math.max(4, popupH - 9);
+
+  const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const [detailIdx, setDetailIdx] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+  const cursorRef = useRef(0);
+  cursorRef.current = cursor;
+  const listScrollRef = useRef<ScrollBoxRenderable>(null);
+  const detailScrollRef = useRef<ScrollBoxRenderable>(null);
+  const listOffset = useRef(0);
+  const detailOffset = useRef(0);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    return q ? entries.filter((e) => config.filterFn(e, q)) : entries;
+  }, [entries, query, config]);
 
   useEffect(() => {
-    if (visible) {
-      setQuery("");
-      resetScroll();
-      setDetailScrollOffset(0);
-      setDetailIndex(null);
-      setCopied(false);
+    if (!visible) return;
+    setQuery("");
+    setCursor(0);
+    setDetailIdx(null);
+    setCopied(false);
+    listOffset.current = 0;
+    detailOffset.current = 0;
+    listScrollRef.current?.scrollTo(0);
+  }, [visible]);
+
+  // Clamp cursor when filter narrows
+  useEffect(() => {
+    if (cursor >= filtered.length && filtered.length > 0) setCursor(filtered.length - 1);
+  }, [filtered.length, cursor]);
+
+  // Keep list cursor visible
+  useEffect(() => {
+    if (cursor < 0 || filtered.length === 0) return;
+    const o = listOffset.current;
+    if (cursor < o) {
+      listOffset.current = cursor;
+      listScrollRef.current?.scrollTo(cursor);
+    } else if (cursor >= o + listRows) {
+      const n = cursor - listRows + 1;
+      listOffset.current = n;
+      listScrollRef.current?.scrollTo(n);
     }
-  }, [visible, resetScroll]);
+  }, [cursor, filtered.length, listRows]);
+
+  const inDetail = detailIdx !== null;
+  const selectedEntry = inDetail ? filtered[detailIdx] : null;
+  const detailLines = useMemo(
+    () => (selectedEntry ? config.getDetailLines(selectedEntry) : []),
+    [selectedEntry, config],
+  );
 
   const showCopied = () => {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const inDetail = detailIndex !== null;
-  const selectedEntry = inDetail ? filtered[detailIndex] : null;
-
-  const detailLines = selectedEntry ? config.getDetailLines(selectedEntry) : [];
-
   useKeyboard((evt) => {
     if (!visible) return;
 
     if (inDetail) {
       if (evt.name === "escape") {
-        setDetailIndex(null);
-        setDetailScrollOffset(0);
+        setDetailIdx(null);
+        detailOffset.current = 0;
         return;
       }
-      if (evt.name === "up") {
-        setDetailScrollOffset((prev) => Math.max(0, prev - 1));
+      if (evt.name === "up" || evt.name === "k") {
+        const n = Math.max(0, detailOffset.current - 1);
+        detailOffset.current = n;
+        detailScrollRef.current?.scrollTo(n);
         return;
       }
-      if (evt.name === "down") {
-        setDetailScrollOffset((prev) =>
-          Math.min(Math.max(0, detailLines.length - maxDetailLines), prev + 1),
-        );
+      if (evt.name === "down" || evt.name === "j") {
+        const maxOff = Math.max(0, detailLines.length - detailRows);
+        const n = Math.min(maxOff, detailOffset.current + 1);
+        detailOffset.current = n;
+        detailScrollRef.current?.scrollTo(n);
         return;
       }
-      if (evt.name === "y" && evt.ctrl) {
-        if (selectedEntry) {
-          copyToClipboard(config.getCopyText(selectedEntry));
-          showCopied();
-        }
-        return;
+      if (evt.ctrl && evt.name === "y" && selectedEntry) {
+        copyToClipboard(config.getCopyText(selectedEntry));
+        showCopied();
       }
       return;
     }
@@ -136,275 +180,158 @@ export function LogViewer<T extends LogViewerEntry>({
       onClose();
       return;
     }
-
-    if (evt.name === "up") {
-      setCursor((prev) => {
-        const next = prev > 0 ? prev - 1 : Math.max(0, filtered.length - 1);
-        adjustScroll(next);
-        return next;
-      });
-      return;
-    }
-    if (evt.name === "down") {
-      setCursor((prev) => {
-        const next = prev < filtered.length - 1 ? prev + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
-      return;
-    }
-
     if (evt.name === "return") {
-      if (filtered[cursor]) setDetailIndex(cursor);
+      if (filtered[cursorRef.current]) setDetailIdx(cursorRef.current);
       return;
     }
-
-    if (evt.name === "y" && evt.ctrl) {
-      const entry = filtered[cursor];
-      if (entry) {
-        copyToClipboard(config.getCopyText(entry));
+    if (evt.ctrl && evt.name === "y") {
+      const e = filtered[cursorRef.current];
+      if (e) {
+        copyToClipboard(config.getCopyText(e));
         showCopied();
       }
       return;
     }
 
-    if (evt.name === "backspace" || evt.name === "delete") {
-      setQuery((prev) => prev.slice(0, -1));
-      resetScroll();
-      return;
-    }
-
-    if (evt.name === "space") {
-      setQuery((prev) => `${prev} `);
-      resetScroll();
-      return;
-    }
-
-    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
-      setQuery((prev) => prev + evt.name);
-      resetScroll();
+    if (handleCursorNavKey(evt, setCursor, filtered.length)) return;
+    if (handleTextInputKey(evt, setQuery)) {
+      listOffset.current = 0;
+      listScrollRef.current?.scrollTo(0);
+      setCursor(0);
     }
   });
 
   if (!visible) return null;
 
-  const sectionColor = config.detailSectionColor ?? config.borderColor;
-
   if (inDetail && selectedEntry) {
     const dh = config.getDetailHeader(selectedEntry);
     return (
-      <Overlay>
-        <box
-          flexDirection="column"
-          borderStyle="rounded"
-          border={true}
-          borderColor={config.borderColor}
-          width={popupWidth}
-        >
-          <PopupRow w={innerW}>
-            <text fg={dh.iconColor} bg={POPUP_BG}>
-              {dh.icon}
-            </text>
-            <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
-              {" "}
-              {dh.label}
-            </text>
-            {dh.sublabel && (
-              <text fg={dh.sublabelColor ?? t.brand} bg={POPUP_BG}>
-                {"  "}
-                {dh.sublabel}
-              </text>
-            )}
-            <text fg={t.textMuted} bg={POPUP_BG}>
-              {"  "}
-              {dh.timeStr}
-            </text>
-            {copied && (
-              <text fg={t.success} bg={POPUP_BG}>
-                {"  "}Copied!
-              </text>
-            )}
-          </PopupRow>
-
-          <PopupRow w={innerW}>
-            <text fg={t.textFaint} bg={POPUP_BG}>
-              {"─".repeat(innerW - 4)}
-            </text>
-          </PopupRow>
-
-          <box
-            flexDirection="column"
-            height={Math.min(detailLines.length, maxDetailLines)}
-            overflow="hidden"
-          >
-            {detailLines
-              .slice(detailScrollOffset, detailScrollOffset + maxDetailLines)
-              .map((line, vi) => {
-                const isSection = line.startsWith("──");
-                return (
-                  <PopupRow key={String(vi + detailScrollOffset)} w={innerW}>
-                    <text
-                      fg={isSection ? sectionColor : t.textSecondary}
-                      attributes={isSection ? TextAttributes.BOLD : undefined}
-                      bg={POPUP_BG}
-                      truncate
-                    >
-                      {line.length > innerW - 4 ? `${line.slice(0, innerW - 5)}…` : line || " "}
-                    </text>
-                  </PopupRow>
-                );
-              })}
-          </box>
-          {detailLines.length > maxDetailLines && (
-            <PopupRow w={innerW}>
-              <text fg={t.textMuted} bg={POPUP_BG}>
-                {detailScrollOffset > 0 ? "↑ " : "  "}
-                {String(detailScrollOffset + 1)}-
-                {String(Math.min(detailScrollOffset + maxDetailLines, detailLines.length))}/
-                {String(detailLines.length)}
-                {detailScrollOffset + maxDetailLines < detailLines.length ? " ↓" : ""}
-              </text>
-            </PopupRow>
-          )}
-
-          <PopupFooterHints
-            w={innerW}
-            hints={[
-              { key: "↑↓", label: "scroll" },
-              { key: "^Y", label: "copy" },
-              { key: "esc", label: "back" },
-            ]}
-          />
-        </box>
-      </Overlay>
+      <PremiumPopup
+        visible={visible}
+        width={popupW}
+        height={popupH}
+        title={dh.label}
+        titleIcon={config.titleIcon}
+        borderColor={config.borderColor}
+        blurb={`${dh.sublabel ? `${dh.sublabel} · ` : ""}${dh.timeStr}${copied ? " · Copied!" : ""}`}
+        footerHints={[
+          { key: "↑↓", label: "scroll" },
+          { key: "^Y", label: "copy" },
+          { key: "Esc", label: "back" },
+        ]}
+      >
+        <Section>
+          <scrollbox ref={detailScrollRef} height={detailRows}>
+            {detailLines.map((line, i) => {
+              const isSection = line.startsWith("──");
+              return (
+                <box
+                  // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                  key={`d-${i}`}
+                  flexDirection="row"
+                  height={1}
+                  backgroundColor={t.bgPopup}
+                >
+                  <text
+                    bg={t.bgPopup}
+                    fg={
+                      isSection
+                        ? (config.detailSectionColor ?? config.borderColor)
+                        : t.textSecondary
+                    }
+                    attributes={isSection ? BOLD : undefined}
+                  >
+                    {line.length > contentW ? `${line.slice(0, contentW - 1)}…` : line || " "}
+                  </text>
+                </box>
+              );
+            })}
+          </scrollbox>
+        </Section>
+      </PremiumPopup>
     );
   }
 
   return (
-    <Overlay>
-      <box
-        flexDirection="column"
-        borderStyle="rounded"
-        border={true}
-        borderColor={config.borderColor}
-        width={popupWidth}
-      >
-        <PopupRow w={innerW}>
-          <text fg={config.titleColor} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
-            {config.titleIcon} {config.title}
-          </text>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {" "}
-            ({config.countLabel(entries.length)})
-          </text>
-          {copied && (
-            <text fg={t.success} bg={POPUP_BG}>
-              {"  "}Copied!
-            </text>
-          )}
-        </PopupRow>
-
-        <PopupRow w={innerW}>
-          <text fg={config.accentColor} bg={POPUP_BG}>
-            {" "}
-          </text>
-          {query ? (
-            <>
-              <text fg={t.textPrimary} bg={POPUP_BG}>
-                {query}
-              </text>
-              <text fg={config.accentColor} bg={POPUP_BG}>
-                █
-              </text>
-            </>
-          ) : (
-            <>
-              <text fg={config.accentColor} bg={POPUP_BG}>
-                █
-              </text>
-              <text fg={t.textMuted} bg={POPUP_BG}>
-                {config.filterPlaceholder}
-              </text>
-            </>
-          )}
-        </PopupRow>
-
-        <PopupRow w={innerW}>
-          <text fg={t.textFaint} bg={POPUP_BG}>
-            {"─".repeat(innerW - 4)}
-          </text>
-        </PopupRow>
-
-        <box
-          flexDirection="column"
-          height={Math.min(filtered.length || 1, maxListVisible)}
-          overflow="hidden"
-        >
-          {filtered.length === 0 ? (
-            <PopupRow w={innerW}>
-              <text fg={t.textMuted} bg={POPUP_BG}>
-                {query ? config.emptyFilterMessage : config.emptyMessage}
-              </text>
-            </PopupRow>
-          ) : (
-            filtered.slice(scrollOffset, scrollOffset + maxListVisible).map((entry, vi) => {
-              const i = vi + scrollOffset;
-              const isActive = i === cursor;
-              const bg = isActive ? POPUP_HL : POPUP_BG;
-              const row = config.renderListRow(entry, innerW);
-              return (
-                <PopupRow key={entry.id} bg={bg} w={innerW}>
-                  <text bg={bg} fg={isActive ? config.cursorColor : t.textMuted}>
-                    {isActive ? "› " : "  "}
-                  </text>
-                  <text bg={bg} fg={row.iconColor}>
-                    {row.icon}{" "}
-                  </text>
-                  <text
-                    bg={bg}
-                    fg={isActive ? "white" : t.textSecondary}
-                    attributes={isActive ? TextAttributes.BOLD : undefined}
-                  >
-                    {row.label}
-                  </text>
-                  <text bg={bg} fg={t.textMuted}>
-                    {" "}
-                    {row.summary}
-                  </text>
-                  {row.extra && (
-                    <text bg={bg} fg={row.extraColor ?? t.brand}>
-                      {row.extra}
-                    </text>
-                  )}
-                  <text bg={bg} fg={t.textDim}>
-                    {"  "}
-                    {row.timeStr}
-                  </text>
-                </PopupRow>
-              );
-            })
-          )}
-        </box>
-        {filtered.length > maxListVisible && (
-          <PopupRow w={innerW}>
-            <text fg={t.textMuted} bg={POPUP_BG}>
-              {scrollOffset > 0 ? "↑ " : "  "}
-              {String(cursor + 1)}/{String(filtered.length)}
-              {scrollOffset + maxListVisible < filtered.length ? " ↓" : ""}
-            </text>
-          </PopupRow>
-        )}
-
-        <PopupFooterHints
-          w={innerW}
-          hints={[
-            { key: "↑↓", label: "nav" },
-            { key: "⏎", label: "detail" },
-            { key: "^Y", label: "copy" },
-            { key: "esc", label: "close" },
-          ]}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={popupH}
+      title={config.title}
+      titleIcon={config.titleIcon}
+      borderColor={config.borderColor}
+      blurb={`${config.countLabel(filtered.length)}${copied ? " · Copied!" : ""}`}
+      footerHints={[
+        { key: "↑↓", label: "nav" },
+        { key: "Enter", label: "detail" },
+        { key: "^Y", label: "copy" },
+        { key: "Esc", label: "close" },
+      ]}
+    >
+      <Section>
+        <Search
+          value={query}
+          focused={true}
+          placeholder={config.filterPlaceholder}
+          count={query ? `${filtered.length} / ${entries.length}` : undefined}
         />
-      </box>
-    </Overlay>
+        <VSpacer />
+        {filtered.length === 0 ? (
+          <box flexDirection="row" paddingX={2} paddingY={1} backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.textMuted}>
+              · {query ? config.emptyFilterMessage : config.emptyMessage}
+            </text>
+          </box>
+        ) : (
+          <box flexDirection="column" backgroundColor={t.bgPopup}>
+            <scrollbox ref={listScrollRef} height={listRows}>
+              {filtered.map((e, i) => {
+                const isActive = i === cursor;
+                const rowBg = isActive ? t.bgPopupHighlight : t.bgPopup;
+                const row = config.renderListRow(e, contentW);
+                return (
+                  <box key={e.id} flexDirection="row" height={1} backgroundColor={rowBg}>
+                    <text bg={rowBg} fg={isActive ? config.cursorColor : t.textFaint}>
+                      {isActive ? "› " : "  "}
+                    </text>
+                    <text bg={rowBg} fg={row.iconColor}>
+                      {row.icon}{" "}
+                    </text>
+                    <text
+                      bg={rowBg}
+                      fg={isActive ? t.textPrimary : t.textSecondary}
+                      attributes={isActive ? BOLD : undefined}
+                    >
+                      {row.label}
+                    </text>
+                    <text bg={rowBg} fg={t.textMuted}>
+                      {" "}
+                      {row.summary}
+                    </text>
+                    {row.extra ? (
+                      <text bg={rowBg} fg={row.extraColor ?? t.brand}>
+                        {row.extra}
+                      </text>
+                    ) : null}
+                    <box flexGrow={1} backgroundColor={rowBg} />
+                    <text bg={rowBg} fg={t.textDim}>
+                      {" "}
+                      {row.timeStr}
+                    </text>
+                  </box>
+                );
+              })}
+            </scrollbox>
+            {filtered.length > listRows ? (
+              <box flexDirection="row" paddingX={2} height={1} backgroundColor={t.bgPopup}>
+                <text bg={t.bgPopup} fg={t.textFaint}>
+                  {cursor + 1} / {filtered.length}
+                </text>
+              </box>
+            ) : null}
+          </box>
+        )}
+      </Section>
+    </PremiumPopup>
   );
 }

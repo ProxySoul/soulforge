@@ -1,29 +1,43 @@
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getGitLog, gitPull, gitPush, gitStash, gitStashPop } from "../../core/git/status.js";
-import { icon } from "../../core/icons.js";
+import {
+  buildGroupedRows,
+  type GroupedItem,
+  GroupedList,
+  type GroupedListGroup,
+  PremiumPopup,
+  Section,
+} from "../ui/index.js";
 
-import { useTheme } from "../../core/theme/index.js";
-import { POPUP_BG, POPUP_HL, Popup, PopupRow } from "../layout/shared.js";
-
-const MAX_POPUP_WIDTH = 54;
-const CHROME_ROWS = 7;
-
-interface MenuItem {
-  key: string;
-  label: string;
+interface MenuItem extends GroupedItem {
   action: string;
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { key: "c", label: "Commit", action: "commit" },
-  { key: "p", label: "Push", action: "push" },
-  { key: "u", label: "Pull", action: "pull" },
-  { key: "s", label: "Stash", action: "stash" },
-  { key: "o", label: "Stash Pop", action: "stash-pop" },
-  { key: "l", label: "Log", action: "log" },
-  { key: "g", label: "Lazygit", action: "lazygit" },
+  { id: "commit", keyHint: "c", label: "Commit", meta: "open commit form", action: "commit" },
+  { id: "push", keyHint: "p", label: "Push", meta: "git push", action: "push" },
+  { id: "pull", keyHint: "u", label: "Pull", meta: "git pull", action: "pull" },
+  { id: "stash", keyHint: "s", label: "Stash", meta: "stash uncommitted changes", action: "stash" },
+  {
+    id: "pop",
+    keyHint: "o",
+    label: "Stash Pop",
+    meta: "restore latest stash",
+    action: "stash-pop",
+  },
+  { id: "log", keyHint: "l", label: "Log", meta: "show recent commits", action: "log" },
+  {
+    id: "lazygit",
+    keyHint: "g",
+    label: "Lazygit",
+    meta: "launch external lazygit",
+    action: "lazygit",
+  },
+];
+
+const GROUPS: GroupedListGroup<MenuItem>[] = [
+  { id: "actions", label: "Actions", hideHeader: true, items: MENU_ITEMS },
 ];
 
 interface Props {
@@ -45,77 +59,65 @@ export function GitMenu({
   onSystemMessage,
   onRefresh,
 }: Props) {
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const containerRows = termRows - 2;
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.8));
-  const maxVisible = Math.max(4, Math.floor(containerRows * 0.8) - CHROME_ROWS);
+  const { width: tw } = useTerminalDimensions();
   const [cursor, setCursor] = useState(0);
-  const [scrollOffset, setScrollOffset] = useState(0);
   const [busy, setBusy] = useState(false);
+  const cursorRef = useRef(0);
+  cursorRef.current = cursor;
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
-  const adjustScroll = (next: number) => {
-    setScrollOffset((prev) => {
-      if (next < prev) return next;
-      if (next >= prev + maxVisible) return next - maxVisible + 1;
-      return prev;
-    });
-  };
+  useEffect(() => {
+    if (visible) setCursor(0);
+  }, [visible]);
 
-  const executeAction = async (action: string) => {
+  const rows = buildGroupedRows(GROUPS, new Set(["actions"]));
+
+  const run = async (action: string) => {
     switch (action) {
       case "commit":
         onClose();
         onCommit();
         return;
-
       case "push": {
         onClose();
         onSystemMessage("Pushing...");
-        const pushResult = await gitPush(cwd);
-        onSystemMessage(pushResult.ok ? "Push complete." : `Push failed: ${pushResult.output}`);
+        const r = await gitPush(cwd);
+        onSystemMessage(r.ok ? "Push complete." : `Push failed: ${r.output}`);
         onRefresh();
         return;
       }
-
       case "pull": {
         onClose();
         onSystemMessage("Pulling...");
-        const pullResult = await gitPull(cwd);
-        onSystemMessage(pullResult.ok ? "Pull complete." : `Pull failed: ${pullResult.output}`);
+        const r = await gitPull(cwd);
+        onSystemMessage(r.ok ? "Pull complete." : `Pull failed: ${r.output}`);
         onRefresh();
         return;
       }
-
       case "stash": {
         onClose();
-        const stashResult = await gitStash(cwd);
-        onSystemMessage(
-          stashResult.ok ? "Changes stashed." : `Stash failed: ${stashResult.output}`,
-        );
+        const r = await gitStash(cwd);
+        onSystemMessage(r.ok ? "Changes stashed." : `Stash failed: ${r.output}`);
         onRefresh();
         return;
       }
-
       case "stash-pop": {
         onClose();
-        const popResult = await gitStashPop(cwd);
-        onSystemMessage(popResult.ok ? "Stash popped." : `Stash pop failed: ${popResult.output}`);
+        const r = await gitStashPop(cwd);
+        onSystemMessage(r.ok ? "Stash popped." : `Stash pop failed: ${r.output}`);
         onRefresh();
         return;
       }
-
       case "log": {
         onClose();
         const entries = await getGitLog(cwd, 20);
-        if (entries.length === 0) {
-          onSystemMessage("No commits found.");
-        } else {
-          const logText = entries.map((e) => `${e.hash} ${e.subject} (${e.date})`).join("\n");
-          onSystemMessage(logText);
+        if (entries.length === 0) onSystemMessage("No commits found.");
+        else {
+          onSystemMessage(entries.map((e) => `${e.hash} ${e.subject} (${e.date})`).join("\n"));
         }
         return;
       }
-
       case "lazygit": {
         onClose();
         try {
@@ -129,115 +131,65 @@ export function GitMenu({
   };
 
   useKeyboard((evt) => {
-    if (!visible) return;
-    if (busy) return;
+    if (!visible || busyRef.current) return;
 
     if (evt.name === "escape") {
       onClose();
       return;
     }
-
     if (evt.name === "return") {
-      const item = MENU_ITEMS[cursor];
-      if (item) {
+      const r = rows[cursorRef.current];
+      if (r?.kind === "item" && r.item) {
         setBusy(true);
-        executeAction(item.action).finally(() => setBusy(false));
+        void run((r.item as MenuItem).action).finally(() => setBusy(false));
       }
       return;
     }
-
     if (evt.name === "up" || evt.name === "k") {
-      setCursor((prev) => {
-        const next = prev > 0 ? prev - 1 : MENU_ITEMS.length - 1;
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((c) => (c > 0 ? c - 1 : MENU_ITEMS.length - 1));
       return;
     }
-
     if (evt.name === "down" || evt.name === "j") {
-      setCursor((prev) => {
-        const next = prev < MENU_ITEMS.length - 1 ? prev + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
+      setCursor((c) => (c < MENU_ITEMS.length - 1 ? c + 1 : 0));
       return;
     }
-
-    const idx = MENU_ITEMS.findIndex((m) => m.key === evt.name);
-    if (idx >= 0) {
-      setCursor(idx);
+    // Mnemonic direct-invoke
+    const hit = MENU_ITEMS.findIndex((m) => m.keyHint === evt.name);
+    if (hit >= 0) {
+      setCursor(hit);
       setBusy(true);
-      const item = MENU_ITEMS[idx];
-      if (item) {
-        executeAction(item.action).finally(() => setBusy(false));
-      }
+      const item = MENU_ITEMS[hit];
+      if (item) void run(item.action).finally(() => setBusy(false));
     }
   });
 
-  const t = useTheme();
-
   if (!visible) return null;
 
-  const innerW = popupWidth - 2;
+  const popupW = Math.min(60, Math.max(48, Math.floor(tw * 0.5)));
 
   return (
-    <Popup
-      width={popupWidth}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={16}
       title="Git"
-      icon={icon("git")}
-      footer={[
-        { key: "↑↓", label: "navigate" },
-        { key: "⏎", label: "select" },
-        { key: "esc", label: "close" },
+      titleIcon="git"
+      blurb={busy ? "Running…" : "Common git actions"}
+      footerHints={[
+        { key: "↑↓", label: "nav" },
+        { key: "Enter", label: "run" },
+        { key: "c/p/u/s/o/l/g", label: "direct" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      <PopupRow w={innerW}>
-        <text>{""}</text>
-      </PopupRow>
-
-      <box
-        flexDirection="column"
-        height={Math.min(MENU_ITEMS.length, maxVisible)}
-        overflow="hidden"
-      >
-        {MENU_ITEMS.slice(scrollOffset, scrollOffset + maxVisible).map((item, vi) => {
-          const i = vi + scrollOffset;
-          const isActive = i === cursor;
-          const bg = isActive ? POPUP_HL : POPUP_BG;
-          return (
-            <PopupRow key={item.action} bg={bg} w={innerW}>
-              <text bg={bg} fg={isActive ? t.brandSecondary : t.textMuted}>
-                {isActive ? "› " : "  "}
-              </text>
-              <text
-                bg={bg}
-                fg={isActive ? t.warning : t.textMuted}
-                attributes={isActive ? TextAttributes.BOLD : undefined}
-              >
-                {item.key}
-              </text>
-              <text
-                bg={bg}
-                fg={isActive ? t.brandSecondary : t.textSecondary}
-                attributes={isActive ? TextAttributes.BOLD : undefined}
-              >
-                {"  "}
-                {item.label}
-              </text>
-            </PopupRow>
-          );
-        })}
-      </box>
-      {MENU_ITEMS.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {String(cursor + 1)}/{String(MENU_ITEMS.length)}
-            {scrollOffset + maxVisible < MENU_ITEMS.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
-      )}
-    </Popup>
+      <Section>
+        <GroupedList
+          groups={GROUPS}
+          expanded={new Set(["actions"])}
+          selectedIndex={cursor}
+          width={popupW - 4}
+        />
+      </Section>
+    </PremiumPopup>
   );
 }

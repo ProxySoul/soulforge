@@ -1,11 +1,20 @@
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useState } from "react";
-import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentEditorAccess, EditorIntegration } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
-import { CONFIG_SCOPES, POPUP_BG, POPUP_HL, Popup, PopupRow } from "../layout/shared.js";
+import { CONFIG_SCOPES } from "../layout/shared.js";
+import {
+  buildGroupedRows,
+  type GroupedItem,
+  GroupedList,
+  type GroupedListGroup,
+  Hint,
+  handleCursorNavKey,
+  PremiumPopup,
+  Section,
+  SegmentedControl,
+  VSpacer,
+} from "../ui/index.js";
 
 const AGENT_ACCESS_MODES: AgentEditorAccess[] = ["on", "off", "when-open"];
 const AGENT_ACCESS_LABELS: Record<AgentEditorAccess, string> = {
@@ -13,20 +22,14 @@ const AGENT_ACCESS_LABELS: Record<AgentEditorAccess, string> = {
   off: "Never",
   "when-open": "When editor open",
 };
-function getAgentAccessColors(t: ThemeTokens): Record<AgentEditorAccess, string> {
-  return { on: t.success, off: t.error, "when-open": t.warning };
-}
 
-const MAX_POPUP_WIDTH = 70;
-const CHROME_ROWS = 8;
-
-interface ToggleItem {
+interface FeatureKey {
   key: keyof EditorIntegration;
   label: string;
   desc: string;
 }
 
-const ITEMS: ToggleItem[] = [
+const FEATURES: FeatureKey[] = [
   { key: "diagnostics", label: "LSP Diagnostics", desc: "errors & warnings from LSP" },
   { key: "symbols", label: "Document Symbols", desc: "functions, classes, variables" },
   { key: "hover", label: "Hover / Type Info", desc: "type info at cursor position" },
@@ -80,59 +83,73 @@ interface Props {
   onClose: () => void;
 }
 
+interface Row extends GroupedItem {
+  fkey: keyof EditorIntegration;
+}
+
 export function EditorSettings({ visible, settings, initialScope, onUpdate, onClose }: Props) {
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const containerRows = termRows - 2;
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.8));
-  const innerW = popupWidth - 2;
-  const maxVisible = Math.max(4, Math.floor(containerRows * 0.8) - CHROME_ROWS);
-  const { cursor, setCursor, scrollOffset, adjustScroll } = usePopupScroll(maxVisible);
+  const { width: tw, height: th } = useTerminalDimensions();
+  const [cursor, setCursor] = useState(0);
   const [scope, setScope] = useState<ConfigScope>(initialScope ?? "project");
-  const t = useTheme();
+
   const current = settings ?? ALL_ON;
 
   useEffect(() => {
-    if (visible) setScope(initialScope ?? "project");
+    if (visible) {
+      setScope(initialScope ?? "project");
+      setCursor(0);
+    }
   }, [visible, initialScope]);
+
+  const popupW = Math.min(80, Math.max(64, Math.floor(tw * 0.7)));
+  const popupH = Math.min(32, Math.max(20, th - 4));
+  const contentW = popupW - 4;
+
+  const groups = useMemo<GroupedListGroup<Row>[]>(
+    () => [
+      {
+        id: "features",
+        label: "Features",
+        hideHeader: true,
+        items: FEATURES.map((f) => ({
+          id: f.key,
+          fkey: f.key,
+          label: f.label,
+          meta: f.desc,
+          active: !!current[f.key],
+          keyHint: current[f.key] ? "✓" : " ",
+        })),
+      },
+    ],
+    [current],
+  );
+
+  const rows = useMemo(() => buildGroupedRows(groups, new Set(["features"])), [groups]);
 
   useKeyboard((evt) => {
     if (!visible) return;
+
     if (evt.name === "escape") {
       onClose();
       return;
     }
-    if (evt.name === "up") {
-      setCursor((c) => {
-        const next = c > 0 ? c - 1 : ITEMS.length - 1;
-        adjustScroll(next);
-        return next;
-      });
-      return;
-    }
-    if (evt.name === "down") {
-      setCursor((c) => {
-        const next = c < ITEMS.length - 1 ? c + 1 : 0;
-        adjustScroll(next);
-        return next;
-      });
-      return;
-    }
-    if (evt.name === "return" || evt.name === " ") {
-      const item = ITEMS[cursor];
-      if (item) {
-        onUpdate({ ...current, [item.key]: !current[item.key] }, scope);
+    if (evt.name === "return" || evt.name === "space") {
+      const r = rows[cursor];
+      if (r?.kind === "item" && r.item) {
+        const k = (r.item as Row).fkey;
+        onUpdate({ ...current, [k]: !current[k] }, scope);
       }
       return;
     }
     if (evt.name === "a") {
-      onUpdate({ ...ALL_ON }, scope);
+      onUpdate({ ...ALL_ON, agentAccess: current.agentAccess }, scope);
       return;
     }
     if (evt.name === "n") {
-      onUpdate({ ...ALL_OFF }, scope);
+      onUpdate({ ...ALL_OFF, agentAccess: current.agentAccess }, scope);
       return;
     }
-    if (evt.sequence === "e") {
+    if (evt.name === "e") {
       const currentAccess = current.agentAccess ?? "on";
       const idx = AGENT_ACCESS_MODES.indexOf(currentAccess);
       const next = AGENT_ACCESS_MODES[(idx + 1) % AGENT_ACCESS_MODES.length] ?? "on";
@@ -146,115 +163,60 @@ export function EditorSettings({ visible, settings, initialScope, onUpdate, onCl
           evt.name === "left"
             ? CONFIG_SCOPES[(idx - 1 + CONFIG_SCOPES.length) % CONFIG_SCOPES.length]
             : CONFIG_SCOPES[(idx + 1) % CONFIG_SCOPES.length];
-        if (next && next !== prev) {
-          onUpdate({ ...current }, next, prev);
-        }
+        if (next && next !== prev) onUpdate({ ...current }, next, prev);
         return next ?? prev;
       });
       return;
     }
+    handleCursorNavKey(evt, setCursor, rows.length);
   });
 
   if (!visible) return null;
 
+  const enabled = FEATURES.filter((f) => !!current[f.key]).length;
+  const access = current.agentAccess ?? "on";
+
   return (
-    <Popup
-      width={popupWidth}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={popupH}
       title="Editor Integrations"
-      icon=""
-      footer={[
-        { key: "↑↓", label: "navigate" },
-        { key: "⏎", label: "toggle" },
-        { key: "a", label: "all" },
-        { key: "n", label: "none" },
+      titleIcon="editor"
+      blurb={`${enabled} / ${FEATURES.length} enabled · scope: ${scope}`}
+      footerHints={[
+        { key: "↑↓", label: "nav" },
+        { key: "Space", label: "toggle" },
+        { key: "a/n", label: "all/none" },
         { key: "e", label: "agent access" },
         { key: "←→", label: "scope" },
-        { key: "esc", label: "close" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      <box flexDirection="column" height={Math.min(ITEMS.length, maxVisible)} overflow="hidden">
-        {ITEMS.slice(scrollOffset, scrollOffset + maxVisible).map((item, vi) => {
-          const i = vi + scrollOffset;
-          const isSelected = i === cursor;
-          const isEnabled = current[item.key];
-          const bg = isSelected ? POPUP_HL : POPUP_BG;
-          return (
-            <PopupRow key={item.key} bg={bg} w={innerW}>
-              <text bg={bg} fg={isSelected ? t.brandSecondary : t.textMuted}>
-                {isSelected ? "› " : "  "}
-              </text>
-              <text bg={bg} fg={isEnabled ? t.success : t.textMuted}>
-                [{isEnabled ? "x" : " "}]
-              </text>
-              <text bg={bg} fg={isEnabled ? "white" : t.textMuted}>
-                {" "}
-                {item.label.padEnd(20)}
-              </text>
-              <text bg={bg} fg={t.textMuted} truncate>
-                {item.desc}
-              </text>
-            </PopupRow>
-          );
-        })}
-      </box>
-      {ITEMS.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {String(cursor + 1)}/{String(ITEMS.length)}
-            {scrollOffset + maxVisible < ITEMS.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
-      )}
-
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textFaint}>
-          {"─".repeat(innerW - 2)}
-        </text>
-      </PopupRow>
-
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textMuted}>
-          {"Scope: "}
-        </text>
-        {CONFIG_SCOPES.map((s) => (
-          <text
-            key={s}
-            bg={POPUP_BG}
-            fg={s === scope ? t.brandAlt : t.textDim}
-            attributes={s === scope ? TextAttributes.BOLD : undefined}
-          >
-            {s === scope ? `[${s}]` : ` ${s} `}
-            {"  "}
-          </text>
-        ))}
-      </PopupRow>
-
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textFaint}>
-          {"─".repeat(innerW - 2)}
-        </text>
-      </PopupRow>
-
-      <PopupRow w={innerW}>
-        <text bg={POPUP_BG} fg={t.textSecondary}>
-          {"  Agent editor access: "}
-        </text>
-        {AGENT_ACCESS_MODES.map((mode) => {
-          const active = (current.agentAccess ?? "on") === mode;
-          return (
-            <text
-              key={mode}
-              bg={POPUP_BG}
-              fg={active ? getAgentAccessColors(t)[mode] : t.textDim}
-              attributes={active ? TextAttributes.BOLD : undefined}
-            >
-              {active ? `[${AGENT_ACCESS_LABELS[mode]}]` : ` ${AGENT_ACCESS_LABELS[mode]} `}
-              {"  "}
-            </text>
-          );
-        })}
-      </PopupRow>
-    </Popup>
+      <Section>
+        <GroupedList
+          groups={groups}
+          expanded={new Set(["features"])}
+          selectedIndex={cursor}
+          width={contentW}
+          maxRows={Math.max(6, popupH - 14)}
+        />
+        <VSpacer />
+        <SegmentedControl
+          label="Agent access"
+          labelWidth={14}
+          options={AGENT_ACCESS_MODES.map((m) => ({ value: m, label: AGENT_ACCESS_LABELS[m] }))}
+          value={access}
+        />
+        <SegmentedControl
+          label="Scope"
+          labelWidth={14}
+          options={CONFIG_SCOPES.map((s) => ({ value: s, label: s }))}
+          value={scope}
+        />
+        <VSpacer />
+        <Hint>[a] enable all · [n] disable all · [e] cycle agent access · [←→] toggle scope</Hint>
+      </Section>
+    </PremiumPopup>
   );
 }

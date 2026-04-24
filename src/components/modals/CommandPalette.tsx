@@ -1,16 +1,29 @@
-import { TextAttributes } from "@opentui/core";
+/**
+ * CommandPalette — search-first command picker.
+ *
+ * Behavior:
+ *  - Typing always filters (no `/` toggle — palette IS a search UI).
+ *  - Empty query: commands grouped by category, headers visible.
+ *  - With query: single flat group (hideHeader), score-sorted matches.
+ *  - Fuzzy-match char indices highlighted per item using the category accent.
+ *  - Tab jumps to the next category header (nav aid when browsing).
+ */
+
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORIES, type CommandDef, getCommandDefs } from "../../core/commands/registry.js";
 import { fuzzyMatch } from "../../core/history/fuzzy.js";
-import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
-import { useMarqueeScroll } from "../../hooks/useMarqueeScroll.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
-import { POPUP_BG, POPUP_HL, Popup, PopupRow, PopupSeparator } from "../layout/shared.js";
-
-const MAX_POPUP_WIDTH = 64;
-const CHROME_ROWS = 6;
+import {
+  buildGroupedRows,
+  type GroupedItem,
+  GroupedList,
+  type GroupedListGroup,
+  PremiumPopup,
+  Search,
+  Section,
+  VSpacer,
+} from "../ui/index.js";
 
 const CATEGORY_ICONS: Record<string, string> = {
   Git: "git",
@@ -23,260 +36,8 @@ const CATEGORY_ICONS: Record<string, string> = {
   System: "ghost",
 };
 
-interface PaletteItem {
-  type: "header" | "command";
-  category?: string;
-  def?: CommandDef;
-  matchIndices?: number[];
-  score?: number;
-}
-
-function buildGroupedItems(defs: CommandDef[]): PaletteItem[] {
-  const items: PaletteItem[] = [];
-  for (const cat of CATEGORIES) {
-    const cmds = defs.filter((d) => d.category === cat);
-    if (cmds.length === 0) continue;
-    items.push({ type: "header", category: cat });
-    for (const def of cmds) items.push({ type: "command", def, category: cat });
-  }
-  return items;
-}
-
-function buildFilteredItems(defs: CommandDef[], query: string): PaletteItem[] {
-  const results: { def: CommandDef; score: number; indices: number[] }[] = [];
-  for (const def of defs) {
-    const target = `${def.cmd} ${def.desc} ${def.tags?.join(" ") ?? ""}`;
-    const m = fuzzyMatch(query, target);
-    if (m) results.push({ def, score: m.score, indices: m.indices });
-  }
-  results.sort((a, b) => b.score - a.score);
-  return results.map((r) => ({
-    type: "command" as const,
-    def: r.def,
-    matchIndices: r.indices,
-    score: r.score,
-    category: r.def.category,
-  }));
-}
-
-function isSelectable(item: PaletteItem): boolean {
-  return item.type === "command";
-}
-
-function findNextSelectable(items: PaletteItem[], from: number, dir: 1 | -1): number {
-  const len = items.length;
-  if (len === 0) return 0;
-  let idx = from + dir;
-  if (idx < 0) idx = len - 1;
-  if (idx >= len) idx = 0;
-  const start = idx;
-  for (;;) {
-    const item = items[idx];
-    if (!item || isSelectable(item)) break;
-    idx += dir;
-    if (idx < 0) idx = len - 1;
-    if (idx >= len) idx = 0;
-    if (idx === start) break;
-  }
-  return idx;
-}
-
-function findNextCategory(items: PaletteItem[], from: number): number {
-  for (let i = from + 1; i < items.length; i++) {
-    if (items[i]?.type === "header") {
-      const next = i + 1;
-      if (next < items.length && items[next] && isSelectable(items[next])) return next;
-    }
-  }
-  for (let i = 0; i < from; i++) {
-    if (items[i]?.type === "header") {
-      const next = i + 1;
-      if (next < items.length && items[next] && isSelectable(items[next])) return next;
-    }
-  }
-  return from;
-}
-
-function renderHighlightedCmd(
-  cmd: string,
-  indices: number[] | undefined,
-  baseFg: string,
-  hlFg: string,
-  bg: string,
-  bold: boolean,
-): React.ReactNode {
-  if (!indices || indices.length === 0) {
-    return (
-      <text fg={baseFg} bg={bg} attributes={bold ? TextAttributes.BOLD : undefined}>
-        {cmd}
-      </text>
-    );
-  }
-  const highlightSet = new Set(indices.filter((i) => i < cmd.length));
-  if (highlightSet.size === 0) {
-    return (
-      <text fg={baseFg} bg={bg} attributes={bold ? TextAttributes.BOLD : undefined}>
-        {cmd}
-      </text>
-    );
-  }
-
-  const spans: React.ReactNode[] = [];
-  let run = "";
-  let runHl = false;
-
-  const flush = () => {
-    if (!run) return;
-    spans.push(
-      <span
-        key={spans.length}
-        fg={runHl ? hlFg : baseFg}
-        bg={bg}
-        attributes={runHl ? TextAttributes.BOLD : undefined}
-      >
-        {run}
-      </span>,
-    );
-    run = "";
-  };
-
-  for (let i = 0; i < cmd.length; i++) {
-    const ch = cmd[i] ?? "";
-    const isHl = highlightSet.has(i);
-    if (i === 0) {
-      runHl = isHl;
-      run = ch;
-    } else if (isHl === runHl) {
-      run += ch;
-    } else {
-      flush();
-      runHl = isHl;
-      run = ch;
-    }
-  }
-  flush();
-
-  return <text bg={bg}>{spans}</text>;
-}
-
-function HeaderRow({
-  category,
-  catColor,
-  catIcon,
-  innerW,
-}: {
-  category: string;
-  catColor: string;
-  catIcon: string | undefined;
-  innerW: number;
-}) {
-  return (
-    <PopupRow w={innerW}>
-      <text fg={catColor} bg={POPUP_BG} attributes={TextAttributes.BOLD}>
-        {catIcon ? `${icon(catIcon)} ` : ""}
-        {category}
-      </text>
-    </PopupRow>
-  );
-}
-
-interface CommandRowProps {
+interface CommandRow extends GroupedItem {
   def: CommandDef;
-  isActive: boolean;
-  catColor: string;
-  innerW: number;
-  matchIndices: number[] | undefined;
-  textSecondary: string;
-  textMuted: string;
-  textFaint: string;
-  textPrimary: string;
-}
-
-function getDescMaxWidth(innerW: number, cmdText: string): number {
-  return Math.max(0, innerW - cmdText.length - 14);
-}
-
-function truncateDesc(desc: string, descMaxWidth: number): string {
-  if (descMaxWidth <= 0) {
-    return "";
-  }
-  if (desc.length > descMaxWidth) {
-    return `${desc.slice(0, descMaxWidth - 1)}…`;
-  }
-  return desc;
-}
-
-function RowLayout({
-  def,
-  isActive,
-  catColor,
-  innerW,
-  matchIndices,
-  textSecondary,
-  textMuted,
-  textFaint,
-  textPrimary,
-  displayDesc,
-}: {
-  def: CommandDef;
-  isActive: boolean;
-  catColor: string;
-  innerW: number;
-  matchIndices: number[] | undefined;
-  textSecondary: string;
-  textMuted: string;
-  textFaint: string;
-  textPrimary: string;
-  displayDesc: string;
-}) {
-  const bg = isActive ? POPUP_HL : POPUP_BG;
-  const cmdColor = isActive ? catColor : textSecondary;
-  const descColor = isActive ? textSecondary : textMuted;
-  const cmdText = def.cmd;
-
-  return (
-    <PopupRow bg={bg} w={innerW}>
-      <text fg={isActive ? catColor : textFaint} bg={bg}>
-        {isActive ? "› " : "  "}
-      </text>
-      <text fg={textMuted} bg={bg}>
-        {def.category ? `${def.category.slice(0, 3).toLowerCase()} ` : ""}
-      </text>
-      {renderHighlightedCmd(
-        cmdText,
-        matchIndices,
-        cmdColor,
-        isActive ? textPrimary : catColor,
-        bg,
-        isActive,
-      )}
-      <text fg={descColor} bg={bg} truncate>
-        {"  "}
-        {displayDesc}
-      </text>
-    </PopupRow>
-  );
-}
-
-function ActiveCommandRow(props: CommandRowProps) {
-  const descMaxWidth = getDescMaxWidth(props.innerW, props.def.cmd);
-  const displayDesc = useMarqueeScroll(props.def.desc, descMaxWidth, true);
-
-  return <RowLayout {...props} displayDesc={displayDesc} />;
-}
-
-function InactiveCommandRow(props: CommandRowProps) {
-  const descMaxWidth = getDescMaxWidth(props.innerW, props.def.cmd);
-  const displayDesc = truncateDesc(props.def.desc, descMaxWidth);
-
-  return <RowLayout {...props} displayDesc={displayDesc} />;
-}
-
-function CommandRow(props: CommandRowProps) {
-  if (props.isActive) {
-    return <ActiveCommandRow {...props} />;
-  }
-  return <InactiveCommandRow {...props} />;
 }
 
 interface Props {
@@ -287,56 +48,148 @@ interface Props {
 
 export function CommandPalette({ visible, onClose, onExecute }: Props) {
   const t = useTheme();
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const containerRows = termRows - 2;
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.85));
-  const innerW = popupWidth - 2;
-  const maxVisible = Math.max(6, Math.floor(containerRows * 0.75) - CHROME_ROWS);
+  const { width: tw, height: th } = useTerminalDimensions();
 
-  const categoryColors: Record<string, string> = {
-    Git: t.warning,
-    Session: t.info,
-    Models: t.brandAlt,
-    Settings: t.brand,
-    Editor: t.success,
-    Intelligence: t.brandSecondary,
-    Tabs: t.warning,
-    System: t.textMuted,
-  };
+  const popupW = Math.min(84, Math.max(72, Math.floor(tw * 0.7)));
+  const popupH = Math.min(32, Math.max(18, th - 4));
+  const contentW = popupW - 4;
+
+  const categoryColors: Record<string, string> = useMemo(
+    () => ({
+      Git: t.warning,
+      Session: t.info,
+      Models: t.brandAlt,
+      Settings: t.brand,
+      Editor: t.success,
+      Intelligence: t.brandSecondary,
+      Tabs: t.warning,
+      System: t.textMuted,
+    }),
+    [t],
+  );
 
   const [query, setQuery] = useState("");
-  const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxVisible);
+  const [cursor, setCursor] = useState(0);
+  const cursorRef = useRef(0);
+  cursorRef.current = cursor;
 
-  const allDefs = getCommandDefs().filter((d) => !d.hidden);
-  const items = query ? buildFilteredItems(allDefs, query) : buildGroupedItems(allDefs);
+  const allDefs = useMemo(() => getCommandDefs().filter((d) => !d.hidden), []);
 
-  const commandCount = items.filter(isSelectable).length;
-
-  const prevVisibleRef = useRef(false);
+  // Reset on open
   useEffect(() => {
-    const justOpened = visible && !prevVisibleRef.current;
-    prevVisibleRef.current = visible;
     if (!visible) return;
-    if (justOpened) setQuery("");
-    const firstCmd = items.findIndex(isSelectable);
-    setCursor(firstCmd >= 0 ? firstCmd : 0);
-    resetScroll();
-  }, [visible, items, setCursor, resetScroll]);
+    setQuery("");
+    setCursor(0);
+  }, [visible]);
 
-  const execute = (item: PaletteItem) => {
-    if (item.def) {
-      onClose();
-      onExecute(item.def.cmd);
+  // Build groups — two shapes depending on whether filter is active
+  const groups = useMemo<GroupedListGroup<CommandRow>[]>(() => {
+    if (query.trim().length === 0) {
+      return CATEGORIES.flatMap((cat) => {
+        const cmds = allDefs.filter((d) => d.category === cat);
+        if (cmds.length === 0) return [];
+        return [
+          {
+            id: cat,
+            label: cat,
+            icon: CATEGORY_ICONS[cat],
+            accent: categoryColors[cat] ?? t.brand,
+            items: cmds.map<CommandRow>((def) => ({
+              id: def.cmd,
+              label: def.cmd,
+              meta: def.desc,
+              def,
+            })),
+          },
+        ];
+      });
     }
+
+    // Search: collect matches with scores, sort desc, render as one flat group
+    const results: { def: CommandDef; score: number; indices: number[] }[] = [];
+    for (const def of allDefs) {
+      const target = `${def.cmd} ${def.desc} ${def.tags?.join(" ") ?? ""}`;
+      const m = fuzzyMatch(query, target);
+      if (m) results.push({ def, score: m.score, indices: m.indices });
+    }
+    results.sort((a, b) => b.score - a.score);
+    return [
+      {
+        id: "__results",
+        label: "Results",
+        hideHeader: true,
+        items: results.map<CommandRow>(({ def, indices }) => {
+          // highlightIndices are into the full target string. Trim to just cmd.
+          const cmdLen = def.cmd.length;
+          const cmdIndices = indices.filter((i) => i < cmdLen);
+          return {
+            id: def.cmd,
+            label: def.cmd,
+            meta: def.desc,
+            prefix: def.category?.slice(0, 3).toLowerCase(),
+            highlightIndices: cmdIndices,
+            def,
+          };
+        }),
+      },
+    ];
+  }, [query, allDefs, categoryColors, t]);
+
+  const rows = useMemo(() => {
+    // All groups are expanded (either natural-expanded for categories, or hideHeader)
+    const expanded = new Set(groups.map((g) => g.id));
+    return buildGroupedRows(groups, expanded);
+  }, [groups]);
+
+  // Clamp cursor to a selectable (item) row
+  const firstItemIdx = useMemo(() => rows.findIndex((r) => r.kind === "item"), [rows]);
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const cur = rows[cursorRef.current];
+    if (!cur || cur.kind !== "item") {
+      setCursor(firstItemIdx >= 0 ? firstItemIdx : 0);
+    } else if (cursorRef.current >= rows.length) {
+      setCursor(Math.max(0, rows.length - 1));
+    }
+  }, [rows, firstItemIdx]);
+
+  const commandCount = useMemo(() => rows.filter((r) => r.kind === "item").length, [rows]);
+
+  const nextItemIdx = (from: number, dir: 1 | -1): number => {
+    if (rows.length === 0) return from;
+    let i = from + dir;
+    for (let n = 0; n < rows.length; n++) {
+      if (i < 0) i = rows.length - 1;
+      else if (i >= rows.length) i = 0;
+      if (rows[i]?.kind === "item") return i;
+      i += dir;
+    }
+    return from;
   };
 
-  const handleKeyboard = (evt: { name?: string; ctrl?: boolean; meta?: boolean }) => {
+  const nextCategoryIdx = (from: number): number => {
+    // Find next header, then land on its first item
+    for (let i = from + 1; i < rows.length; i++) {
+      if (rows[i]?.kind === "group") {
+        if (rows[i + 1]?.kind === "item") return i + 1;
+      }
+    }
+    for (let i = 0; i < from; i++) {
+      if (rows[i]?.kind === "group") {
+        if (rows[i + 1]?.kind === "item") return i + 1;
+      }
+    }
+    return from;
+  };
+
+  useKeyboard((evt) => {
     if (!visible) return;
 
     if (evt.name === "escape") {
-      if (query) {
+      if (query.length > 0) {
         setQuery("");
-        resetScroll();
+        setCursor(firstItemIdx >= 0 ? firstItemIdx : 0);
       } else {
         onClose();
       }
@@ -344,155 +197,99 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
     }
 
     if (evt.name === "return") {
-      const item = items[cursor];
-      if (item && isSelectable(item)) execute(item);
+      const cur = rows[cursorRef.current];
+      if (cur?.kind === "item" && cur.item) {
+        const r = cur.item as CommandRow;
+        onClose();
+        onExecute(r.def.cmd);
+      }
       return;
     }
 
-    if (evt.name === "up" || (evt.name === "k" && evt.ctrl)) {
-      const next = findNextSelectable(items, cursor, -1);
-      setCursor(next);
-      adjustScroll(next);
+    if (evt.name === "up" || (evt.ctrl && evt.name === "k")) {
+      setCursor((c) => nextItemIdx(c, -1));
       return;
     }
-
-    if (evt.name === "down" || (evt.name === "j" && evt.ctrl)) {
-      const next = findNextSelectable(items, cursor, 1);
-      setCursor(next);
-      adjustScroll(next);
+    if (evt.name === "down" || (evt.ctrl && evt.name === "j")) {
+      setCursor((c) => nextItemIdx(c, 1));
       return;
     }
-
     if (evt.name === "tab" && !query) {
-      const next = findNextCategory(items, cursor);
-      setCursor(next);
-      adjustScroll(next);
+      setCursor((c) => nextCategoryIdx(c));
       return;
     }
 
     if (evt.name === "backspace" || evt.name === "delete") {
       setQuery((q) => q.slice(0, -1));
-      resetScroll();
       return;
     }
-
     if (evt.ctrl && evt.name === "u") {
       setQuery("");
-      resetScroll();
       return;
     }
 
-    if (evt.name === "space") {
-      setQuery((q) => `${q} `);
-      resetScroll();
-      return;
+    // Printable char → append to query
+    const ch = evt.sequence;
+    if (
+      typeof ch === "string" &&
+      ch.length === 1 &&
+      ch >= " " &&
+      ch !== "\x7f" &&
+      !evt.ctrl &&
+      !evt.meta
+    ) {
+      setQuery((q) => q + ch);
     }
-
-    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
-      setQuery((q) => q + evt.name);
-      resetScroll();
-    }
-  };
-
-  useKeyboard(handleKeyboard);
+  });
 
   if (!visible) return null;
 
-  const visibleItems = items.slice(scrollOffset, scrollOffset + maxVisible);
-  const searchBg = t.bgPopupHighlight;
+  const totalCommands = allDefs.length;
+  const blurb = query.trim()
+    ? `${commandCount} matches`
+    : `${totalCommands} commands · ${CATEGORIES.length} categories`;
 
   return (
-    <Popup
-      width={popupWidth}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={popupH}
       title="Command Palette"
-      icon={icon("lightning")}
-      footer={[
-        { key: "\u2191\u2193", label: "navigate" },
-        ...(!query ? [{ key: "tab", label: "jump" }] : []),
-        { key: "\u23CE", label: "run" },
-        { key: "esc", label: query ? "clear" : "close" },
-      ]}
+      titleIcon="lightning"
+      blurb={blurb}
+      footerHints={
+        query
+          ? [
+              { key: "↑↓", label: "nav" },
+              { key: "Enter", label: "run" },
+              { key: "Backspace", label: "del" },
+              { key: "Esc", label: "clear" },
+            ]
+          : [
+              { key: "↑↓", label: "nav" },
+              { key: "Tab", label: "next category" },
+              { key: "Enter", label: "run" },
+              { key: "Esc", label: "close" },
+            ]
+      }
     >
-      {/* Search input */}
-      <PopupRow w={innerW} bg={searchBg}>
-        <text fg={t.brandAlt} bg={searchBg}>
-          {"\uD83D\uDD0D"}{" "}
-        </text>
-        <text fg={t.textPrimary} bg={searchBg}>
-          {query}
-        </text>
-        <text fg={t.brandAlt} bg={searchBg}>
-          {"▎"}
-        </text>
-        {!query && (
-          <text fg={t.textDim} bg={searchBg}>
-            {" type to search…"}
-          </text>
-        )}
-        {query && (
-          <text fg={t.textDim} bg={searchBg}>
-            {"  "}
-            {String(commandCount)} result{commandCount !== 1 ? "s" : ""}
-          </text>
-        )}
-      </PopupRow>
-
-      {/* Separator */}
-      <PopupSeparator w={innerW} />
-
-      {/* Items */}
-      <box
-        flexDirection="column"
-        height={Math.min(items.length || 1, maxVisible)}
-        overflow="hidden"
-      >
-        {visibleItems.map((item, vi) => {
-          const idx = vi + scrollOffset;
-
-          if (item.type === "header") {
-            const cat = item.category ?? "";
-            return (
-              <HeaderRow
-                key={`h-${cat}`}
-                category={cat}
-                catColor={categoryColors[cat] ?? t.textMuted}
-                catIcon={CATEGORY_ICONS[cat]}
-                innerW={innerW}
-              />
-            );
-          }
-
-          const def = item.def;
-          if (!def) return null;
-
-          return (
-            <CommandRow
-              key={def.cmd}
-              def={def}
-              isActive={idx === cursor}
-              catColor={categoryColors[item.category ?? ""] ?? t.brandAlt}
-              innerW={innerW}
-              matchIndices={item.matchIndices}
-              textSecondary={t.textSecondary}
-              textMuted={t.textMuted}
-              textFaint={t.textFaint}
-              textPrimary={t.textPrimary}
-            />
-          );
-        })}
-      </box>
-
-      {/* Scroll indicator */}
-      {items.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textDim} bg={POPUP_BG}>
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {String(Math.max(1, items.slice(0, cursor + 1).filter(isSelectable).length))}/
-            {String(commandCount)}
-            {scrollOffset + maxVisible < items.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
-      )}
-    </Popup>
+      <Section>
+        <Search
+          value={query}
+          focused={true}
+          placeholder="Type to filter commands…"
+          count={query ? `${commandCount} / ${totalCommands}` : undefined}
+        />
+        <VSpacer />
+        <GroupedList
+          groups={groups}
+          expanded={new Set(groups.map((g) => g.id))}
+          selectedIndex={cursor}
+          width={contentW}
+          maxRows={Math.max(8, popupH - 12)}
+          emptyMessage="No commands match — try a different query"
+        />
+      </Section>
+    </PremiumPopup>
   );
 }

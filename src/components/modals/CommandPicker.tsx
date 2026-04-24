@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type { ConfigScope } from "../layout/shared.js";
-import { CONFIG_SCOPES, Popup, PopupRow } from "../layout/shared.js";
+import { CONFIG_SCOPES } from "../layout/shared.js";
+import { KeyCap, PremiumPopup, SegmentedControl, Toggle } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 60;
 const CHROME_ROWS = 7;
@@ -128,7 +129,7 @@ function OptionRow({
 
   return (
     <box flexDirection="column">
-      <PopupRow bg={bg} w={innerW}>
+      <box flexDirection="row" backgroundColor={bg}>
         <text bg={bg} fg={isActive && !isDisabled ? activeColor : textMuted}>
           {isActive && !isDisabled ? "› " : "  "}
         </text>
@@ -150,9 +151,9 @@ function OptionRow({
             ✓
           </text>
         )}
-      </PopupRow>
+      </box>
       {option.description && (
-        <PopupRow bg={bg} w={innerW}>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg} fg={isDisabled ? textFaint : isActive ? textSecondary : textMuted} truncate>
             {"    "}
             {option.icon ? "  " : ""}
@@ -160,7 +161,7 @@ function OptionRow({
               ? `${option.description.slice(0, innerW - 13)}…`
               : option.description}
           </text>
-        </PopupRow>
+        </box>
       )}
     </box>
   );
@@ -505,21 +506,24 @@ export function CommandPicker({ visible, config, onClose }: Props) {
   const POPUP_HL = t.bgPopupHighlight;
 
   return (
-    <Popup
+    <PremiumPopup
+      visible={visible}
       width={popupWidth}
+      height={Math.min(Math.max(14, Math.floor(termRows * 0.8)), termRows - 2)}
       title={config.title}
-      icon={config.icon}
-      footer={[
-        { key: "\u2191\u2193", label: "navigate" },
-        ...(hasControls ? [{ key: "\u2190\u2192", label: "adjust" }] : []),
-        { key: "\u23CE", label: "select" },
+      titleIcon={config.icon}
+      blurb={config.searchable && search ? `${filteredOptions.length} matches` : undefined}
+      footerHints={[
+        { key: "↑↓", label: "nav" },
+        ...(hasControls ? [{ key: "←→", label: "adjust" }] : []),
+        { key: "Enter", label: "select" },
         ...(config.searchable ? [{ key: "type", label: "filter" }] : []),
-        ...(config.scopeEnabled ? [{ key: "\u2190\u2192", label: "scope" }] : []),
-        { key: "esc", label: "close" },
+        ...(config.scopeEnabled && !hasControls ? [{ key: "←→", label: "scope" }] : []),
+        { key: "Esc", label: "close" },
       ]}
     >
       {config.searchable && (
-        <PopupRow w={innerW}>
+        <box flexDirection="row" backgroundColor={POPUP_BG}>
           <text fg={t.textMuted} bg={POPUP_BG}>
             {"🔍 "}
           </text>
@@ -534,14 +538,14 @@ export function CommandPicker({ visible, config, onClose }: Props) {
               {" type to filter..."}
             </text>
           )}
-        </PopupRow>
+        </box>
       )}
 
-      <PopupRow w={innerW}>
+      <box flexDirection="row" backgroundColor={POPUP_BG}>
         <text fg={t.textFaint} bg={POPUP_BG}>
           {"─".repeat(innerW - 4)}
         </text>
-      </PopupRow>
+      </box>
 
       <box
         flexDirection="column"
@@ -552,11 +556,11 @@ export function CommandPicker({ visible, config, onClose }: Props) {
         overflow="hidden"
       >
         {filteredOptions.length === 0 ? (
-          <PopupRow w={innerW}>
+          <box flexDirection="row" backgroundColor={POPUP_BG}>
             <text fg={t.textMuted} bg={POPUP_BG}>
               {"  No matches"}
             </text>
-          </PopupRow>
+          </box>
         ) : (
           filteredOptions
             .slice(clampedOffset, clampedOffset + maxVisible)
@@ -581,26 +585,24 @@ export function CommandPicker({ visible, config, onClose }: Props) {
         )}
       </box>
       {filteredOptions.length > maxVisible && (
-        <PopupRow w={innerW}>
+        <box flexDirection="row" backgroundColor={POPUP_BG}>
           <text fg={t.textSecondary} bg={POPUP_BG}>
             {clampedOffset > 0 ? "↑ " : "  "}
             {String(cursor + 1)}/{String(filteredOptions.length)}
             {clampedOffset + maxVisible < filteredOptions.length ? " ↓" : ""}
           </text>
-        </PopupRow>
+        </box>
       )}
 
-      <PopupRow w={innerW}>
-        <text>{""}</text>
-      </PopupRow>
+      <box height={1} backgroundColor={POPUP_BG} />
 
       {hasControls && (
         <>
-          <PopupRow w={innerW}>
+          <box flexDirection="row" backgroundColor={POPUP_BG} paddingX={1}>
             <text fg={t.textFaint} bg={POPUP_BG}>
-              {"─".repeat(innerW - 4)}
+              {"─".repeat(Math.max(0, innerW - 4))}
             </text>
-          </PopupRow>
+          </box>
           {controls.map((ctrl, ci) => {
             const focused = focusZone === ci;
             const bg = focused ? POPUP_HL : POPUP_BG;
@@ -608,28 +610,24 @@ export function CommandPicker({ visible, config, onClose }: Props) {
               const toggle = config.toggles?.find((tg) => tg.key === ctrl.key);
               if (!toggle) return null;
               const on = toggleState[toggle.key] ?? toggle.value;
+              const keyLabel = toggle.key === "tab" ? "TAB" : toggle.key;
               return (
-                <PopupRow key={ctrl.key} bg={bg} w={innerW}>
-                  <text bg={bg} fg={focused ? t.brandAlt : on ? t.success : t.textDim}>
-                    {focused ? "› " : "  "}
-                    {on ? "◉" : "◯"}{" "}
-                  </text>
-                  <text
+                <box
+                  key={ctrl.key}
+                  flexDirection="row"
+                  backgroundColor={bg}
+                  paddingX={1}
+                  flexShrink={0}
+                >
+                  <Toggle
+                    label={toggleLabels[toggle.key] ?? toggle.label}
+                    on={on}
+                    focused={focused}
                     bg={bg}
-                    fg={focused ? t.textPrimary : on ? t.textPrimary : t.textMuted}
-                    attributes={focused ? TextAttributes.BOLD : undefined}
-                  >
-                    {toggleLabels[toggle.key] ?? toggle.label}
-                  </text>
-                  <text bg={bg} fg={t.textMuted}>
-                    {"  "}
-                    <span fg={on ? t.success : t.textDim} attributes={TextAttributes.BOLD}>
-                      {"<"}
-                      {toggle.key === "tab" ? "TAB" : toggle.key}
-                      {">"}
-                    </span>
-                  </text>
-                </PopupRow>
+                  />
+                  <box flexGrow={1} backgroundColor={bg} />
+                  <KeyCap keyName={keyLabel} bg={bg} />
+                </box>
               );
             }
             // selector
@@ -637,61 +635,44 @@ export function CommandPicker({ visible, config, onClose }: Props) {
             if (!sel) return null;
             const cur = selectorState[sel.key] ?? sel.value;
             return (
-              <PopupRow key={ctrl.key} bg={bg} w={innerW}>
-                <text bg={bg} fg={focused ? t.brandAlt : t.textMuted}>
-                  {focused ? "› " : "  "}
-                  {sel.label}
-                  {"  "}
-                </text>
-                {sel.options.map((opt, i) => (
-                  <text
-                    key={opt}
-                    bg={bg}
-                    fg={i === cur ? t.brandAlt : t.textDim}
-                    attributes={i === cur ? TextAttributes.BOLD : undefined}
-                  >
-                    {i === cur ? `[${opt}]` : ` ${opt} `}
-                  </text>
-                ))}
-                {!focused && (
+              <box
+                key={ctrl.key}
+                flexDirection="row"
+                backgroundColor={bg}
+                paddingX={1}
+                flexShrink={0}
+              >
+                <SegmentedControl
+                  label={sel.label}
+                  options={sel.options.map((opt, i) => ({ value: i, label: opt }))}
+                  value={cur}
+                  focused={focused}
+                  bg={bg}
+                />
+                <box flexGrow={1} backgroundColor={bg} />
+                {!focused ? (
+                  <KeyCap keyName={sel.key.toUpperCase()} bg={bg} accent={t.textFaint} />
+                ) : (
                   <text bg={bg} fg={t.textDim}>
-                    {"  "}
-                    <span fg={t.textFaint} attributes={TextAttributes.BOLD}>
-                      {"<"}
-                      {sel.key.toUpperCase()}
-                      {">"}
-                    </span>
+                    {"← →"}
                   </text>
                 )}
-                {focused && (
-                  <text bg={bg} fg={t.textDim}>
-                    {"  ← →"}
-                  </text>
-                )}
-              </PopupRow>
+              </box>
             );
           })}
         </>
       )}
 
       {config.scopeEnabled && (
-        <PopupRow w={innerW}>
-          <text bg={POPUP_BG} fg={t.textMuted}>
-            {"Save to: "}
-          </text>
-          {CONFIG_SCOPES.map((s) => (
-            <text
-              key={s}
-              bg={POPUP_BG}
-              fg={s === scope ? t.brandAlt : t.textDim}
-              attributes={s === scope ? TextAttributes.BOLD : undefined}
-            >
-              {s === scope ? `[${s}]` : ` ${s} `}
-              {"  "}
-            </text>
-          ))}
-        </PopupRow>
+        <box flexDirection="row" backgroundColor={POPUP_BG} paddingX={1} flexShrink={0}>
+          <SegmentedControl
+            label="Save to"
+            options={CONFIG_SCOPES.map((s) => ({ value: s, label: s }))}
+            value={scope}
+            bg={POPUP_BG}
+          />
+        </box>
       )}
-    </Popup>
+    </PremiumPopup>
   );
 }

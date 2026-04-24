@@ -20,27 +20,14 @@ import { clearProbeCache } from "../../core/intelligence/backends/lsp/server-reg
 import { useTheme } from "../../core/theme/index.js";
 import { usePopupScroll } from "../../hooks/usePopupScroll.js";
 import type { AppConfig } from "../../types/index.js";
-import {
-  type ConfigScope,
-  POPUP_BG,
-  POPUP_HL,
-  Popup,
-  PopupRow,
-  usePopupColors,
-} from "../layout/shared.js";
+import { type ConfigScope, POPUP_BG, POPUP_HL } from "../layout/shared.js";
+import { PremiumPopup, Radio } from "../ui/index.js";
 
-const MAX_POPUP_WIDTH = 110;
+const MAX_POPUP_WIDTH = 130;
 const CHROME_ROWS = 10;
 
 type Tab = "search" | "installed" | "updates" | "disabled" | "recommended";
 const TABS: Tab[] = ["search", "installed", "updates", "disabled", "recommended"];
-const TAB_LABELS: Record<Tab, string> = {
-  search: "Search",
-  installed: "Installed",
-  updates: "Updates",
-  disabled: "Disabled",
-  recommended: "Recommended",
-};
 
 type CategoryFilter = "All" | PackageCategory;
 const CATEGORY_FILTERS: CategoryFilter[] = ["All", "LSP", "Formatter", "Linter", "DAP"];
@@ -104,7 +91,13 @@ interface PackageRowProps {
   innerW: number;
 }
 
-function PackageRow({ status, isActive, isDisabled, isRecommended, innerW }: PackageRowProps) {
+function PackageRow({
+  status,
+  isActive,
+  isDisabled,
+  isRecommended,
+  innerW: _innerW,
+}: PackageRowProps) {
   const t = useTheme();
   const bg = isActive ? POPUP_HL : POPUP_BG;
   const src = sourceLabel(status);
@@ -141,7 +134,7 @@ function PackageRow({ status, isActive, isDisabled, isRecommended, innerW }: Pac
   ) : null;
 
   return (
-    <PopupRow bg={bg} w={innerW}>
+    <box flexDirection="row" backgroundColor={bg}>
       <text bg={bg} fg={isActive ? t.brandSecondary : t.textMuted}>
         {isActive ? "› " : "  "}
       </text>
@@ -162,7 +155,7 @@ function PackageRow({ status, isActive, isDisabled, isRecommended, innerW }: Pac
           [disabled]
         </text>
       )}
-    </PopupRow>
+    </box>
   );
 }
 
@@ -177,7 +170,7 @@ export function LspInstallSearch({
   initialTab = "installed",
 }: Props) {
   const t = useTheme();
-  const pc = usePopupColors();
+  const pc = { bg: t.bgPopup, hl: t.bgPopupHighlight };
   const [tab, setTab] = useState<Tab>(initialTab);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("All");
@@ -195,9 +188,10 @@ export function LspInstallSearch({
   const { width: termCols, height: termRows } = useTerminalDimensions();
 
   const containerRows = termRows - 2;
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.85));
-  const maxVisible = Math.max(4, Math.floor(containerRows * 0.8) - CHROME_ROWS);
-  const innerW = popupWidth - 2;
+  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.9));
+  const maxVisible = Math.max(4, Math.floor(containerRows * 0.85) - CHROME_ROWS);
+  const contentW = popupWidth - 22 - 3;
+  const innerW = contentW;
   const { cursor, setCursor, scrollOffset, adjustScroll, resetScroll } = usePopupScroll(maxVisible);
 
   const refreshAll = useCallback(async () => {
@@ -540,26 +534,27 @@ export function LspInstallSearch({
   useKeyboard(handleKeyboard);
 
   if (!visible) return null;
-
-  const tabIdx = TABS.indexOf(tab);
   const visibleItems = currentItems.slice(scrollOffset, scrollOffset + maxVisible);
 
   return (
-    <Popup
+    <PremiumPopup
+      visible={visible}
       width={popupWidth}
-      title={"󰂦 LSP Servers"}
-      headerRight={
-        tab === "search" ? (
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {" "}
-            [{categoryFilter}]
-          </text>
-        ) : undefined
-      }
-      footer={[
+      height={Math.min(Math.max(20, Math.floor(termRows * 0.85)), termRows - 2)}
+      title="LSP Servers"
+      titleIcon="code"
+      tabs={[
+        { id: "search", label: "Search", icon: "search", blurb: "find packages" },
+        { id: "installed", label: "Installed", icon: "folder", blurb: "manage installed" },
+        { id: "updates", label: "Updates", icon: "refresh", blurb: "available upgrades" },
+        { id: "disabled", label: "Disabled", icon: "ban", blurb: "paused servers" },
+        { id: "recommended", label: "Recommended", icon: "sparkle", blurb: "curated picks" },
+      ]}
+      activeTab={tab}
+      footerHints={[
         { key: "↑↓", label: "nav" },
         {
-          key: "⏎",
+          key: "Enter",
           label:
             tab === "updates"
               ? "update"
@@ -570,41 +565,17 @@ export function LspInstallSearch({
         { key: "^D", label: "disable" },
         { key: "^U", label: "uninstall" },
         { key: "^F", label: "category" },
-        { key: "tab", label: "tab" },
-        { key: "esc", label: "close" },
+        { key: "Tab", label: "tab" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      <PopupRow w={innerW}>
-        {TABS.map((tabItem, i) => {
-          const active = i === tabIdx;
-          return (
-            <text key={tabItem} bg={POPUP_BG}>
-              {i > 0 ? (
-                <span fg={t.textFaint} bg={POPUP_BG}>
-                  {" │ "}
-                </span>
-              ) : (
-                ""
-              )}
-              <span
-                fg={active ? t.brandSecondary : t.textMuted}
-                attributes={active ? TextAttributes.BOLD : undefined}
-                bg={active ? pc.hl : POPUP_BG}
-              >
-                {` ${TAB_LABELS[tabItem]} `}
-              </span>
-            </text>
-          );
-        })}
-      </PopupRow>
-
-      <PopupRow w={innerW}>
+      <box flexDirection="row" backgroundColor={POPUP_BG}>
         <text fg={t.textFaint} bg={POPUP_BG}>
           {"─".repeat(innerW - 4)}
         </text>
-      </PopupRow>
+      </box>
 
-      <PopupRow bg={pc.hl} w={innerW}>
+      <box flexDirection="row" backgroundColor={pc.hl}>
         <text fg={t.brand} bg={pc.hl}>
           {"🔍 "}
         </text>
@@ -641,23 +612,21 @@ export function LspInstallSearch({
             {`  [${categoryFilter}]`}
           </text>
         )}
-      </PopupRow>
-      <PopupRow w={innerW}>
-        <text>{""}</text>
-      </PopupRow>
+      </box>
+      <box height={1} backgroundColor={POPUP_BG} />
 
       {registryLoading ? (
-        <PopupRow w={innerW}>
+        <box flexDirection="row" backgroundColor={POPUP_BG}>
           <text fg={t.brand} bg={POPUP_BG}>
             {registryLoaded ? "scanning installed packages..." : "loading Mason registry..."}
           </text>
-        </PopupRow>
+        </box>
       ) : !registryLoaded ? (
-        <PopupRow w={innerW}>
+        <box flexDirection="row" backgroundColor={POPUP_BG}>
           <text fg={t.textMuted} bg={POPUP_BG}>
             no registry available — install Mason or check network
           </text>
-        </PopupRow>
+        </box>
       ) : (
         <box
           flexDirection="column"
@@ -665,11 +634,11 @@ export function LspInstallSearch({
           overflow="hidden"
         >
           {currentItems.length === 0 ? (
-            <PopupRow w={innerW}>
+            <box flexDirection="row" backgroundColor={POPUP_BG}>
               <text fg={t.textMuted} bg={POPUP_BG}>
                 {query ? "no matching packages" : "no packages"}
               </text>
-            </PopupRow>
+            </box>
           ) : (
             visibleItems.map((status, i) => {
               const idx = scrollOffset + i;
@@ -689,54 +658,42 @@ export function LspInstallSearch({
       )}
 
       {currentItems.length > maxVisible && (
-        <PopupRow w={innerW}>
+        <box flexDirection="row" backgroundColor={POPUP_BG}>
           <text fg={t.textMuted} bg={POPUP_BG}>
             {scrollOffset > 0 ? "↑ " : "  "}
             {String(cursor + 1)}/{String(currentItems.length)}
             {scrollOffset + maxVisible < currentItems.length ? " ↓" : ""}
           </text>
-        </PopupRow>
+        </box>
       )}
 
       {pendingToggle && (
         <>
-          <PopupRow w={innerW}>
-            <text>{""}</text>
-          </PopupRow>
-          <PopupRow w={innerW}>
+          <box height={1} backgroundColor={POPUP_BG} />
+          <box flexDirection="row" backgroundColor={POPUP_BG}>
             <text fg={t.textPrimary} attributes={TextAttributes.BOLD} bg={POPUP_BG}>
               {disabledServers.includes(pendingToggle.pkg.name) ? "Enable" : "Disable"} "
               {pendingToggle.pkg.name}" scope:
             </text>
-          </PopupRow>
-          {(["Project", "Global"] as const).map((label, i) => {
-            const isActive = i === scopeCursor;
-            const bg = isActive ? POPUP_HL : POPUP_BG;
-            return (
-              <PopupRow key={label} bg={bg} w={innerW}>
-                <text bg={bg} fg={isActive ? t.brandSecondary : t.textMuted}>
-                  {isActive ? "› " : "  "}
-                </text>
-                <text
-                  bg={bg}
-                  fg={isActive ? t.brandSecondary : t.textSecondary}
-                  attributes={isActive ? TextAttributes.BOLD : undefined}
-                >
-                  {label}
-                </text>
-              </PopupRow>
-            );
-          })}
+          </box>
+          {(["Project", "Global"] as const).map((label, i) => (
+            <Radio
+              key={label}
+              label={label}
+              selected={i === scopeCursor}
+              focused={i === scopeCursor}
+            />
+          ))}
         </>
       )}
 
       {installing && (
-        <PopupRow w={innerW}>
+        <box flexDirection="row" backgroundColor={POPUP_BG}>
           <text fg={t.brand} bg={POPUP_BG}>
             installing...
           </text>
-        </PopupRow>
+        </box>
       )}
-    </Popup>
+    </PremiumPopup>
   );
 }

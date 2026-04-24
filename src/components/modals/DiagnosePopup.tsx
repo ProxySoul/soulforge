@@ -1,12 +1,11 @@
-import { TextAttributes } from "@opentui/core";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useCallback, useEffect, useState } from "react";
-import { icon } from "../../core/icons.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BackendProbeResult, HealthCheckResult } from "../../core/intelligence/router.js";
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
-import { POPUP_BG, Popup, PopupRow, useSpinnerFrameRef } from "../layout/shared.js";
+import { useSpinnerFrameRef } from "../layout/shared.js";
+import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
 
-const CHROME_ROWS = 6;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 interface Props {
@@ -35,21 +34,13 @@ function statusBadge(
   return { ch: "✗", color: t.error };
 }
 
-interface Line {
-  type: "header" | "probe" | "spacer" | "text";
-  label?: string;
-  desc?: string;
-  color?: string;
-  descColor?: string;
-}
-
 function buildLines(
   result: HealthCheckResult,
   running: boolean,
   spinnerCh: string,
   t: ThemeTokens,
-): Line[] {
-  const lines: Line[] = [];
+): InfoLineData[] {
+  const lines: InfoLineData[] = [];
 
   for (let bi = 0; bi < result.backends.length; bi++) {
     const br = result.backends[bi];
@@ -57,19 +48,14 @@ function buildLines(
     const s = statusBadge(br, running, spinnerCh, t);
 
     if (bi > 0) lines.push({ type: "spacer" });
-
     lines.push({
       type: "header",
-      label: `${s.ch} ${br.backend} (tier ${String(br.tier)})`,
+      label: `${s.ch} ${br.backend} (tier ${br.tier})`,
       color: s.color,
     });
 
     if (!br.supports) {
-      lines.push({
-        type: "text",
-        label: "  does not support this language",
-        color: t.textMuted,
-      });
+      lines.push({ type: "text", label: "  does not support this language", color: t.textMuted });
     } else if (br.initError) {
       lines.push({
         type: "text",
@@ -98,14 +84,14 @@ function buildLines(
               : probe.status === "unsupported"
                 ? t.textMuted
                 : t.error;
-        const timing = probe.ms !== undefined ? ` ${String(probe.ms)}ms` : "";
+        const timing = probe.ms !== undefined ? ` ${probe.ms}ms` : "";
         const desc =
           probe.status === "error"
             ? `${pIcon} ${(probe.error ?? "").slice(0, 30)}`
             : `${pIcon} ${probe.status}${timing}`;
         lines.push({
-          type: "probe",
-          label: probe.operation,
+          type: "entry",
+          label: `  ${probe.operation}`,
           desc,
           color: t.textSecondary,
           descColor: pColor,
@@ -118,49 +104,51 @@ function buildLines(
 }
 
 export function DiagnosePopup({ visible, onClose, runHealthCheck }: Props) {
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const [result, setResult] = useState<HealthCheckResult | null>(null);
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const t = useTheme();
-  const spinnerFrameRef = useSpinnerFrameRef();
+  const { width: tw, height: th } = useTerminalDimensions();
+  const [result, setResult] = useState<HealthCheckResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [cursor, setCursor] = useState(0);
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const spinnerRef = useSpinnerFrameRef();
+  const spinnerCh = SPINNER[spinnerRef.current % SPINNER.length] ?? "⠋";
 
-  const popupWidth = Math.min(64, Math.floor(termCols * 0.8));
-  const innerW = popupWidth - 2;
-  const labelW = 28;
-  const spinnerCh = SPINNER[spinnerFrameRef.current % SPINNER.length] ?? "⠋";
-  const containerRows = termRows - 2;
-  const maxVisible = Math.max(6, Math.floor(containerRows * 0.8) - CHROME_ROWS);
+  const popupW = Math.min(80, Math.max(56, Math.floor(tw * 0.65)));
+  const popupH = Math.min(30, Math.max(16, th - 4));
+  const contentW = popupW - 4;
+  const viewportRows = Math.max(6, popupH - 9);
 
-  const lines = result ? buildLines(result, running, spinnerCh, t) : [];
+  const lines = useMemo(
+    () => (result ? buildLines(result, running, spinnerCh, t) : []),
+    [result, running, spinnerCh, t],
+  );
 
   const run = useCallback(() => {
     setRunning(true);
-    setError(null);
+    setErr(null);
     setResult(null);
-    setScrollOffset(0);
+    setCursor(0);
+    scrollRef.current?.scrollTo(0);
 
     const timeout = setTimeout(() => {
       setRunning(false);
-      setError("Health check timed out");
+      setErr("Health check timed out");
     }, 90_000);
 
-    runHealthCheck((partial) => {
-      setResult({ ...partial });
-    })
+    runHealthCheck((partial) => setResult({ ...partial }))
       .then((final) => {
         clearTimeout(timeout);
         setRunning(false);
         if (final) setResult(final);
-        else if (!error) setError("Intelligence router not initialized");
+        else setErr((e) => e ?? "Intelligence router not initialized");
       })
-      .catch((err) => {
+      .catch((ex) => {
         clearTimeout(timeout);
         setRunning(false);
-        setError(err instanceof Error ? err.message : String(err));
+        setErr(ex instanceof Error ? ex.message : String(ex));
       });
-  }, [runHealthCheck, error]);
+  }, [runHealthCheck]);
 
   useEffect(() => {
     if (visible) run();
@@ -172,107 +160,62 @@ export function DiagnosePopup({ visible, onClose, runHealthCheck }: Props) {
       onClose();
       return;
     }
-    if (evt.name === "up") {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
+    if (evt.name === "r") {
+      run();
       return;
     }
-    if (evt.name === "down") {
-      setScrollOffset((prev) => Math.min(Math.max(0, lines.length - maxVisible), prev + 1));
+    const maxOff = Math.max(0, lines.length - viewportRows);
+    if (evt.name === "up" || evt.name === "k") {
+      const n = Math.max(0, cursor - 1);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
       return;
     }
-    if (evt.name === "r") run();
+    if (evt.name === "down" || evt.name === "j") {
+      const n = Math.min(maxOff, cursor + 1);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
+    }
   });
 
   if (!visible) return null;
 
+  const blurb = result
+    ? `${result.language} · ${result.probeFile.split("/").pop()}`
+    : running
+      ? "Running probes…"
+      : (err ?? "Initializing…");
+
   return (
-    <Popup
-      width={popupWidth}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={popupH}
       title="Health Check"
-      icon={icon("brain")}
-      headerRight={
-        result ? (
-          <text bg={POPUP_BG} fg={t.textMuted}>
-            {"  "}
-            {result.language} · {result.probeFile.split("/").pop()}
-          </text>
-        ) : null
-      }
-      footer={[
+      titleIcon="brain"
+      blurb={blurb}
+      footerHints={[
         { key: "↑↓", label: "scroll" },
         { key: "r", label: "re-run" },
-        { key: "esc", label: "close" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      <box
-        flexDirection="column"
-        height={Math.min(Math.max(1, lines.length), maxVisible)}
-        overflow="hidden"
-      >
+      <Section>
         {lines.length > 0 ? (
-          lines.slice(scrollOffset, scrollOffset + maxVisible).map((line, vi) => {
-            const key = String(vi + scrollOffset);
-            switch (line.type) {
-              case "header":
-                return (
-                  <PopupRow key={key} w={innerW}>
-                    <text
-                      bg={POPUP_BG}
-                      fg={line.color ?? t.brandAlt}
-                      attributes={TextAttributes.BOLD}
-                    >
-                      {line.label ?? ""}
-                    </text>
-                  </PopupRow>
-                );
-              case "probe":
-                return (
-                  <PopupRow key={key} w={innerW}>
-                    <text bg={POPUP_BG} fg={line.color ?? t.textSecondary}>
-                      {"  "}
-                      {(line.label ?? "").padEnd(labelW).slice(0, labelW)}
-                    </text>
-                    <text bg={POPUP_BG} fg={line.descColor ?? t.textMuted}>
-                      {line.desc ?? ""}
-                    </text>
-                  </PopupRow>
-                );
-              case "text":
-                return (
-                  <PopupRow key={key} w={innerW}>
-                    <text bg={POPUP_BG} fg={line.color ?? t.textMuted}>
-                      {line.label ?? ""}
-                    </text>
-                  </PopupRow>
-                );
-              case "spacer":
-                return (
-                  <PopupRow key={key} w={innerW}>
-                    <text bg={POPUP_BG}>{""}</text>
-                  </PopupRow>
-                );
-              default:
-                return null;
-            }
-          })
+          <scrollbox ref={scrollRef} height={viewportRows}>
+            {lines.map((line, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: positional
+              <InfoLine key={`d-${i}`} line={line} width={contentW} labelWidth={28} />
+            ))}
+          </scrollbox>
         ) : (
-          <PopupRow w={innerW}>
-            <text bg={POPUP_BG} fg={error ? t.brandSecondary : t.amber}>
-              {error ?? `${spinnerCh} initializing…`}
+          <box flexDirection="row" paddingX={2} paddingY={1} backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={err ? t.error : t.amber}>
+              {err ?? `${spinnerCh} initializing…`}
             </text>
-          </PopupRow>
+          </box>
         )}
-      </box>
-
-      {lines.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {scrollOffset + 1}-{Math.min(scrollOffset + maxVisible, lines.length)}/{lines.length}
-            {scrollOffset + maxVisible < lines.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
-      )}
-    </Popup>
+      </Section>
+    </PremiumPopup>
   );
 }

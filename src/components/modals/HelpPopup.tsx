@@ -1,21 +1,20 @@
-import { TextAttributes } from "@opentui/core";
+/**
+ * HelpPopup — keyboard reference + forge modes guide.
+ * Thin wrapper around InfoLine (shared primitive).
+ */
+
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useState } from "react";
-import { icon } from "../../core/icons.js";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "../../core/theme/index.js";
-import { POPUP_BG, Popup, PopupRow } from "../layout/shared.js";
+import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
 
-const MAX_POPUP_WIDTH = 88;
-const CHROME_ROWS = 6;
-
-interface HelpLine {
-  type: "header" | "separator" | "entry" | "text" | "spacer";
-  label?: string;
-  desc?: string;
-  color?: string;
+interface Props {
+  visible: boolean;
+  onClose: () => void;
 }
 
-function buildHelpLines(t: ReturnType<typeof useTheme>): HelpLine[] {
+function buildHelpLines(t: ReturnType<typeof useTheme>): InfoLineData[] {
   return [
     { type: "text", label: "Ctrl+K — open command palette (search all commands)" },
     { type: "text", label: "/settings — all settings in one place" },
@@ -88,24 +87,24 @@ function buildHelpLines(t: ReturnType<typeof useTheme>): HelpLine[] {
   ];
 }
 
-interface Props {
-  visible: boolean;
-  onClose: () => void;
-}
-
 export function HelpPopup({ visible, onClose }: Props) {
   const t = useTheme();
-  const LINES = buildHelpLines(t);
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const containerRows = termRows - 2;
-  const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.8));
-  const innerW = popupWidth - 2;
-  const maxVisible = Math.max(6, Math.floor(containerRows * 0.8) - CHROME_ROWS);
-  const [scrollOffset, setScrollOffset] = useState(0);
+  const { width: tw, height: th } = useTerminalDimensions();
+  const [cursor, setCursor] = useState(0);
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const lines = useMemo(() => buildHelpLines(t), [t]);
 
   useEffect(() => {
-    if (visible) setScrollOffset(0);
+    if (visible) {
+      setCursor(0);
+      scrollRef.current?.scrollTo(0);
+    }
   }, [visible]);
+
+  const popupW = Math.min(88, Math.max(64, Math.floor(tw * 0.72)));
+  const popupH = Math.min(32, Math.max(18, th - 4));
+  const contentW = popupW - 4;
+  const viewportRows = Math.max(8, popupH - 9);
 
   useKeyboard((evt) => {
     if (!visible) return;
@@ -113,86 +112,43 @@ export function HelpPopup({ visible, onClose }: Props) {
       onClose();
       return;
     }
-    if (evt.name === "up") {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
+    const maxOffset = Math.max(0, lines.length - viewportRows);
+    if (evt.name === "up" || evt.name === "k") {
+      const n = Math.max(0, cursor - 1);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
       return;
     }
-    if (evt.name === "down") {
-      setScrollOffset((prev) => Math.min(Math.max(0, LINES.length - maxVisible), prev + 1));
+    if (evt.name === "down" || evt.name === "j") {
+      const n = Math.min(maxOffset, cursor + 1);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
     }
   });
 
   if (!visible) return null;
 
   return (
-    <Popup
-      width={popupWidth}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={popupH}
       title="SoulForge Help"
-      icon={icon("info")}
-      footer={[
+      titleIcon="info"
+      blurb="Keyboard shortcuts · forge modes"
+      footerHints={[
         { key: "↑↓", label: "scroll" },
-        { key: "esc", label: "close" },
+        { key: "Esc", label: "close" },
       ]}
     >
-      <box flexDirection="column" height={Math.min(LINES.length, maxVisible)} overflow="hidden">
-        {LINES.slice(scrollOffset, scrollOffset + maxVisible).map((line, vi) => {
-          const key = String(vi + scrollOffset);
-          switch (line.type) {
-            case "header":
-              return (
-                <PopupRow key={key} w={innerW}>
-                  <text bg={POPUP_BG} fg={t.brandAlt} attributes={TextAttributes.BOLD}>
-                    {line.label}
-                  </text>
-                </PopupRow>
-              );
-            case "separator":
-              return (
-                <PopupRow key={key} w={innerW}>
-                  <text bg={POPUP_BG} fg={t.textFaint}>
-                    {"─".repeat(innerW - 2)}
-                  </text>
-                </PopupRow>
-              );
-            case "entry":
-              return (
-                <PopupRow key={key} w={innerW}>
-                  <text bg={POPUP_BG} fg={line.color ?? t.brandSecondary}>
-                    {(line.label ?? "").padEnd(20)}
-                  </text>
-                  <text bg={POPUP_BG} fg={t.textMuted}>
-                    {line.desc}
-                  </text>
-                </PopupRow>
-              );
-            case "text":
-              return (
-                <PopupRow key={key} w={innerW}>
-                  <text bg={POPUP_BG} fg={t.textMuted}>
-                    {line.label}
-                  </text>
-                </PopupRow>
-              );
-            case "spacer":
-              return (
-                <PopupRow key={key} w={innerW}>
-                  <text bg={POPUP_BG}>{""}</text>
-                </PopupRow>
-              );
-            default:
-              return null;
-          }
-        })}
-      </box>
-      {LINES.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {scrollOffset > 0 ? "↑ " : "  "}
-            {scrollOffset + 1}-{Math.min(scrollOffset + maxVisible, LINES.length)}/{LINES.length}
-            {scrollOffset + maxVisible < LINES.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
-      )}
-    </Popup>
+      <Section>
+        <scrollbox ref={scrollRef} height={viewportRows}>
+          {lines.map((line, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static list
+            <InfoLine key={`h-${i}`} line={line} width={contentW} />
+          ))}
+        </scrollbox>
+      </Section>
+    </PremiumPopup>
   );
 }

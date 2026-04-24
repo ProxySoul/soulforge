@@ -12,7 +12,8 @@ import {
   performUpgrade,
 } from "../../core/version.js";
 import { useVersionStore } from "../../stores/version.js";
-import { Overlay, POPUP_BG, PopupRow } from "../layout/shared.js";
+import { POPUP_BG } from "../layout/shared.js";
+import { PremiumPopup, Divider, VSpacer } from "../ui/index.js";
 
 type Phase = "info" | "upgrading" | "success" | "failed";
 
@@ -69,25 +70,12 @@ function trunc(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
-function Hr({ w, bg, fg }: { w: number; bg: string; fg: string }) {
-  return (
-    <PopupRow w={w}>
-      <text bg={bg} fg={fg}>
-        {"─".repeat(w - 4)}
-      </text>
-    </PopupRow>
-  );
+function Hr({ w, bg }: { w: number; bg: string; fg?: string }) {
+  return <Divider width={w - 4} bg={bg} />;
 }
 
-function Gap({ w, bg, n = 1 }: { w: number; bg: string; n?: number }) {
-  const rows = [];
-  for (let i = 0; i < n; i++)
-    rows.push(
-      <PopupRow key={i} w={w}>
-        <text bg={bg}> </text>
-      </PopupRow>,
-    );
-  return <>{rows}</>;
+function Gap({ bg, n = 1 }: { w?: number; bg: string; n?: number }) {
+  return <VSpacer rows={n} bg={bg} />;
 }
 
 const TYPE_BADGE: Record<
@@ -138,7 +126,7 @@ function ChangelogSection({
         {visible.map((row, i) => {
           if (row.type === "header") {
             return (
-              <PopupRow key={String(i)} w={iw}>
+              <box key={String(i)} flexDirection="row" backgroundColor={bg}>
                 <text bg={bg}>
                   <span fg={t.brand} attributes={BOLD}>
                     {"  "}v{row.version}
@@ -150,14 +138,14 @@ function ChangelogSection({
                     </span>
                   )}
                 </text>
-              </PopupRow>
+              </box>
             );
           }
           const badge = TYPE_BADGE[row.commit.type] ?? TYPE_BADGE.other;
           const scope = row.commit.scope ? `(${row.commit.scope}) ` : "";
           const breakingMark = row.commit.breaking ? " !!" : "";
           return (
-            <PopupRow key={String(i)} w={iw}>
+            <box key={String(i)} flexDirection="row" backgroundColor={bg}>
               <text bg={bg}>
                 <span fg={t[badge.color] ?? t.textMuted}>
                   {"    "}
@@ -174,16 +162,16 @@ function ChangelogSection({
                   </span>
                 )}
               </text>
-            </PopupRow>
+            </box>
           );
         })}
       </box>
       {remaining > 0 && (
-        <PopupRow w={iw}>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg} fg={t.textFaint} attributes={DIM}>
             {"      "}… and {remaining} more
           </text>
-        </PopupRow>
+        </box>
       )}
     </>
   );
@@ -352,51 +340,58 @@ export function UpdateModal({ visible, onClose }: Props) {
   // ── Success: ask user to restart manually ─────────────────────────
   if (phase === "success") {
     return (
-      <Overlay>
-        <box flexDirection="column" borderStyle="rounded" border borderColor={t.success} width={pw}>
+      <PremiumPopup
+        visible={visible}
+        width={pw}
+        height={Math.min(22, termRows - 2)}
+        borderColor={t.success}
+        title="Upgrade Complete"
+        titleIcon="check"
+      >
+        <box flexDirection="column">
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.success} attributes={BOLD}>
                 {checkIc} Upgrade Complete!
               </span>
             </text>
-          </PopupRow>
-          <PopupRow w={iw}>
+          </box>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandDim} attributes={DIM}>
               {"  "}∿~∿
             </text>
-          </PopupRow>
+          </box>
           <Hr w={iw} bg={bg} fg={t.textFaint} />
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.textPrimary}>{"  "}Successfully upgraded to </span>
               <span fg={t.success} attributes={BOLD}>
                 v{latest}
               </span>
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.textSecondary} attributes={ITALIC}>
               {"  "}The forge has been retempered.
             </text>
-          </PopupRow>
-          <PopupRow w={iw}>
+          </box>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandAlt}>
               {"  "}Please close and restart SoulForge to use the new version.
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
           <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} truncate>
               <span fg={t.textFaint}> {"<Esc>"} close</span>
             </text>
-          </PopupRow>
+          </box>
         </box>
-      </Overlay>
+      </PremiumPopup>
     );
   }
 
@@ -407,22 +402,29 @@ export function UpdateModal({ visible, onClose }: Props) {
     const visibleLog = logLines.slice(-logH);
 
     return (
-      <Overlay>
-        <box flexDirection="column" borderStyle="rounded" border borderColor={t.brand} width={pw}>
+      <PremiumPopup
+        visible={visible}
+        width={pw}
+        height={Math.min(24, termRows - 2)}
+        borderColor={t.brand}
+        title="Upgrading"
+        titleIcon="sparkle"
+      >
+        <box flexDirection="column">
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brand} attributes={BOLD}>
               {ghostIc} Upgrading SoulForge…
             </text>
-          </PopupRow>
-          <PopupRow w={iw}>
+          </box>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandDim} attributes={DIM}>
               {"  "}∿~∿
             </text>
-          </PopupRow>
+          </box>
           <Hr w={iw} bg={bg} fg={t.textFaint} />
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.brand}> {spin}</span>
               <span fg={t.brandAlt} attributes={ITALIC}>
@@ -430,71 +432,78 @@ export function UpdateModal({ visible, onClose }: Props) {
                 {trunc(quip, iw - 8)}
               </span>
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
           <Hr w={iw} bg={bg} fg={t.textFaint} />
           <box flexDirection="column" height={logH} overflow="hidden">
             {visibleLog.length === 0 ? (
-              <PopupRow w={iw}>
+              <box flexDirection="row" backgroundColor={bg}>
                 <text bg={bg} fg={t.textFaint}>
                   {"  "}Waiting for output…
                 </text>
-              </PopupRow>
+              </box>
             ) : (
               visibleLog.map((line, i) => (
-                <PopupRow key={String(i)} w={iw}>
+                <box key={String(i)} flexDirection="row" backgroundColor={bg}>
                   <text bg={bg} fg={i === visibleLog.length - 1 ? t.textSecondary : t.textFaint}>
                     {"  "}
                     {trunc(line, iw - 6)}
                   </text>
-                </PopupRow>
+                </box>
               ))
             )}
           </box>
           <Hr w={iw} bg={bg} fg={t.textFaint} />
         </box>
-      </Overlay>
+      </PremiumPopup>
     );
   }
 
   // ── Failed: error + manual command ───────────────────────────────
   if (phase === "failed") {
     return (
-      <Overlay>
+      <PremiumPopup
+        visible={visible}
+        width={pw}
+        height={Math.min(22, termRows - 2)}
+        borderColor={t.brandSecondary}
+        title="Upgrade Failed"
+        titleIcon="error"
+      >
         <box
           flexDirection="column"
-          borderStyle="rounded"
-          border
+          borderStyle={undefined}
+          border={undefined}
           borderColor={t.brandSecondary}
           width={pw}
         >
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandSecondary} attributes={BOLD}>
               {errorIc} The Forge Sputtered
             </text>
-          </PopupRow>
-          <PopupRow w={iw}>
+          </box>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandDim} attributes={DIM}>
               {"  "}∿~∿
             </text>
-          </PopupRow>
+          </box>
           <Hr w={iw} bg={bg} fg={t.textFaint} />
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandSecondary}>
               {"  "}
               {trunc(errorMsg, iw - 6)}
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.textMuted} attributes={ITALIC}>
               {"  "}The spirits suggest a manual approach:
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.textFaint}>
                 {"    "}
@@ -504,17 +513,17 @@ export function UpdateModal({ visible, onClose }: Props) {
                 {trunc(upgradeCmd, iw - 10)}
               </span>
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
           <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.textMuted}>
               {" "}
               {"<Esc>"} back
             </text>
-          </PopupRow>
+          </box>
         </box>
-      </Overlay>
+      </PremiumPopup>
     );
   }
 
@@ -525,10 +534,17 @@ export function UpdateModal({ visible, onClose }: Props) {
       CHANGELOG_ERROR_QUIPS[Math.floor(Date.now() / 60000) % CHANGELOG_ERROR_QUIPS.length] ?? "";
 
     return (
-      <Overlay>
-        <box flexDirection="column" borderStyle="rounded" border borderColor={t.brand} width={pw}>
+      <PremiumPopup
+        visible={visible}
+        width={pw}
+        height={Math.min(26, termRows - 2)}
+        borderColor={t.brand}
+        title="Update Available"
+        titleIcon="sparkle"
+      >
+        <box flexDirection="column">
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.brand} attributes={BOLD}>
                 {" "}
@@ -538,16 +554,16 @@ export function UpdateModal({ visible, onClose }: Props) {
                 {titleReady ? "SoulForge" : garble("SoulForge")}
               </span>
             </text>
-          </PopupRow>
-          <PopupRow w={iw}>
+          </box>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} fg={t.brandDim} attributes={DIM}>
               {"   "}
               {wispFrame}
             </text>
-          </PopupRow>
+          </box>
           <Hr w={iw} bg={bg} fg={t.textFaint} />
           <Gap w={iw} bg={bg} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.textMuted}>
                 {"  "}
@@ -558,8 +574,8 @@ export function UpdateModal({ visible, onClose }: Props) {
               </span>
               <span fg={t.textFaint}> — latest</span>
             </text>
-          </PopupRow>
-          <PopupRow w={iw}>
+          </box>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
               <span fg={t.textMuted}>
                 {"  "}
@@ -567,7 +583,7 @@ export function UpdateModal({ visible, onClose }: Props) {
               </span>
               <span fg={t.textSecondary}>{installMethod}</span>
             </text>
-          </PopupRow>
+          </box>
           <Gap w={iw} bg={bg} />
 
           {/* Current version changelog */}
@@ -575,11 +591,11 @@ export function UpdateModal({ visible, onClose }: Props) {
             <>
               <Hr w={iw} bg={bg} fg={t.textFaint} />
               <Gap w={iw} bg={bg} />
-              <PopupRow w={iw}>
+              <box flexDirection="row" backgroundColor={bg}>
                 <text bg={bg} fg={t.brandAlt} attributes={BOLD}>
                   {"  "}What's in this version
                 </text>
-              </PopupRow>
+              </box>
               <Gap w={iw} bg={bg} />
               <ChangelogSection
                 releases={[currentRelease]}
@@ -594,30 +610,30 @@ export function UpdateModal({ visible, onClose }: Props) {
             <>
               <Hr w={iw} bg={bg} fg={t.textFaint} />
               <Gap w={iw} bg={bg} />
-              <PopupRow w={iw}>
+              <box flexDirection="row" backgroundColor={bg}>
                 <text bg={bg} fg={t.error} attributes={ITALIC}>
                   {"  "}
                   {icon("warning")} {clErrorQuip}
                 </text>
-              </PopupRow>
+              </box>
               <Gap w={iw} bg={bg} />
             </>
           ) : (
             <>
               <Hr w={iw} bg={bg} fg={t.textFaint} />
               <Gap w={iw} bg={bg} />
-              <PopupRow w={iw}>
+              <box flexDirection="row" backgroundColor={bg}>
                 <text bg={bg} fg={t.brandAlt} attributes={ITALIC}>
                   {"  "}
                   {quip}
                 </text>
-              </PopupRow>
+              </box>
               <Gap w={iw} bg={bg} />
             </>
           )}
 
           <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <PopupRow w={iw}>
+          <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg} truncate>
               <span fg={t.brandDim}>
                 {" "}
@@ -627,18 +643,25 @@ export function UpdateModal({ visible, onClose }: Props) {
               <span fg={t.textFaint}>{"  "}</span>
               <span fg={t.textFaint}>{"<Esc>"}</span>
             </text>
-          </PopupRow>
+          </box>
         </box>
-      </Overlay>
+      </PremiumPopup>
     );
   }
 
   // ── Info: update available ───────────────────────────────────────
   return (
-    <Overlay>
-      <box flexDirection="column" borderStyle="rounded" border borderColor={t.success} width={pw}>
+    <PremiumPopup
+      visible={visible}
+      width={pw}
+      height={Math.min(22, termRows - 2)}
+      borderColor={t.success}
+      title="Check for Updates"
+      titleIcon="sparkle"
+    >
+      <box flexDirection="column">
         <Gap w={iw} bg={bg} />
-        <PopupRow w={iw}>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg}>
             <span fg={t.success} attributes={BOLD}>
               {" "}
@@ -648,18 +671,18 @@ export function UpdateModal({ visible, onClose }: Props) {
               {titleReady ? `${sparkle} Update Available` : garble("Update Available")}
             </span>
           </text>
-        </PopupRow>
-        <PopupRow w={iw}>
+        </box>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg} fg={t.brandDim} attributes={DIM}>
             {"   "}
             {wispFrame}
           </text>
-        </PopupRow>
+        </box>
         <Hr w={iw} bg={bg} fg={t.textFaint} />
         <Gap w={iw} bg={bg} />
 
         {/* Version info with icons */}
-        <PopupRow w={iw}>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg}>
             <span fg={t.textMuted}>
               {"  "}
@@ -667,8 +690,8 @@ export function UpdateModal({ visible, onClose }: Props) {
             </span>
             <span fg={t.textPrimary}>{vCurrent}</span>
           </text>
-        </PopupRow>
-        <PopupRow w={iw}>
+        </box>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg}>
             <span fg={t.textMuted}>
               {"  "}
@@ -678,8 +701,8 @@ export function UpdateModal({ visible, onClose }: Props) {
               {vLatest}
             </span>
           </text>
-        </PopupRow>
-        <PopupRow w={iw}>
+        </box>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg}>
             <span fg={t.textMuted}>
               {"  "}
@@ -687,7 +710,7 @@ export function UpdateModal({ visible, onClose }: Props) {
             </span>
             <span fg={t.textSecondary}>{installMethod}</span>
           </text>
-        </PopupRow>
+        </box>
         <Gap w={iw} bg={bg} />
 
         {/* Changelog */}
@@ -695,11 +718,11 @@ export function UpdateModal({ visible, onClose }: Props) {
           <>
             <Hr w={iw} bg={bg} fg={t.textFaint} />
             <Gap w={iw} bg={bg} />
-            <PopupRow w={iw}>
+            <box flexDirection="row" backgroundColor={bg}>
               <text bg={bg} fg={t.brandAlt} attributes={BOLD}>
                 {"  "}What's new
               </text>
-            </PopupRow>
+            </box>
             <Gap w={iw} bg={bg} />
             <ChangelogSection releases={changelog} maxLines={maxChangelog} iw={iw} bg={bg} t={t} />
             <Gap w={iw} bg={bg} />
@@ -708,7 +731,7 @@ export function UpdateModal({ visible, onClose }: Props) {
           <>
             <Hr w={iw} bg={bg} fg={t.textFaint} />
             <Gap w={iw} bg={bg} />
-            <PopupRow w={iw}>
+            <box flexDirection="row" backgroundColor={bg}>
               <text bg={bg} fg={t.error} attributes={ITALIC}>
                 {"  "}
                 {icon("warning")}{" "}
@@ -718,7 +741,7 @@ export function UpdateModal({ visible, onClose }: Props) {
                   ]
                 }
               </text>
-            </PopupRow>
+            </box>
             <Gap w={iw} bg={bg} />
           </>
         ) : null}
@@ -728,13 +751,13 @@ export function UpdateModal({ visible, onClose }: Props) {
         <Gap w={iw} bg={bg} />
         {isBinary ? (
           <>
-            <PopupRow w={iw}>
+            <box flexDirection="row" backgroundColor={bg}>
               <text bg={bg} fg={t.textMuted}>
                 {"  "}
                 {icon("globe")} Download from GitHub
               </text>
-            </PopupRow>
-            <PopupRow w={iw}>
+            </box>
+            <box flexDirection="row" backgroundColor={bg}>
               <text bg={bg}>
                 <span fg={t.textFaint}>
                   {"    "}
@@ -744,17 +767,17 @@ export function UpdateModal({ visible, onClose }: Props) {
                   {trunc(releaseUrl, iw - 10)}
                 </span>
               </text>
-            </PopupRow>
+            </box>
           </>
         ) : (
           <>
-            <PopupRow w={iw}>
+            <box flexDirection="row" backgroundColor={bg}>
               <text bg={bg} fg={t.textMuted}>
                 {"  "}
                 {icon("terminal")} Upgrade command
               </text>
-            </PopupRow>
-            <PopupRow w={iw}>
+            </box>
+            <box flexDirection="row" backgroundColor={bg}>
               <text bg={bg}>
                 <span fg={t.textFaint}>
                   {"    "}
@@ -764,14 +787,14 @@ export function UpdateModal({ visible, onClose }: Props) {
                   {trunc(upgradeCmd, iw - 10)}
                 </span>
               </text>
-            </PopupRow>
+            </box>
           </>
         )}
         <Gap w={iw} bg={bg} />
 
         {/* Footer */}
         <Hr w={iw} bg={bg} fg={t.textFaint} />
-        <PopupRow w={iw}>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg} truncate>
             {canAuto && (
               <>
@@ -793,8 +816,8 @@ export function UpdateModal({ visible, onClose }: Props) {
             <span fg={t.textFaint}>{"  "}</span>
             <span fg={t.textFaint}>{"<Esc>"}</span>
           </text>
-        </PopupRow>
-        <PopupRow w={iw}>
+        </box>
+        <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg} truncate>
             <span fg={t.brandDim}>
               {" "}
@@ -804,8 +827,8 @@ export function UpdateModal({ visible, onClose }: Props) {
               {isBinary ? " open release on GitHub" : " view full changelog on GitHub"}
             </span>
           </text>
-        </PopupRow>
+        </box>
       </box>
-    </Overlay>
+    </PremiumPopup>
   );
 }

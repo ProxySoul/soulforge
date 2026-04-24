@@ -1,22 +1,19 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { memo, useState } from "react";
-import { useTheme } from "../../core/theme/index.js";
+import { useEffect, useMemo, useState } from "react";
 import { TOOL_CATALOG } from "../../core/tools/constants.js";
-import { usePopupScroll } from "../../hooks/usePopupScroll.js";
-import { POPUP_BG, POPUP_HL, Popup, PopupRow } from "../layout/shared.js";
+import {
+  buildGroupedRows,
+  type GroupedItem,
+  GroupedList,
+  type GroupedListGroup,
+  handleCursorNavKey,
+  PremiumPopup,
+  Section,
+} from "../ui/index.js";
 
-const MAX_POPUP_WIDTH = 100;
-const CHROME_ROWS = 5;
-
-interface ToolEntry {
-  name: string;
-  desc: string;
+interface ToolItem extends GroupedItem {
+  toolName: string;
 }
-
-const ALL_TOOLS: ToolEntry[] = Object.entries(TOOL_CATALOG).map(([name, desc]) => ({
-  name,
-  desc,
-}));
 
 interface Props {
   visible: boolean;
@@ -25,55 +22,37 @@ interface Props {
   onClose: () => void;
 }
 
-const ToolRow = memo(function ToolRow({
-  tool,
-  enabled,
-  selected,
-  w,
-}: {
-  tool: ToolEntry;
-  enabled: boolean;
-  selected: boolean;
-  w: number;
-}) {
-  const t = useTheme();
-  const bg = selected ? POPUP_HL : POPUP_BG;
-  const check = enabled ? "x" : " ";
-  const nameColor = enabled ? t.info : t.textMuted;
-  const descColor = enabled ? t.textMuted : t.textDim;
-  const maxDesc = Math.max(0, w - tool.name.length - 8);
-  const desc = tool.desc.length > maxDesc ? `${tool.desc.slice(0, maxDesc - 1)}…` : tool.desc;
-
-  return (
-    <PopupRow bg={bg} w={w}>
-      <text bg={bg} fg={enabled ? t.success : t.textMuted}>
-        [{check}]
-      </text>
-      <text bg={bg} fg={nameColor}>
-        {" "}
-        {tool.name}
-      </text>
-      <text bg={bg} fg={descColor}>
-        {" "}
-        {desc}
-      </text>
-    </PopupRow>
-  );
-});
-
 export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Props) {
-  const { width: termCols, height: termRows } = useTerminalDimensions();
-  const popupW = Math.min(MAX_POPUP_WIDTH, termCols - 4);
-  const maxVisible = Math.max(5, termRows - CHROME_ROWS - 4);
+  const { width: tw, height: th } = useTerminalDimensions();
+  const [cursor, setCursor] = useState(0);
 
-  const { cursor, setCursor, scrollOffset, adjustScroll } = usePopupScroll(maxVisible);
-  const [initialized, setInitialized] = useState(false);
-  if (visible && !initialized) {
-    setCursor(0);
-    adjustScroll(0);
-    setInitialized(true);
-  }
-  if (!visible && initialized) setInitialized(false);
+  useEffect(() => {
+    if (visible) setCursor(0);
+  }, [visible]);
+
+  const popupW = Math.min(110, Math.max(72, tw - 4));
+  const popupH = Math.min(32, Math.max(16, th - 4));
+  const contentW = popupW - 4;
+
+  const groups = useMemo<GroupedListGroup<ToolItem>[]>(() => {
+    return [
+      {
+        id: "tools",
+        label: "Tools",
+        hideHeader: true,
+        items: Object.entries(TOOL_CATALOG).map(([name, desc]) => ({
+          id: name,
+          toolName: name,
+          label: name,
+          meta: desc,
+          active: !disabledTools.has(name),
+          keyHint: !disabledTools.has(name) ? "✓" : " ",
+        })),
+      },
+    ];
+  }, [disabledTools]);
+
+  const rows = useMemo(() => buildGroupedRows(groups, new Set(["tools"])), [groups]);
 
   useKeyboard((evt) => {
     if (!visible) return;
@@ -81,53 +60,44 @@ export function ToolsPopup({ visible, disabledTools, onToggleTool, onClose }: Pr
       onClose();
       return;
     }
-    if (evt.name === "up" || evt.name === "k") {
-      const next = Math.max(0, cursor - 1);
-      setCursor(next);
-      adjustScroll(next);
+    if (evt.name === "return" || evt.name === "space") {
+      const r = rows[cursor];
+      if (r?.kind === "item" && r.item) {
+        onToggleTool((r.item as ToolItem).toolName);
+      }
       return;
     }
-    if (evt.name === "down" || evt.name === "j") {
-      const next = Math.min(ALL_TOOLS.length - 1, cursor + 1);
-      setCursor(next);
-      adjustScroll(next);
-      return;
-    }
-    if (evt.name === "return" || evt.name === " ") {
-      const tool = ALL_TOOLS[cursor];
-      if (tool) onToggleTool(tool.name);
-    }
+    handleCursorNavKey(evt, setCursor, rows.length);
   });
 
   if (!visible) return null;
 
-  const visibleItems = ALL_TOOLS.slice(scrollOffset, scrollOffset + maxVisible);
+  const enabled = Object.keys(TOOL_CATALOG).filter((n) => !disabledTools.has(n)).length;
+  const total = Object.keys(TOOL_CATALOG).length;
 
   return (
-    <Popup
+    <PremiumPopup
+      visible={visible}
       width={popupW}
+      height={popupH}
       title="Tools"
-      footer={
-        visibleItems.length > 0
-          ? [
-              { key: "space", label: "toggle" },
-              { key: "esc", label: "close" },
-            ]
-          : []
-      }
+      titleIcon="tools"
+      blurb={`${enabled} / ${total} enabled`}
+      footerHints={[
+        { key: "↑↓", label: "nav" },
+        { key: "Space", label: "toggle" },
+        { key: "Esc", label: "close" },
+      ]}
     >
-      {visibleItems.map((tool, i) => {
-        const idx = scrollOffset + i;
-        return (
-          <ToolRow
-            key={tool.name}
-            tool={tool}
-            enabled={!disabledTools.has(tool.name)}
-            selected={cursor === idx}
-            w={popupW - 2}
-          />
-        );
-      })}
-    </Popup>
+      <Section>
+        <GroupedList
+          groups={groups}
+          expanded={new Set(["tools"])}
+          selectedIndex={cursor}
+          width={contentW}
+          maxRows={Math.max(6, popupH - 9)}
+        />
+      </Section>
+    </PremiumPopup>
   );
 }

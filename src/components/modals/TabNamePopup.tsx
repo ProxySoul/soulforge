@@ -1,9 +1,8 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useState } from "react";
-import { useTheme } from "../../core/theme/index.js";
-import { Popup, PopupRow } from "../layout/shared.js";
+import { PremiumPopup, Search, Section, VSpacer } from "../ui/index.js";
 
-const POPUP_WIDTH = 44;
+const NAME_MAX = 30;
 
 interface Props {
   visible: boolean;
@@ -13,8 +12,7 @@ interface Props {
 }
 
 export function TabNamePopup({ visible, placeholder, onSubmit, onClose }: Props) {
-  const t = useTheme();
-  const { width: termCols } = useTerminalDimensions();
+  const { width: tw } = useTerminalDimensions();
   const [value, setValue] = useState("");
 
   useEffect(() => {
@@ -28,43 +26,40 @@ export function TabNamePopup({ visible, placeholder, onSubmit, onClose }: Props)
       return;
     }
     if (evt.name === "return") {
-      const name = value.trim();
-      onSubmit(name);
+      onSubmit(value.trim());
       return;
     }
     if (evt.name === "backspace" || evt.name === "delete") {
-      setValue((prev) => prev.slice(0, -1));
+      setValue((p) => p.slice(0, -1));
       return;
     }
-    if (evt.name && evt.name.length === 1 && !evt.ctrl && !evt.meta) {
-      setValue((prev) => {
-        if (prev.length >= 30) return prev;
-        return prev + evt.name;
-      });
+    const ch = evt.sequence;
+    if (typeof ch === "string" && ch.length === 1 && ch >= " " && !evt.ctrl && !evt.meta) {
+      setValue((p) => (p.length >= NAME_MAX ? p : p + ch));
     }
   });
 
   if (!visible) return null;
 
-  const w = Math.min(POPUP_WIDTH, Math.floor(termCols * 0.8));
-  const iw = w - 2;
-  const display = value || placeholder;
+  const popupW = Math.min(56, Math.max(44, Math.floor(tw * 0.45)));
 
   return (
-    <Popup
-      width={w}
+    <PremiumPopup
+      visible={visible}
+      width={popupW}
+      height={11}
       title="New Tab"
-      icon="+"
-      footer={[
+      titleIcon="tabs"
+      blurb="Give this tab a name"
+      footerHints={[
         { key: "Enter", label: "create" },
         { key: "Esc", label: "cancel" },
       ]}
     >
-      <PopupRow w={iw}>
-        <text fg={t.textSecondary}>Name: </text>
-        <text fg={value ? t.textPrimary : t.textMuted}>{display}</text>
-        <text fg={t.brand}>▎</text>
-      </PopupRow>
-    </Popup>
+      <Section>
+        <Search value={value} focused={true} placeholder={placeholder} icon="pencil" />
+        <VSpacer />
+      </Section>
+    </PremiumPopup>
   );
 }

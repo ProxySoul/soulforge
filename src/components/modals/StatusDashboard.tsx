@@ -1,3 +1,4 @@
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,11 +23,18 @@ import {
   ZERO_USAGE,
 } from "../../stores/statusbar.js";
 import { useWorkerStore } from "../../stores/workers.js";
-import { POPUP_BG, Popup, PopupRow } from "../layout/shared.js";
+import {
+  Field,
+  PremiumPopup,
+  ProgressBar,
+  Section,
+  SegmentedControl,
+  Table,
+  VSpacer,
+} from "../ui/index.js";
 
-const CHROME_ROWS = 6;
-const TABS = ["Context", "System"] as const;
-type Tab = (typeof TABS)[number];
+const BOLD = TextAttributes.BOLD;
+const SIDEBAR_W = 22;
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -44,119 +52,59 @@ function fmtMem(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${String(mb)} MB`;
 }
 
-function BarRow({
-  label,
-  pct,
-  desc,
-  barColor,
-  descColor,
-  innerW,
-  labelW = 18,
-  descW = 0,
-}: {
-  label: string;
-  pct: number;
-  desc: string;
-  barColor: string;
-  descColor: string;
-  innerW: number;
-  labelW?: number;
-  descW?: number;
-}) {
-  const t = useTheme();
-  const pad = 2;
-  const truncLabel = label.length > labelW ? `${label.slice(0, labelW - 1)}…` : label;
-  const effectiveDescW = descW > 0 ? descW : desc.length + 2;
-  const barW = Math.max(6, innerW - labelW - effectiveDescW - pad);
-  const filled = Math.round((pct / 100) * barW);
-  const descStr = descW > 0 ? ` ${desc}`.padStart(effectiveDescW) : ` ${desc}`;
-  return (
-    <PopupRow w={innerW}>
-      <text fg={t.textSecondary} bg={POPUP_BG}>
-        {truncLabel.padEnd(labelW)}
-      </text>
-      <text fg={barColor} bg={POPUP_BG}>
-        {"▰".repeat(filled)}
-      </text>
-      <text fg={t.textSubtle} bg={POPUP_BG}>
-        {"▱".repeat(barW - filled)}
-      </text>
-      <text fg={descColor} bg={POPUP_BG}>
-        {descStr}
-      </text>
-    </PopupRow>
-  );
+// Sidebar tabs — five focused panels.
+const TABS = ["Usage", "Prompt", "Cost", "Tabs", "System"] as const;
+type Tab = (typeof TABS)[number];
+
+function fmtCost(c: number): string {
+  if (c <= 0) return "—";
+  return c < 0.01 ? `$${c.toFixed(3)}` : `$${c.toFixed(2)}`;
 }
 
-function EntryRow({
-  label,
-  value,
-  labelColor,
-  valueColor,
-  innerW,
-  labelW = 14,
-  rightAlign,
-}: {
-  label: string;
-  value: string;
-  labelColor?: string;
-  valueColor?: string;
-  innerW: number;
-  labelW?: number;
-  rightAlign?: boolean;
-}) {
-  const t = useTheme();
-  const pad = 2;
-  const valueW = innerW - labelW - pad;
-  const displayValue = rightAlign ? value.padStart(valueW) : value;
-  return (
-    <PopupRow w={innerW}>
-      <text fg={labelColor ?? t.textSecondary} bg={POPUP_BG}>
-        {label.padEnd(labelW)}
-      </text>
-      <text fg={valueColor ?? t.textPrimary} bg={POPUP_BG}>
-        {displayValue}
-      </text>
-    </PopupRow>
-  );
-}
-
-function SectionHeader({
-  label,
-  color,
-  innerW,
-}: {
-  label: string;
-  color?: string;
-  innerW: number;
-}) {
-  const t = useTheme();
-  return (
-    <PopupRow w={innerW}>
-      <text fg={color ?? t.brandAlt} bg={POPUP_BG} attributes={TextAttributes.BOLD}>
-        {label}
-      </text>
-    </PopupRow>
-  );
-}
-
-function Spacer({ innerW }: { innerW: number }) {
-  return (
-    <PopupRow w={innerW}>
-      <text bg={POPUP_BG}>{""}</text>
-    </PopupRow>
-  );
+interface HearthStatusSummary {
+  running: boolean;
+  uptimeLabel: string;
+  connectedSurfaces: number;
+  totalSurfaces: number;
+  totalChats: number;
+  pendingApprovals: number;
+  stats: {
+    messagesIn: number;
+    eventsOut: number;
+    approvalsHandled: number;
+    approvalsAllowed: number;
+    approvalsDenied: number;
+    pairingsIssued: number;
+    tabsOpened: number;
+    turnsCompleted: number;
+    toolCalls: number;
+    workspacesEver: number;
+  };
+  persistence: {
+    installed: boolean;
+    active?: boolean;
+    platform: "darwin" | "linux" | "unsupported";
+    unitLabel?: string;
+  };
 }
 
 interface Props {
   visible: boolean;
-  initialTab?: Tab;
+  /** Accepts legacy "Context"/"System" for back-compat; routes to Usage/System. */
+  initialTab?: Tab | "Context" | "System";
   onClose: () => void;
   activeModel: string;
   contextManager: ContextManager;
   tabMgr: UseTabsReturn;
   currentMode: string;
   currentModeLabel: string;
+}
+
+function resolveInitial(i: Props["initialTab"]): Tab {
+  if (i === "Context") return "Usage";
+  if (i === "System") return "System";
+  if (i && (TABS as readonly string[]).includes(i)) return i as Tab;
+  return "Usage";
 }
 
 export function StatusDashboard({
@@ -169,13 +117,16 @@ export function StatusDashboard({
   currentMode,
   currentModeLabel,
 }: Props) {
-  const t = useTheme();
+  void useTheme();
   const { width: termCols, height: termRows } = useTerminalDimensions();
-  const popupWidth = Math.min(82, Math.floor(termCols * 0.85));
-  const innerW = popupWidth - 2;
-  const maxVisible = Math.max(6, Math.floor((termRows - 2) * 0.8) - CHROME_ROWS);
-  const [tab, setTab] = useState<Tab>(initialTab ?? "Context");
-  const TAB_COLORS: Record<Tab, string> = { Context: t.info, System: t.brand };
+
+  // Wider popup — sidebar eats 22 cols + 3 chrome.
+  const popupWidth = Math.min(120, Math.max(90, Math.floor(termCols * 0.9)));
+  const popupH = Math.min(Math.max(22, Math.floor(termRows * 0.88)), termRows - 2);
+  const contentW = popupWidth - SIDEBAR_W - 3;
+  const scrollH = Math.max(8, popupH - 6);
+
+  const [tab, setTab] = useState<Tab>(() => resolveInitial(initialTab));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [scopeTabId, setScopeTabId] = useState<string | "all">(tabMgr.activeTabId);
 
@@ -183,43 +134,16 @@ export function StatusDashboard({
   const rm = useRepoMapStore();
   const wk = useWorkerStore();
 
-  interface HearthStatusSummary {
-    running: boolean;
-    uptimeLabel: string;
-    connectedSurfaces: number;
-    totalSurfaces: number;
-    totalChats: number;
-    pendingApprovals: number;
-    stats: {
-      messagesIn: number;
-      eventsOut: number;
-      approvalsHandled: number;
-      approvalsAllowed: number;
-      approvalsDenied: number;
-      pairingsIssued: number;
-      tabsOpened: number;
-      turnsCompleted: number;
-      toolCalls: number;
-      workspacesEver: number;
-    };
-    persistence: {
-      installed: boolean;
-      active?: boolean;
-      platform: "darwin" | "linux" | "unsupported";
-      unitLabel?: string;
-    };
-  }
   const [hearth, setHearth] = useState<HearthStatusSummary | null>(null);
 
   useEffect(() => {
     if (visible) {
-      setTab(initialTab ?? "Context");
+      setTab(resolveInitial(initialTab));
       setScrollOffset(0);
       setScopeTabId(tabMgr.activeTabId);
     }
   }, [visible, initialTab, tabMgr.activeTabId]);
 
-  // Probe Hearth daemon — dynamic import so the dependency is lazy.
   useEffect(() => {
     if (!visible) return;
     let stopped = false;
@@ -405,808 +329,27 @@ export function StatusDashboard({
     return agg;
   }, [isAllScope, scopeTabId, getTabUsage, allTabs]);
 
-  const contextLines = useMemo(() => {
-    const lines: React.ReactNode[] = [];
-
-    // ── Scope selector (multi-tab only) ──
-    if (isMultiTab) {
-      const scopeIds = [...allTabs.map((tb) => tb.id), "all" as const];
-      lines.push(
-        <PopupRow key="scope" w={innerW}>
-          {scopeIds.map((sid, i) => {
-            const isSelected = sid === scopeTabId;
-            const label =
-              sid === "all" ? "All" : `Tab ${String(allTabs.findIndex((tb) => tb.id === sid) + 1)}`;
-            return (
-              <text
-                key={sid}
-                fg={isSelected ? t.info : t.textMuted}
-                bg={POPUP_BG}
-                attributes={isSelected ? TextAttributes.BOLD : undefined}
-              >
-                {i > 0 ? " │ " : " "}
-                {isSelected ? `▸ ${label}` : `  ${label}`}
-              </text>
-            );
-          })}
-        </PopupRow>,
-      );
-      lines.push(
-        <PopupRow key="scope-sep" w={innerW}>
-          <text fg={t.textSubtle} bg={POPUP_BG}>
-            {"─".repeat(innerW - 4)}
-          </text>
-        </PopupRow>,
-      );
-    }
-
-    // ── Context Window / Model / Compaction / System Prompt ──
-    // Shown for any individual tab scope (hidden in "All" aggregate view)
-    if (!isAllScope) {
-      const breakdown = contextManager.getContextBreakdown();
-      const systemChars = breakdown.reduce((sum, s) => sum + s.chars, 0);
-      const ctxWindow =
-        sb.contextWindow > 0 ? sb.contextWindow : getModelContextInfoSync(modelId).tokens;
-      const isApi = sb.contextTokens > 0;
-      const charEstimate = (systemChars + sb.chatChars + sb.subagentChars) / 4;
-      const chatCharsDelta = Math.max(0, sb.chatChars - (sb.chatCharsAtSnapshot ?? 0));
-      const usedTokens = Math.round(
-        isApi ? sb.contextTokens + (chatCharsDelta + sb.subagentChars) / 4 : charEstimate,
-      );
-      const fillPct =
-        usedTokens > 0 ? Math.min(100, Math.max(1, Math.round((usedTokens / ctxWindow) * 100))) : 0;
-      const activeSections = breakdown.filter((s) => s.active && s.chars > 0);
-      const totalSysChars = activeSections.reduce((sum, s) => sum + s.chars, 0);
-
-      const pctLabel = isApi ? `${String(fillPct)}%` : `~${String(fillPct)}%`;
-      lines.push(
-        <BarRow
-          key="ctx-bar"
-          label="Context Window"
-          pct={fillPct}
-          desc={`${fmtTokens(usedTokens)} / ${fmtTokens(ctxWindow)} (${pctLabel})`}
-          barColor={fillPct > 75 ? t.brandSecondary : fillPct > 50 ? t.warning : t.success}
-          descColor={fillPct > 75 ? t.brandSecondary : fillPct > 50 ? t.warning : t.textSecondary}
-          innerW={innerW}
-        />,
-      );
-      lines.push(
-        <EntryRow
-          key="model"
-          label="Model"
-          value={getShortModelLabel(modelId)}
-          labelW={18}
-          innerW={innerW}
-        />,
-      );
-
-      const isAnthropic = isAnthropicNative(modelId);
-      const clientTriggerPct = 70;
-      const clientTrigger = Math.floor(ctxWindow * (clientTriggerPct / 100));
-      lines.push(<Spacer key="s-thresh-pre" innerW={innerW} />);
-      lines.push(<SectionHeader key="h-thresh" label="Compaction Thresholds" innerW={innerW} />);
-      if (isAnthropic) {
-        const clearPct = 30;
-        const clearTrigger = Math.max(80_000, Math.floor(ctxWindow * (clearPct / 100)));
-        const serverPct = 80;
-        const serverTrigger = Math.max(160_000, Math.floor(ctxWindow * (serverPct / 100)));
-        lines.push(
-          <EntryRow
-            key="th-clear"
-            label="  Tool clearing"
-            value={`${String(clearPct)}% — ${fmtTokens(clearTrigger)}`}
-            valueColor={t.textMuted}
-            labelW={18}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="th-server"
-            label="  Server compact"
-            value={`${String(serverPct)}% — ${fmtTokens(serverTrigger)}`}
-            valueColor={t.textMuted}
-            labelW={18}
-            innerW={innerW}
-          />,
-        );
-      }
-      lines.push(
-        <EntryRow
-          key="th-client"
-          label="  Client compact"
-          value={`${String(clientTriggerPct)}% — ${fmtTokens(clientTrigger)}`}
-          valueColor={t.textMuted}
-          labelW={18}
-          innerW={innerW}
-        />,
-      );
-      lines.push(<Spacer key="s1" innerW={innerW} />);
-
-      if (activeSections.length > 0) {
-        const sysLabelW = Math.min(
-          22,
-          Math.max(18, ...activeSections.map((s) => s.section.length + 4)),
-        );
-        const maxDescLen = Math.max(
-          ...activeSections.map((s) => `~${fmtTokens(Math.ceil(s.chars / 4))}`.length + 2),
-        );
-        lines.push(<SectionHeader key="h-sys" label="System Prompt" innerW={innerW} />);
-        for (const s of activeSections) {
-          const sTokens = Math.ceil(s.chars / 4);
-          const sPct = totalSysChars > 0 ? Math.round((s.chars / totalSysChars) * 100) : 0;
-          lines.push(
-            <BarRow
-              key={`sp-${s.section}`}
-              label={`  ${s.section}`}
-              pct={sPct}
-              desc={`~${fmtTokens(sTokens)}`}
-              barColor={sPct > 40 ? t.warning : t.textMuted}
-              descColor={t.textMuted}
-              innerW={innerW}
-              labelW={sysLabelW}
-              descW={maxDescLen}
-            />,
-          );
-        }
-        lines.push(<Spacer key="s2" innerW={innerW} />);
-      }
-    }
-
-    // ── Token Usage section header ──
-    const tokHeader = isAllScope
-      ? `Token Usage — All Tabs (${String(allTabs.length)})`
-      : isMultiTab
-        ? `Token Usage — Tab ${String(allTabs.findIndex((tb) => tb.id === scopeTabId) + 1)}`
-        : "Token Usage (session)";
-    lines.push(<SectionHeader key="h-tok" label={tokHeader} innerW={innerW} />);
-
-    // ── Token breakdown (same for any scope, uses scopedUsage) ──
-    {
-      const su = scopedUsage;
-      const uncachedInput = su.prompt + su.subagentInput;
-      const allInput = uncachedInput + su.cacheRead + su.cacheWrite;
-      const totalOutput = su.completion + su.subagentOutput;
-      const hasSub = su.subagentInput > 0 || su.subagentOutput > 0;
-      const cachePct =
-        allInput > 0 ? Math.min(100, Math.round((su.cacheRead / allInput) * 100)) : 0;
-
-      const tokLabelW = 18;
-      lines.push(
-        <EntryRow
-          key="t-in"
-          label="  Input"
-          value={fmtTokens(uncachedInput)}
-          valueColor={t.info}
-          labelW={tokLabelW}
-          rightAlign
-          innerW={innerW}
-        />,
-      );
-      if (hasSub) {
-        lines.push(
-          <EntryRow
-            key="t-in-main"
-            label="    Main"
-            value={fmtTokens(su.prompt)}
-            valueColor={t.info}
-            labelW={tokLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="t-in-sub"
-            label="    Dispatch"
-            value={fmtTokens(su.subagentInput)}
-            valueColor={t.brand}
-            labelW={tokLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-      }
-
-      lines.push(
-        <EntryRow
-          key="t-out"
-          label="  Output"
-          value={fmtTokens(totalOutput)}
-          valueColor={t.warning}
-          labelW={tokLabelW}
-          rightAlign
-          innerW={innerW}
-        />,
-      );
-      if (hasSub) {
-        lines.push(
-          <EntryRow
-            key="t-out-main"
-            label="    Main"
-            value={fmtTokens(su.completion)}
-            valueColor={t.warning}
-            labelW={tokLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="t-out-sub"
-            label="    Dispatch"
-            value={fmtTokens(su.subagentOutput)}
-            valueColor={t.brand}
-            labelW={tokLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-      }
-
-      lines.push(
-        <BarRow
-          key="t-cache"
-          label="  Cache Read"
-          pct={cachePct}
-          desc={su.cacheRead > 0 ? `${fmtTokens(su.cacheRead)} (${String(cachePct)}%)` : "—"}
-          barColor={su.cacheRead > 0 ? t.success : t.textFaint}
-          descColor={su.cacheRead > 0 ? t.success : t.textDim}
-          innerW={innerW}
-        />,
-      );
-      if (su.cacheWrite > 0) {
-        lines.push(
-          <EntryRow
-            key="t-cache-write"
-            label="  Cache Write"
-            value={fmtTokens(su.cacheWrite)}
-            valueColor={t.warning}
-            labelW={tokLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-      }
-      if (su.cacheRead > 0) {
-        lines.push(
-          <EntryRow
-            key="t-uncached"
-            label="    Uncached"
-            value={fmtTokens(uncachedInput)}
-            valueColor={t.textSecondary}
-            labelW={tokLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-      }
-
-      lines.push(
-        <EntryRow
-          key="t-total"
-          label="  Total"
-          value={fmtTokens(su.total)}
-          labelW={tokLabelW}
-          rightAlign
-          innerW={innerW}
-        />,
-      );
-
-      // ── Cost Breakdown ──
-      const sortedBd = Object.entries(su.modelBreakdown ?? {}).sort(
-        ([midA, a], [midB, b]) => computeModelCost(midB, b) - computeModelCost(midA, a),
-      );
-      const allLocal = sortedBd.length > 0 && sortedBd.every(([mid]) => isModelLocal(mid));
-      const allFree =
-        !allLocal && sortedBd.length > 0 && sortedBd.every(([mid]) => isModelFree(mid));
-      const totalCost =
-        sortedBd.length > 0 ? computeTotalCostFromBreakdown(su.modelBreakdown ?? {}) : 0;
-      if (totalCost > 0 || allFree || allLocal) {
-        const fmtCost = (c: number) => (c < 0.01 ? `${c.toFixed(3)}` : `${c.toFixed(2)}`);
-        lines.push(<Spacer key="s-cost" innerW={innerW} />);
-        const costHeader = isAllScope ? "Cost Breakdown — All Tabs" : "Cost Breakdown";
-        lines.push(<SectionHeader key="h-cost" label={costHeader} innerW={innerW} />);
-        const costLabelW = Math.min(30, innerW - 20);
-        for (const [mid, usage] of sortedBd) {
-          const local = isModelLocal(mid);
-          const free = !local && isModelFree(mid);
-          const c = computeModelCost(mid, usage);
-          if (c <= 0 && !free && !local) continue;
-          const pct = totalCost > 0 ? Math.round((c / totalCost) * 100) : 0;
-          const maxModelW = costLabelW - 4;
-          const shortId = mid.length > maxModelW ? `${mid.slice(0, maxModelW - 1)}…` : mid;
-          lines.push(
-            <EntryRow
-              key={`cost-${mid}`}
-              label={`  ${shortId}`}
-              value={local ? "Local" : free ? "FREE" : `${fmtCost(c)}  (${String(pct)}%)`}
-              valueColor={local || free ? t.success : t.textPrimary}
-              labelW={costLabelW}
-              rightAlign
-              innerW={innerW}
-            />,
-          );
-        }
-        lines.push(
-          <EntryRow
-            key="cost-total"
-            label="  Total"
-            value={allLocal ? "Local" : allFree ? "FREE" : fmtCost(totalCost)}
-            valueColor={allLocal || allFree ? t.success : t.warning}
-            labelW={costLabelW}
-            rightAlign
-            innerW={innerW}
-          />,
-        );
-      }
-    }
-
-    // ── Per-Tab summary table (only in "All" scope) ──
-    if (isAllScope && isMultiTab) {
-      lines.push(<Spacer key="s-tabs" innerW={innerW} />);
-      lines.push(<SectionHeader key="h-tabs" label="Per Tab" innerW={innerW} />);
-
-      const fmtCost = (c: number, modelIds?: string[]) => {
-        if (modelIds && modelIds.length > 0 && modelIds.every((mid) => isModelLocal(mid)))
-          return "Local";
-        if (modelIds && modelIds.length > 0 && modelIds.every((mid) => isModelFree(mid)))
-          return "FREE";
-        return c <= 0 ? "—" : c < 0.01 ? `$${c.toFixed(3)}` : `$${c.toFixed(2)}`;
-      };
-
-      // Column header
-      const colLabelW = Math.min(24, Math.floor(innerW * 0.35));
-      const colW = innerW - colLabelW - 2;
-      const colStr = (s: string, w: number) => s.padStart(w);
-      const cw = Math.floor(colW / 4);
-      lines.push(
-        <PopupRow key="tab-hdr" w={innerW}>
-          <text fg={t.textDim} bg={POPUP_BG}>
-            {"".padEnd(colLabelW)}
-            {colStr("Input", cw)}
-            {colStr("Output", cw)}
-            {colStr("Cache%", cw)}
-            {colStr("Cost", cw)}
-          </text>
-        </PopupRow>,
-      );
-
-      for (let i = 0; i < allTabs.length; i++) {
-        const tabEntry = allTabs[i];
-        if (!tabEntry) continue;
-        const u = getTabUsage(tabEntry.id);
-        const isActive = tabEntry.id === tabMgr.activeTabId;
-        const uncached = u.prompt + u.subagentInput;
-        const allIn = uncached + u.cacheRead + u.cacheWrite;
-        const cachePct = allIn > 0 ? Math.round((u.cacheRead / allIn) * 100) : 0;
-        const cost = computeTotalCostFromBreakdown(u.modelBreakdown ?? {});
-        const totalOut = u.completion + u.subagentOutput;
-
-        const prefix = isActive ? " ▸ " : "   ";
-        const label = `${prefix}Tab ${String(i + 1)}`;
-
-        lines.push(
-          <PopupRow key={`tab-${tabEntry.id}`} w={innerW}>
-            <text fg={isActive ? t.info : t.textSecondary} bg={POPUP_BG}>
-              {label.padEnd(colLabelW)}
-            </text>
-            <text fg={t.textPrimary} bg={POPUP_BG}>
-              {colStr(fmtTokens(uncached), cw)}
-              {colStr(fmtTokens(totalOut), cw)}
-              {colStr(cachePct > 0 ? `${String(cachePct)}%` : "—", cw)}
-              {colStr(fmtCost(cost, Object.keys(u.modelBreakdown ?? {})), cw)}
-            </text>
-          </PopupRow>,
-        );
-      }
-    }
-
-    return lines;
-  }, [
-    contextManager,
-    sb.contextWindow,
-    modelId,
-    scopedUsage,
-    scopeTabId,
-    isMultiTab,
-    isAllScope,
-    allTabs,
-    getTabUsage,
-    tabMgr,
-    innerW,
-    sb.chatChars,
-    sb.contextTokens,
-    sb.subagentChars,
-    sb.chatCharsAtSnapshot,
-    t,
-  ]);
-
   const [lspCount, setLspCount] = useState(0);
   useEffect(() => {
     getIntelligenceStatus().then((s) => setLspCount(s?.lspServers.length ?? 0));
   }, []);
 
-  const systemLines = useMemo(() => {
-    const rssMB = sb.rssMB;
-    const memColor = rssMB < 2048 ? t.success : rssMB < 4096 ? t.amber : t.error;
-
-    const lines: React.ReactNode[] = [];
-
-    const rmStatusColor =
-      rm.status === "ready"
-        ? t.success
-        : rm.status === "scanning"
-          ? t.amber
-          : rm.status === "error"
-            ? t.error
-            : t.textMuted;
-    const semLabel =
-      rm.semanticStatus !== "off"
-        ? ` · sem: ${rm.semanticStatus} (${String(rm.semanticCount)})`
-        : "";
-
-    lines.push(<SectionHeader key="h-map" label="Soul Map" innerW={innerW} />);
-    lines.push(
-      <PopupRow key="rm-status" w={innerW}>
-        <text fg={rmStatusColor} bg={POPUP_BG}>
-          {"  "}
-          {rm.status}
-        </text>
-        <text fg={t.textMuted} bg={POPUP_BG}>
-          {` · ${String(rm.files)} files · ${String(rm.symbols)} symbols · ${String(rm.edges)} edges · ${fmtBytes(rm.dbSizeBytes)}${semLabel}`}
-        </text>
-      </PopupRow>,
-    );
-    lines.push(<Spacer key="s3" innerW={innerW} />);
-
-    const wkIcon = (s: string) =>
-      s === "busy"
-        ? icon("worker_busy")
-        : s === "crashed"
-          ? icon("worker_crash")
-          : s === "restarting"
-            ? icon("worker_restart")
-            : icon("worker");
-    const wkColor = (s: string) =>
-      s === "ready" || s === "busy"
-        ? t.success
-        : s === "starting" || s === "restarting"
-          ? t.amber
-          : s === "crashed"
-            ? t.error
-            : t.textMuted;
-
-    const totalWorkerHeap = wk.intelligence.heapMB + wk.io.heapMB;
-    const pr = sb.processRss;
-    const hasNvim = getNvimInstance() != null;
-    const hasProxy = getProxyPid() != null;
-
-    // Workers are threads inside main — nest them under main.
-    const workers: Array<{ key: string; label: string; color: string; detail: string }> = [];
-
-    const intelStatus =
-      wk.intelligence.status === "busy"
-        ? `busy (${String(wk.intelligence.rpcInFlight)} rpc)`
-        : wk.intelligence.status;
-    const intelCalls =
-      wk.intelligence.totalCalls > 0 ? ` · ${String(wk.intelligence.totalCalls)} calls` : "";
-    const intelErrors =
-      wk.intelligence.totalErrors > 0 ? ` · ${String(wk.intelligence.totalErrors)} err` : "";
-    const intelMem = wk.intelligence.heapMB > 0 ? ` · ${fmtMem(wk.intelligence.heapMB)} heap` : "";
-    const intelRestarts =
-      wk.intelligence.restarts > 0 ? ` · ${String(wk.intelligence.restarts)} restart` : "";
-    workers.push({
-      key: "wk-intel",
-      label: `${wkIcon(wk.intelligence.status)} intelligence  ${intelStatus}`,
-      color: wkColor(wk.intelligence.status),
-      detail: `${intelCalls}${intelErrors}${intelRestarts}${intelMem}`,
-    });
-
-    const ioStatus =
-      wk.io.status === "busy" ? `busy (${String(wk.io.rpcInFlight)} rpc)` : wk.io.status;
-    const ioCalls = wk.io.totalCalls > 0 ? ` · ${String(wk.io.totalCalls)} calls` : "";
-    const ioMem = wk.io.heapMB > 0 ? ` · ${fmtMem(wk.io.heapMB)} heap` : "";
-    const ioRestarts = wk.io.restarts > 0 ? ` · ${String(wk.io.restarts)} restart` : "";
-    workers.push({
-      key: "wk-io",
-      label: `${wkIcon(wk.io.status)} io (smol)  ${ioStatus}`,
-      color: wkColor(wk.io.status),
-      detail: `${ioCalls}${ioRestarts}${ioMem}`,
-    });
-
-    // External processes — siblings of main, not children
-    const externals: Array<{ key: string; label: string; color: string; detail: string }> = [];
-
-    if (hasNvim) {
-      const nvimMem = pr.nvimMB > 0 ? ` · ${fmtMem(pr.nvimMB)} rss` : "";
-      externals.push({
-        key: "proc-nvim",
-        label: `${icon("worker")} neovim  active`,
-        color: t.success,
-        detail: nvimMem,
-      });
-    }
-
-    if (lspCount > 0) {
-      const lspMem = pr.lspMB > 0 ? ` · ${fmtMem(pr.lspMB)} rss` : "";
-      externals.push({
-        key: "proc-lsp",
-        label: `${icon("worker")} lsp  ${String(lspCount)} server${lspCount > 1 ? "s" : ""}`,
-        color: t.info,
-        detail: lspMem,
-      });
-    }
-
-    if (hasProxy) {
-      const proxyMem = pr.proxyMB > 0 ? ` · ${fmtMem(pr.proxyMB)} rss` : "";
-      externals.push({
-        key: "proc-proxy",
-        label: `${icon("worker")} proxy  active`,
-        color: t.brand,
-        detail: proxyMem,
-      });
-    }
-
-    lines.push(<SectionHeader key="h-sys" label="Process Tree" innerW={innerW} />);
-
-    // Main process with workers nested underneath
-    const hasExternals = externals.length > 0;
-    const mainMemColor = pr.mainMB < 1024 ? t.success : pr.mainMB < 2048 ? t.amber : t.error;
-    lines.push(
-      <PopupRow key="sys-main" w={innerW}>
-        <text fg={t.textSecondary} bg={POPUP_BG}>
-          {hasExternals ? "  ├─ " : "  └─ "}
-        </text>
-        <text fg={t.textSecondary} bg={POPUP_BG}>
-          {"main"}
-        </text>
-        <text fg={mainMemColor} bg={POPUP_BG}>
-          {`  ${fmtMem(pr.mainMB)} rss`}
-        </text>
-      </PopupRow>,
-    );
-
-    // Workers nested under main
-    for (let i = 0; i < workers.length; i++) {
-      const wkEntry = workers[i];
-      if (!wkEntry) continue;
-      const isLast = i === workers.length - 1;
-      const treePad = hasExternals ? "  │  " : "     ";
-      lines.push(
-        <PopupRow key={wkEntry.key} w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {isLast ? `${treePad}└─ ` : `${treePad}├─ `}
-          </text>
-          <text fg={wkEntry.color} bg={POPUP_BG}>
-            {wkEntry.label}
-          </text>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {wkEntry.detail}
-          </text>
-        </PopupRow>,
-      );
-    }
-
-    // Terminals — PTY subprocesses
-    const termStats = getTerminalStats();
-    if (termStats.count > 0) {
-      const termBufKB = Math.round(termStats.totalBufferBytes / 1024);
-      externals.push({
-        key: "proc-terminals",
-        label: `${icon("terminal")} terminals  ${String(termStats.activeCount)}/${String(termStats.count)} active`,
-        color: termStats.activeCount > 0 ? t.success : t.textDim,
-        detail: ` · ${String(termBufKB)} KB buffer`,
-      });
-    }
-
-    // External processes as siblings of main
-    for (let i = 0; i < externals.length; i++) {
-      const ext = externals[i];
-      if (!ext) continue;
-      const isLast = i === externals.length - 1;
-      lines.push(
-        <PopupRow key={ext.key} w={innerW}>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {isLast ? "  └─ " : "  ├─ "}
-          </text>
-          <text fg={ext.color} bg={POPUP_BG}>
-            {ext.label}
-          </text>
-          <text fg={t.textMuted} bg={POPUP_BG}>
-            {ext.detail}
-          </text>
-        </PopupRow>,
-      );
-    }
-
-    if (wk.intelligence.lastError || wk.io.lastError) {
-      const errMsg = wk.intelligence.lastError ?? wk.io.lastError ?? "";
-      lines.push(
-        <PopupRow key="wk-err" w={innerW}>
-          <text fg={t.error} bg={POPUP_BG}>
-            {`  ${icon("error")} ${errMsg.slice(0, innerW - 6)}`}
-          </text>
-        </PopupRow>,
-      );
-    }
-
-    // rssMB = main + nvim + proxy + lsp (all separate processes).
-    // Workers are threads in the main process — their RSS is already included in main.
-    // Only worker heap is a meaningful separate metric.
-    lines.push(
-      <PopupRow key="sys-total" w={innerW}>
-        <text fg={t.textMuted} bg={POPUP_BG}>
-          {"  total  "}
-        </text>
-        <text fg={memColor} bg={POPUP_BG}>
-          {`${fmtMem(rssMB)} rss`}
-        </text>
-        <text fg={t.textMuted} bg={POPUP_BG}>
-          {totalWorkerHeap > 0 ? ` · ${fmtMem(totalWorkerHeap)} worker heap` : ""}
-        </text>
-      </PopupRow>,
-    );
-    lines.push(<Spacer key="s4" innerW={innerW} />);
-
-    lines.push(<SectionHeader key="h-env" label="Environment" innerW={innerW} />);
-    lines.push(
-      <EntryRow
-        key="sys-mode"
-        label="  Mode"
-        value={currentModeLabel}
-        valueColor={currentMode === "default" ? t.textMuted : t.warning}
-        innerW={innerW}
-      />,
-    );
-
-    // Hearth daemon lifetime stats — rendered when the daemon is reachable.
-    if (hearth) {
-      lines.push(<Spacer key="s-hearth" innerW={innerW} />);
-      lines.push(<SectionHeader key="h-hearth" label="Hearth" innerW={innerW} />);
-      lines.push(
-        <EntryRow
-          key="h-status"
-          label="  Status"
-          value={hearth.running ? "running" : "offline"}
-          valueColor={hearth.running ? t.success : t.textMuted}
-          innerW={innerW}
-        />,
-      );
-      {
-        const p = hearth.persistence;
-        const persistenceValue = p.installed
-          ? p.active
-            ? `active on boot · ${p.unitLabel ?? ""}`
-            : `installed (inactive) · ${p.unitLabel ?? ""}`
-          : p.platform === "unsupported"
-            ? "not supported on this OS"
-            : "not installed";
-        lines.push(
-          <EntryRow
-            key="h-persist"
-            label="  Persistence"
-            value={persistenceValue}
-            valueColor={p.installed && p.active ? t.success : p.installed ? t.warning : t.textMuted}
-            innerW={innerW}
-          />,
-        );
-      }
-      if (hearth.running) {
-        lines.push(
-          <EntryRow
-            key="h-uptime"
-            label="  Uptime"
-            value={hearth.uptimeLabel}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-surfaces"
-            label="  Surfaces"
-            value={`${String(hearth.connectedSurfaces)}/${String(hearth.totalSurfaces)} connected · ${String(hearth.totalChats)} chats`}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-msgs"
-            label="  Messages in"
-            value={String(hearth.stats.messagesIn)}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-events"
-            label="  Events out"
-            value={String(hearth.stats.eventsOut)}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-turns"
-            label="  Turns completed"
-            value={String(hearth.stats.turnsCompleted)}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-tools"
-            label="  Tool calls"
-            value={String(hearth.stats.toolCalls)}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-appr"
-            label="  Approvals"
-            value={`${String(hearth.stats.approvalsHandled)} (${String(hearth.stats.approvalsAllowed)} allow · ${String(hearth.stats.approvalsDenied)} deny)`}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-pending"
-            label="  Pending approvals"
-            value={String(hearth.pendingApprovals)}
-            valueColor={hearth.pendingApprovals > 0 ? t.warning : t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-tabs"
-            label="  Tabs opened"
-            value={`${String(hearth.stats.tabsOpened)} (${String(hearth.stats.workspacesEver)} workspaces)`}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-        lines.push(
-          <EntryRow
-            key="h-pair"
-            label="  Pairings issued"
-            value={String(hearth.stats.pairingsIssued)}
-            valueColor={t.textPrimary}
-            innerW={innerW}
-          />,
-        );
-      }
-    }
-
-    return lines;
-  }, [sb, rm, wk, currentMode, currentModeLabel, innerW, t, lspCount, hearth]);
-
-  const activeLines = tab === "Context" ? contextLines : systemLines;
-  const clampedScroll = Math.min(scrollOffset, Math.max(0, activeLines.length - maxVisible));
-  const visibleLines = activeLines.slice(clampedScroll, clampedScroll + maxVisible);
+  const scopeRelevant = tab === "Usage" || tab === "Prompt" || tab === "Cost" || tab === "Tabs";
 
   useKeyboard((evt) => {
     if (!visible) return;
-
     if (evt.name === "escape") {
       onClose();
       return;
     }
     if (evt.name === "tab") {
       const idx = TABS.indexOf(tab);
-      setTab(TABS[(idx + 1) % TABS.length] as Tab);
+      const dir = evt.shift ? -1 : 1;
+      setTab(TABS[(idx + dir + TABS.length) % TABS.length] as Tab);
       setScrollOffset(0);
       return;
     }
-    if (isMultiTab && tab === "Context" && (evt.name === "left" || evt.name === "right")) {
+    if (isMultiTab && scopeRelevant && (evt.name === "left" || evt.name === "right")) {
       const scopeIds = [...allTabs.map((tb) => tb.id), "all" as const];
       setScopeTabId((prev) => {
         const idx = scopeIds.indexOf(prev as string);
@@ -1220,68 +363,787 @@ export function StatusDashboard({
       return;
     }
     if (evt.name === "up") {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
+      setScrollOffset((p) => Math.max(0, p - 1));
       return;
     }
     if (evt.name === "down") {
-      setScrollOffset((prev) => Math.min(Math.max(0, activeLines.length - maxVisible), prev + 1));
+      setScrollOffset((p) => p + 1);
       return;
     }
   });
 
   if (!visible) return null;
 
+  const scopeLabel = isAllScope
+    ? "All Tabs"
+    : isMultiTab
+      ? `Tab ${String(allTabs.findIndex((tb) => tb.id === scopeTabId) + 1)}`
+      : "Session";
+
+  const sidebarTabs = [
+    { id: "Usage" as const, label: "Usage", icon: "context", blurb: "tokens · window" },
+    { id: "Prompt" as const, label: "Prompt", icon: "note", blurb: "system sections" },
+    { id: "Cost" as const, label: "Cost", icon: "sparkle", blurb: "per-model spend" },
+    { id: "Tabs" as const, label: "Tabs", icon: "tabs", blurb: "per-tab summary" },
+    { id: "System" as const, label: "System", icon: "system", blurb: "runtime · health" },
+  ];
+
   const footerHints = [
-    { key: "tab", label: "panel" },
-    ...(isMultiTab && tab === "Context" ? [{ key: "←→", label: "scope" }] : []),
+    { key: "Tab", label: "panel" },
+    ...(isMultiTab && scopeRelevant ? [{ key: "←→", label: "scope" }] : []),
     { key: "↑↓", label: "scroll" },
-    { key: "esc", label: "close" },
+    { key: "Esc", label: "close" },
+  ];
+
+  const scopeOpts = [
+    ...allTabs.map((tb, i) => ({ value: tb.id, label: `Tab ${String(i + 1)}` })),
+    { value: "all" as const, label: "All" },
   ];
 
   return (
-    <Popup
+    <PremiumPopup
+      visible={visible}
       width={popupWidth}
-      title=""
-      icon={icon("gauge")}
-      borderColor={TAB_COLORS[tab]}
-      headerRight={TABS.map((tabName, i) => {
-        const isActive = tabName === tab;
-        const color = TAB_COLORS[tabName];
-        return (
-          <text
-            key={tabName}
-            fg={isActive ? color : t.textMuted}
-            bg={POPUP_BG}
-            attributes={isActive ? TextAttributes.BOLD : undefined}
-          >
-            {i > 0 ? " │ " : ""}
-            {isActive ? `▸ ${tabName}` : `  ${tabName}`}
-          </text>
-        );
-      })}
-      footer={footerHints}
+      height={popupH}
+      title="Status"
+      titleIcon="gauge"
+      tabs={sidebarTabs}
+      activeTab={tab}
+      sidebarWidth={SIDEBAR_W}
+      footerHints={footerHints}
     >
-      {/* Content */}
-      <box
-        flexDirection="column"
-        height={Math.min(activeLines.length, maxVisible)}
-        overflow="hidden"
-      >
-        {visibleLines}
-      </box>
-
-      {/* Scroll */}
-      {activeLines.length > maxVisible && (
-        <PopupRow w={innerW}>
-          <text fg={t.textDim} bg={POPUP_BG}>
-            {clampedScroll > 0 ? "↑ " : "  "}
-            {String(clampedScroll + 1)}-
-            {String(Math.min(clampedScroll + maxVisible, activeLines.length))}/
-            {String(activeLines.length)}
-            {clampedScroll + maxVisible < activeLines.length ? " ↓" : ""}
-          </text>
-        </PopupRow>
+      {tab === "Usage" && (
+        <UsagePane
+          scopedUsage={scopedUsage}
+          sb={sb}
+          modelId={modelId}
+          contextManager={contextManager}
+          scopeLabel={scopeLabel}
+          contentW={contentW}
+          scrollOffset={scrollOffset}
+          scrollH={scrollH}
+          isMultiTab={isMultiTab}
+          scopeTabId={scopeTabId}
+          scopeOpts={scopeOpts}
+        />
       )}
-    </Popup>
+      {tab === "Prompt" && (
+        <PromptPane
+          contextManager={contextManager}
+          contentW={contentW}
+          scrollOffset={scrollOffset}
+          scrollH={scrollH}
+        />
+      )}
+      {tab === "Cost" && (
+        <CostPane
+          scopedUsage={scopedUsage}
+          contentW={contentW}
+          scopeLabel={scopeLabel}
+          scrollOffset={scrollOffset}
+          scrollH={scrollH}
+          isMultiTab={isMultiTab}
+          scopeTabId={scopeTabId}
+          scopeOpts={scopeOpts}
+        />
+      )}
+      {tab === "Tabs" && <TabsPane tabMgr={tabMgr} getTabUsage={getTabUsage} contentW={contentW} />}
+      {tab === "System" && (
+        <SystemPane
+          sb={sb}
+          rm={rm}
+          wk={wk}
+          hearth={hearth}
+          lspCount={lspCount}
+          currentMode={currentMode}
+          currentModeLabel={currentModeLabel}
+          contentW={contentW}
+          scrollOffset={scrollOffset}
+          scrollH={scrollH}
+        />
+      )}
+    </PremiumPopup>
+  );
+}
+
+// ── Panes ────────────────────────────────────────────────────────────────
+
+function UsagePane({
+  scopedUsage,
+  sb,
+  modelId,
+  contextManager,
+  scopeLabel,
+  contentW,
+  scrollOffset,
+  scrollH,
+  isMultiTab,
+  scopeTabId,
+  scopeOpts,
+}: {
+  scopedUsage: TokenUsage;
+  sb: ReturnType<typeof useStatusBarStore.getState>;
+  modelId: string;
+  contextManager: ContextManager;
+  scopeLabel: string;
+  contentW: number;
+  scrollOffset: number;
+  scrollH: number;
+  isMultiTab: boolean;
+  scopeTabId: string | "all";
+  scopeOpts: { value: string | "all"; label: string }[];
+}) {
+  const t = useTheme();
+  const su = scopedUsage;
+  const uncachedInput = su.prompt + su.subagentInput;
+  const allInput = uncachedInput + su.cacheRead + su.cacheWrite;
+  const totalOutput = su.completion + su.subagentOutput;
+  const hasSub = su.subagentInput > 0 || su.subagentOutput > 0;
+  const cachePct = allInput > 0 ? Math.min(100, Math.round((su.cacheRead / allInput) * 100)) : 0;
+
+  const breakdown = contextManager.getContextBreakdown();
+  const systemChars = breakdown.reduce((sum, s) => sum + s.chars, 0);
+  const ctxWindow =
+    sb.contextWindow > 0 ? sb.contextWindow : getModelContextInfoSync(modelId).tokens;
+  const isApi = sb.contextTokens > 0;
+  const charEstimate = (systemChars + sb.chatChars + sb.subagentChars) / 4;
+  const chatCharsDelta = Math.max(0, sb.chatChars - (sb.chatCharsAtSnapshot ?? 0));
+  const usedTokens = Math.round(
+    isApi ? sb.contextTokens + (chatCharsDelta + sb.subagentChars) / 4 : charEstimate,
+  );
+  const fillPct =
+    usedTokens > 0 ? Math.min(100, Math.max(1, Math.round((usedTokens / ctxWindow) * 100))) : 0;
+  const pctLabel = isApi ? `${String(fillPct)}%` : `~${String(fillPct)}%`;
+
+  const isAnthropic = isAnthropicNative(modelId);
+  const clientTriggerPct = 70;
+  const clientTrigger = Math.floor(ctxWindow * (clientTriggerPct / 100));
+  const clearPct = 30;
+  const clearTrigger = Math.max(80_000, Math.floor(ctxWindow * (clearPct / 100)));
+  const serverPct = 80;
+  const serverTrigger = Math.max(160_000, Math.floor(ctxWindow * (serverPct / 100)));
+
+  const ref = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    ref.current?.scrollTo(scrollOffset);
+  }, [scrollOffset]);
+
+  return (
+    <box flexDirection="column" flexGrow={1} minHeight={0}>
+      <Section title={`Context Window — ${scopeLabel}`}>
+        <ProgressBar
+          label="Used"
+          labelWidth={10}
+          pct={fillPct}
+          width={contentW - 4}
+          value={`${fmtTokens(usedTokens)} / ${fmtTokens(ctxWindow)}  (${pctLabel})`}
+        />
+        <VSpacer />
+        <Field label="Model" labelWidth={10} value={getShortModelLabel(modelId)} />
+      </Section>
+
+      {isMultiTab && (
+        <box paddingX={2} backgroundColor={t.bgPopup}>
+          <SegmentedControl label="Scope" labelWidth={8} options={scopeOpts} value={scopeTabId} />
+        </box>
+      )}
+
+      <scrollbox ref={ref} height={scrollH}>
+        <Section title="Tokens">
+          <Field
+            label="Input"
+            labelWidth={14}
+            value={
+              <text bg={t.bgPopup} fg={t.info}>
+                {fmtTokens(uncachedInput)}
+              </text>
+            }
+          />
+          {hasSub && (
+            <>
+              <Field
+                label="  main"
+                labelWidth={14}
+                value={
+                  <text bg={t.bgPopup} fg={t.info}>
+                    {fmtTokens(su.prompt)}
+                  </text>
+                }
+              />
+              <Field
+                label="  dispatch"
+                labelWidth={14}
+                value={
+                  <text bg={t.bgPopup} fg={t.brand}>
+                    {fmtTokens(su.subagentInput)}
+                  </text>
+                }
+              />
+            </>
+          )}
+          <Field
+            label="Output"
+            labelWidth={14}
+            value={
+              <text bg={t.bgPopup} fg={t.warning}>
+                {fmtTokens(totalOutput)}
+              </text>
+            }
+          />
+          {hasSub && (
+            <>
+              <Field
+                label="  main"
+                labelWidth={14}
+                value={
+                  <text bg={t.bgPopup} fg={t.warning}>
+                    {fmtTokens(su.completion)}
+                  </text>
+                }
+              />
+              <Field
+                label="  dispatch"
+                labelWidth={14}
+                value={
+                  <text bg={t.bgPopup} fg={t.brand}>
+                    {fmtTokens(su.subagentOutput)}
+                  </text>
+                }
+              />
+            </>
+          )}
+          <VSpacer />
+          <ProgressBar
+            label="Cache"
+            labelWidth={10}
+            pct={cachePct}
+            width={contentW - 4}
+            value={su.cacheRead > 0 ? `${fmtTokens(su.cacheRead)}  (${String(cachePct)}%)` : "—"}
+            color={su.cacheRead > 0 ? t.success : t.textFaint}
+          />
+          {su.cacheWrite > 0 && (
+            <Field
+              label="Cache Write"
+              labelWidth={14}
+              value={
+                <text bg={t.bgPopup} fg={t.warning}>
+                  {fmtTokens(su.cacheWrite)}
+                </text>
+              }
+            />
+          )}
+          <VSpacer />
+          <Field
+            label="Total"
+            labelWidth={14}
+            value={
+              <text bg={t.bgPopup} fg={t.textPrimary} attributes={BOLD}>
+                {fmtTokens(su.total)}
+              </text>
+            }
+          />
+        </Section>
+
+        <Section title="Compaction">
+          {isAnthropic && (
+            <>
+              <Field
+                label="Tool clear"
+                labelWidth={14}
+                value={`${String(clearPct)}% — ${fmtTokens(clearTrigger)}`}
+              />
+              <Field
+                label="Server pack"
+                labelWidth={14}
+                value={`${String(serverPct)}% — ${fmtTokens(serverTrigger)}`}
+              />
+            </>
+          )}
+          <Field
+            label="Client pack"
+            labelWidth={14}
+            value={`${String(clientTriggerPct)}% — ${fmtTokens(clientTrigger)}`}
+          />
+        </Section>
+      </scrollbox>
+    </box>
+  );
+}
+
+function PromptPane({
+  contextManager,
+  contentW,
+  scrollOffset,
+  scrollH,
+}: {
+  contextManager: ContextManager;
+  contentW: number;
+  scrollOffset: number;
+  scrollH: number;
+}) {
+  const t = useTheme();
+  const breakdown = contextManager.getContextBreakdown();
+  const activeSections = breakdown.filter((s) => s.active && s.chars > 0);
+  const totalSysChars = activeSections.reduce((sum, s) => sum + s.chars, 0);
+  const ref = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    ref.current?.scrollTo(scrollOffset);
+  }, [scrollOffset]);
+
+  if (activeSections.length === 0) {
+    return (
+      <box flexDirection="column" paddingX={2} paddingY={2}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
+          No active system prompt sections.
+        </text>
+      </box>
+    );
+  }
+
+  return (
+    <scrollbox ref={ref} height={scrollH}>
+      <Section
+        title="System Prompt"
+        description={`${fmtTokens(Math.ceil(totalSysChars / 4))} tokens across ${String(activeSections.length)} sections`}
+      >
+        {activeSections.map((s) => {
+          const sTokens = Math.ceil(s.chars / 4);
+          const sPct = totalSysChars > 0 ? Math.round((s.chars / totalSysChars) * 100) : 0;
+          return (
+            <ProgressBar
+              key={`sp-${s.section}`}
+              label={s.section}
+              labelWidth={22}
+              pct={sPct}
+              width={contentW - 4}
+              value={`~${fmtTokens(sTokens)}  (${String(sPct)}%)`}
+              color={sPct > 40 ? t.warning : t.textMuted}
+            />
+          );
+        })}
+      </Section>
+    </scrollbox>
+  );
+}
+
+function CostPane({
+  scopedUsage,
+  contentW,
+  scopeLabel,
+  scrollOffset,
+  scrollH,
+  isMultiTab,
+  scopeTabId,
+  scopeOpts,
+}: {
+  scopedUsage: TokenUsage;
+  contentW: number;
+  scopeLabel: string;
+  scrollOffset: number;
+  scrollH: number;
+  isMultiTab: boolean;
+  scopeTabId: string | "all";
+  scopeOpts: { value: string | "all"; label: string }[];
+}) {
+  const t = useTheme();
+  const su = scopedUsage;
+  const sortedBd = Object.entries(su.modelBreakdown ?? {}).sort(
+    ([, a], [, b]) => computeModelCost("", b) - computeModelCost("", a),
+  );
+  const allLocal = sortedBd.length > 0 && sortedBd.every(([mid]) => isModelLocal(mid));
+  const allFree = !allLocal && sortedBd.length > 0 && sortedBd.every(([mid]) => isModelFree(mid));
+  const totalCost =
+    sortedBd.length > 0 ? computeTotalCostFromBreakdown(su.modelBreakdown ?? {}) : 0;
+
+  interface CostRow {
+    model: string;
+    input: string;
+    output: string;
+    cost: string;
+    pct: string;
+  }
+  const rows: CostRow[] = sortedBd.map(([mid, usage]) => {
+    const local = isModelLocal(mid);
+    const free = !local && isModelFree(mid);
+    const c = computeModelCost(mid, usage);
+    const pct = totalCost > 0 ? Math.round((c / totalCost) * 100) : 0;
+    const shortId = mid.length > 28 ? `${mid.slice(0, 27)}…` : mid;
+    return {
+      model: shortId,
+      input: fmtTokens(usage.input + usage.cacheRead),
+      output: fmtTokens(usage.output),
+      cost: local ? "Local" : free ? "FREE" : fmtCost(c),
+      pct: c > 0 && totalCost > 0 ? `${String(pct)}%` : "—",
+    };
+  });
+
+  const ref = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    ref.current?.scrollTo(scrollOffset);
+  }, [scrollOffset]);
+
+  return (
+    <box flexDirection="column" flexGrow={1} minHeight={0}>
+      {isMultiTab && (
+        <box paddingX={2} backgroundColor={t.bgPopup}>
+          <SegmentedControl label="Scope" labelWidth={8} options={scopeOpts} value={scopeTabId} />
+        </box>
+      )}
+      <Section
+        title={`Cost — ${scopeLabel}`}
+        description={
+          allLocal
+            ? "all local models"
+            : allFree
+              ? "all free tier"
+              : totalCost > 0
+                ? `total ${fmtCost(totalCost)}`
+                : "no spend"
+        }
+      >
+        {rows.length === 0 ? (
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            No usage yet.
+          </text>
+        ) : (
+          <scrollbox ref={ref} height={Math.max(4, scrollH - 4)}>
+            <Table
+              width={contentW - 4}
+              maxRows={rows.length}
+              columns={[
+                { key: "model", align: "left" },
+                { key: "input", align: "right", width: 10 },
+                { key: "output", align: "right", width: 10 },
+                { key: "cost", align: "right", width: 10 },
+                { key: "pct", align: "right", width: 6 },
+              ]}
+              rows={rows}
+            />
+          </scrollbox>
+        )}
+      </Section>
+    </box>
+  );
+}
+
+function TabsPane({
+  tabMgr,
+  getTabUsage,
+  contentW,
+}: {
+  tabMgr: UseTabsReturn;
+  getTabUsage: (id: string) => TokenUsage;
+  contentW: number;
+}) {
+  const t = useTheme();
+  const allTabs = tabMgr.tabs;
+
+  if (allTabs.length <= 1) {
+    return (
+      <box flexDirection="column" paddingX={2} paddingY={2}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
+          Open more tabs to compare.
+        </text>
+      </box>
+    );
+  }
+
+  interface TabRow {
+    label: string;
+    input: string;
+    output: string;
+    cachePct: string;
+    cost: string;
+  }
+
+  const rows: TabRow[] = allTabs.map((tabEntry, i) => {
+    const u = getTabUsage(tabEntry.id);
+    const isActive = tabEntry.id === tabMgr.activeTabId;
+    const uncached = u.prompt + u.subagentInput;
+    const allIn = uncached + u.cacheRead + u.cacheWrite;
+    const cachePct = allIn > 0 ? Math.round((u.cacheRead / allIn) * 100) : 0;
+    const cost = computeTotalCostFromBreakdown(u.modelBreakdown ?? {});
+    const totalOut = u.completion + u.subagentOutput;
+    const mids = Object.keys(u.modelBreakdown ?? {});
+    const allLocal = mids.length > 0 && mids.every(isModelLocal);
+    const allFree = !allLocal && mids.length > 0 && mids.every(isModelFree);
+    return {
+      label: `${isActive ? "▸ " : "  "}Tab ${String(i + 1)}`,
+      input: fmtTokens(uncached),
+      output: fmtTokens(totalOut),
+      cachePct: cachePct > 0 ? `${String(cachePct)}%` : "—",
+      cost: allLocal ? "Local" : allFree ? "FREE" : fmtCost(cost),
+    };
+  });
+
+  return (
+    <Section title="Per Tab">
+      <Table
+        width={contentW - 4}
+        maxRows={rows.length}
+        columns={[
+          { key: "label", align: "left" },
+          { key: "input", align: "right", width: 10 },
+          { key: "output", align: "right", width: 10 },
+          { key: "cachePct", align: "right", width: 8 },
+          { key: "cost", align: "right", width: 10 },
+        ]}
+        rows={rows}
+      />
+    </Section>
+  );
+}
+
+function SystemPane({
+  sb,
+  rm,
+  wk,
+  hearth,
+  lspCount,
+  currentMode,
+  currentModeLabel,
+  contentW: _contentW,
+  scrollOffset,
+  scrollH,
+}: {
+  sb: ReturnType<typeof useStatusBarStore.getState>;
+  rm: ReturnType<typeof useRepoMapStore.getState>;
+  wk: ReturnType<typeof useWorkerStore.getState>;
+  hearth: HearthStatusSummary | null;
+  lspCount: number;
+  currentMode: string;
+  currentModeLabel: string;
+  contentW: number;
+  scrollOffset: number;
+  scrollH: number;
+}) {
+  const t = useTheme();
+  const rssMB = sb.rssMB;
+  const memColor = rssMB < 2048 ? t.success : rssMB < 4096 ? t.amber : t.error;
+  const totalWorkerHeap = wk.intelligence.heapMB + wk.io.heapMB;
+  const pr = sb.processRss;
+  const hasNvim = getNvimInstance() != null;
+  const hasProxy = getProxyPid() != null;
+
+  const rmStatusColor =
+    rm.status === "ready"
+      ? t.success
+      : rm.status === "scanning"
+        ? t.amber
+        : rm.status === "error"
+          ? t.error
+          : t.textMuted;
+  const semLabel =
+    rm.semanticStatus !== "off" ? ` · sem: ${rm.semanticStatus} (${String(rm.semanticCount)})` : "";
+
+  const wkColor = (s: string) =>
+    s === "ready" || s === "busy"
+      ? t.success
+      : s === "starting" || s === "restarting"
+        ? t.amber
+        : s === "crashed"
+          ? t.error
+          : t.textMuted;
+  const wkIcon = (s: string) =>
+    s === "busy"
+      ? icon("worker_busy")
+      : s === "crashed"
+        ? icon("worker_crash")
+        : s === "restarting"
+          ? icon("worker_restart")
+          : icon("worker");
+
+  const termStats = getTerminalStats();
+
+  const ref = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    ref.current?.scrollTo(scrollOffset);
+  }, [scrollOffset]);
+
+  return (
+    <scrollbox ref={ref} height={scrollH}>
+      <Section title="Soul Map">
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={rmStatusColor}>
+            ● {rm.status}
+          </text>
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            {` · ${String(rm.files)} files · ${String(rm.symbols)} symbols · ${String(rm.edges)} edges · ${fmtBytes(rm.dbSizeBytes)}${semLabel}`}
+          </text>
+        </box>
+      </Section>
+
+      <Section title="Process Tree">
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.textSecondary}>
+            {"main  "}
+          </text>
+          <text bg={t.bgPopup} fg={memColor}>
+            {fmtMem(pr.mainMB)} rss
+          </text>
+        </box>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            {"  ├─ "}
+          </text>
+          <text bg={t.bgPopup} fg={wkColor(wk.intelligence.status)}>
+            {`${wkIcon(wk.intelligence.status)} intelligence  ${wk.intelligence.status}`}
+          </text>
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            {wk.intelligence.heapMB > 0 ? `  ${fmtMem(wk.intelligence.heapMB)} heap` : ""}
+          </text>
+        </box>
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            {"  └─ "}
+          </text>
+          <text bg={t.bgPopup} fg={wkColor(wk.io.status)}>
+            {`${wkIcon(wk.io.status)} io  ${wk.io.status}`}
+          </text>
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            {wk.io.heapMB > 0 ? `  ${fmtMem(wk.io.heapMB)} heap` : ""}
+          </text>
+        </box>
+        {hasNvim && (
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.success}>
+              {`${icon("worker")} neovim  active`}
+            </text>
+            <text bg={t.bgPopup} fg={t.textMuted}>
+              {pr.nvimMB > 0 ? `  ${fmtMem(pr.nvimMB)} rss` : ""}
+            </text>
+          </box>
+        )}
+        {lspCount > 0 && (
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.info}>
+              {`${icon("worker")} lsp  ${String(lspCount)} server${lspCount > 1 ? "s" : ""}`}
+            </text>
+            <text bg={t.bgPopup} fg={t.textMuted}>
+              {pr.lspMB > 0 ? `  ${fmtMem(pr.lspMB)} rss` : ""}
+            </text>
+          </box>
+        )}
+        {hasProxy && (
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.brand}>
+              {`${icon("worker")} proxy  active`}
+            </text>
+            <text bg={t.bgPopup} fg={t.textMuted}>
+              {pr.proxyMB > 0 ? `  ${fmtMem(pr.proxyMB)} rss` : ""}
+            </text>
+          </box>
+        )}
+        {termStats.count > 0 && (
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={termStats.activeCount > 0 ? t.success : t.textDim}>
+              {`${icon("terminal")} terminals  ${String(termStats.activeCount)}/${String(termStats.count)} active`}
+            </text>
+          </box>
+        )}
+        <VSpacer />
+        <Field
+          label="Total"
+          labelWidth={10}
+          value={
+            <text bg={t.bgPopup} fg={memColor}>
+              {`${fmtMem(rssMB)} rss${totalWorkerHeap > 0 ? ` · ${fmtMem(totalWorkerHeap)} worker heap` : ""}`}
+            </text>
+          }
+        />
+      </Section>
+
+      <Section title="Environment">
+        <Field
+          label="Mode"
+          labelWidth={12}
+          value={
+            <text bg={t.bgPopup} fg={currentMode === "default" ? t.textMuted : t.warning}>
+              {currentModeLabel}
+            </text>
+          }
+        />
+      </Section>
+
+      {hearth && (
+        <Section title="Hearth" description={hearth.running ? "daemon online" : "daemon offline"}>
+          <Field
+            label="Status"
+            labelWidth={18}
+            value={
+              <text bg={t.bgPopup} fg={hearth.running ? t.success : t.textMuted}>
+                {hearth.running ? "running" : "offline"}
+              </text>
+            }
+          />
+          {(() => {
+            const p = hearth.persistence;
+            const v = p.installed
+              ? p.active
+                ? `active on boot · ${p.unitLabel ?? ""}`
+                : `installed (inactive) · ${p.unitLabel ?? ""}`
+              : p.platform === "unsupported"
+                ? "not supported on this OS"
+                : "not installed";
+            return (
+              <Field
+                label="Persistence"
+                labelWidth={18}
+                value={
+                  <text
+                    bg={t.bgPopup}
+                    fg={p.installed && p.active ? t.success : p.installed ? t.warning : t.textMuted}
+                  >
+                    {v}
+                  </text>
+                }
+              />
+            );
+          })()}
+          {hearth.running && (
+            <>
+              <Field label="Uptime" labelWidth={18} value={hearth.uptimeLabel} />
+              <Field
+                label="Surfaces"
+                labelWidth={18}
+                value={`${String(hearth.connectedSurfaces)}/${String(hearth.totalSurfaces)} connected · ${String(hearth.totalChats)} chats`}
+              />
+              <Field label="Messages in" labelWidth={18} value={String(hearth.stats.messagesIn)} />
+              <Field label="Events out" labelWidth={18} value={String(hearth.stats.eventsOut)} />
+              <Field
+                label="Turns completed"
+                labelWidth={18}
+                value={String(hearth.stats.turnsCompleted)}
+              />
+              <Field label="Tool calls" labelWidth={18} value={String(hearth.stats.toolCalls)} />
+              <Field
+                label="Approvals"
+                labelWidth={18}
+                value={`${String(hearth.stats.approvalsHandled)} (${String(hearth.stats.approvalsAllowed)} allow · ${String(hearth.stats.approvalsDenied)} deny)`}
+              />
+              <Field
+                label="Pending"
+                labelWidth={18}
+                value={
+                  <text bg={t.bgPopup} fg={hearth.pendingApprovals > 0 ? t.warning : t.textPrimary}>
+                    {String(hearth.pendingApprovals)}
+                  </text>
+                }
+              />
+              <Field
+                label="Tabs opened"
+                labelWidth={18}
+                value={`${String(hearth.stats.tabsOpened)} (${String(hearth.stats.workspacesEver)} workspaces)`}
+              />
+              <Field
+                label="Pairings issued"
+                labelWidth={18}
+                value={String(hearth.stats.pairingsIssued)}
+              />
+            </>
+          )}
+        </Section>
+      )}
+    </scrollbox>
   );
 }
