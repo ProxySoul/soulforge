@@ -13,6 +13,7 @@ import { matchSecurityPrefix, register as registerSecurity } from "./security.js
 import { matchSessionPrefix, register as registerSession } from "./session.js";
 import { register as registerStorage } from "./storage.js";
 import type { CommandContext, CommandHandler } from "./types.js";
+import { register as registerUiDemo } from "./ui-demo.js";
 import { sysMsg } from "./utils.js";
 
 const commandMap = new Map<string, CommandHandler>();
@@ -31,6 +32,7 @@ registerCodex(commandMap);
 registerHearth(commandMap);
 registerHooks(commandMap);
 registerCheckpoint(commandMap);
+registerUiDemo(commandMap);
 
 const prefixMatchers = [
   matchContextPrefix,
@@ -941,8 +943,21 @@ const HEARTH_COMMAND_DEFS: CommandDef[] = [
   },
 ];
 
+const DEV_COMMAND_DEFS: CommandDef[] = [
+  {
+    cmd: "/ui-demo",
+    ic: "gear",
+    desc: "Preview UI primitives (dev only — SOULFORGE_DEV_UI=1)",
+    category: "System",
+    tags: ["dev", "ui", "preview"],
+    hidden: true,
+  },
+];
+
 export function getCommandDefs(): CommandDef[] {
-  return [...COMMAND_DEFS, ...HEARTH_COMMAND_DEFS];
+  const defs = [...COMMAND_DEFS, ...HEARTH_COMMAND_DEFS];
+  if (process.env.SOULFORGE_DEV_UI === "1") defs.push(...DEV_COMMAND_DEFS);
+  return defs;
 }
 
 export type { CommandContext, CommandHandler };

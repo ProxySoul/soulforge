@@ -118,6 +118,9 @@ const NERD: Record<string, string> = {
   rewind: "󰕌",
   checkpoint: "󰜉",
   morph: "",
+  note: "\uF0F6",
+  scroll: "\uF0F6",
+  prompt: "\uF075",
 };
 
 const ASCII: Record<string, string> = {
@@ -238,6 +241,9 @@ const ASCII: Record<string, string> = {
   rewind: "↶",
   checkpoint: "◆",
   morph: "✦",
+  note: "≡",
+  scroll: "≡",
+  prompt: "▸",
 };
 
 let _nerdFont: boolean | null = null;

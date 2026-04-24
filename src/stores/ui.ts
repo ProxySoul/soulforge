@@ -33,7 +33,8 @@ export type ModalName =
   | "updateModal"
   | "mcpSettings"
   | "hearthSettings"
-  | "tabNamePopup";
+  | "tabNamePopup"
+  | "uiDemo";
 
 type Modals = Record<ModalName, boolean>;
 
@@ -67,6 +68,7 @@ const INITIAL_MODALS: Modals = {
   mcpSettings: false,
   hearthSettings: false,
   tabNamePopup: false,
+  uiDemo: false,
 };
 
 interface UIState {

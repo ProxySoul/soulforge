@@ -77,6 +77,7 @@ import { LlmSelector } from "./modals/LlmSelector.js";
 import { SessionPicker } from "./modals/SessionPicker.js";
 import { StatusDashboard } from "./modals/StatusDashboard.js";
 import { TabNamePopup } from "./modals/TabNamePopup.js";
+import { UiDemo } from "./modals/UiDemo.js";
 import { UpdateModal } from "./modals/UpdateModal.js";
 import { EditorSettings } from "./settings/EditorSettings.js";
 import { HearthSettings } from "./settings/HearthSettings.js";
@@ -537,6 +538,7 @@ export function App({
   const modalFirstRunWizard = useUIStore((s) => s.modals.firstRunWizard);
   const modalUpdateModal = useUIStore((s) => s.modals.updateModal);
   const modalTabNamePopup = useUIStore((s) => s.modals.tabNamePopup);
+  const modalUiDemo = useUIStore((s) => s.modals.uiDemo);
   const toolsState = useToolsStore();
 
   // Init tools store from config and persist changes
@@ -1700,6 +1702,8 @@ export function App({
       />
 
       <HearthSettings visible={modalHearthSettings} onClose={getCloser("hearthSettings")} />
+
+      <UiDemo visible={modalUiDemo} onClose={getCloser("uiDemo")} />
 
       <RouterSettings
         visible={modalRouterSettings && !routerSlotPicking}
