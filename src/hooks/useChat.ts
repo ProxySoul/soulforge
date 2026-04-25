@@ -2340,6 +2340,12 @@ export function useChat({
           lastToolActivityTs = Date.now();
         };
         const onUserAbort = () => {
+        // Only mark as user-aborted if the stall watchdog wasn't the cause.
+        // The watchdog sets stallTriggered before calling abort(), so we can check that.
+        if (!stallTriggered) {
+            userAborted = true;
+          }
+        };
           userAborted = true;
         };
         abortController.signal.addEventListener("abort", onUserAbort, { once: true });
