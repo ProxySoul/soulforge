@@ -731,8 +731,6 @@ export function useChat({
   // auto-retry "Continue." inherits the count from the previous attempt.
   const stallRetryCountRef = useRef<number>(0);
   const stallRetryPendingRef = useRef(false);
-  // Retry count for transient errors during streaming (separate from stall retries)
-  const transientRetryCountRef = useRef(0);
   // Per-turn token deltas captured from finish-step events. Reset at the start
   // of each handleSubmit run so the value emitted to the Hearth bridge in
   // turn-done reflects only this turn (not cumulative session totals).
@@ -1842,6 +1840,12 @@ export function useChat({
       let unsubStallWatch3: (() => void) | null = null;
       let userAborted = false;
       let stallTriggered = false; // only true when the watchdog itself fires
+      let stallAborted = false; // true when abort is from stall watchdog
+      // Resolve retry settings once at handleSubmit scope so they're accessible
+      // in both the retry loop AND the outer catch block for streaming errors.
+      const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
+        resolveRetrySettings(effectiveConfig.retry);
+      let transientRetryCount = 0; // local retry counter (not a ref)
       // Reset retry count on real user messages (not auto-retry "Continue.")
       if (input !== "Continue." || !stallRetryPendingRef.current) {
         stallRetryCountRef.current = 0;
@@ -2116,10 +2120,6 @@ export function useChat({
         });
         let result: StreamTextResult<ToolSet, never> | undefined;
         let proxyBounced = false;
-        // Resolve retry settings once at handleSubmit scope so they're accessible
-        // in both the retry loop AND the outer catch block for streaming errors.
-        const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
-          resolveRetrySettings(effectiveConfig.retry);
         for (let retry = 0; retry <= MAX_TRANSIENT_RETRIES; retry++) {
           if (abortController.signal.aborted) break;
           try {
@@ -2345,10 +2345,7 @@ export function useChat({
         };
         const onUserAbort = () => {
           // Only mark as user-aborted if the abort wasn't from the stall watchdog.
-          // The watchdog sets stallAbortedAt before calling abort(), so we check
-          // if this abort happened within 1000ms of a stall (i.e., from the watchdog).
-          const timeSinceStallAbort = stallAbortedAt > 0 ? Date.now() - stallAbortedAt : Infinity;
-          if (timeSinceStallAbort >= 1000) {
+          if (!stallAborted) {
             userAborted = true;
           }
         };
@@ -2379,9 +2376,9 @@ export function useChat({
         const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
         if (effectiveConfig.watchdog)
           stallWatchdog = setInterval(() => {
-            // If we already aborted but the for-await loop is stuck on a dead
+            // If watchdog aborted but the for-await loop is stuck on a dead
             // connection that didn't honor the AbortSignal, force-resolve it.
-            if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
+            if (stallAborted && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
               // Force the stream iterator to end by calling return() on the SAME
               // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
               // call would create a fresh reader and fail on the locked stream.
@@ -2460,7 +2457,8 @@ export function useChat({
                 `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
               );
             }
-            stallAbortedAt = Date.now();
+            stallAborted = true; // Mark that abort is from watchdog
+            stallAbortedAt = Date.now(); // Keep for force-resolve timing
             abortController.abort();
           }, 10_000);
 
@@ -3116,20 +3114,18 @@ export function useChat({
 
         // Retry on transient errors during streaming (e.g. "socket connection closed unexpectedly")
         if (isTransient && !isStallRetry) {
-          transientRetryCountRef.current++;
-          if (transientRetryCountRef.current <= MAX_TRANSISENT_RETRIES && !abortController.signal.aborted) {
-            const delay = RETRY_BASE_DELAY_MS * 2 ** (transientRetryCountRef.current - 1) + Math.random() * 500;
+          transientRetryCount++;
+          if (transientRetryCount <= MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
+            const delay = RETRY_BASE_DELAY_MS * 2 ** (transientRetryCount - 1) + Math.random() * 500;
             setMessages((prev) => [
               ...prev,
               {
                 id: crypto.randomUUID(),
                 role: "system",
-                content: `Transient error: ${msg}. Retry ${String(transientRetryCountRef.current)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
+                content: `Transient error: ${msg}. Retry ${String(transientRetryCount)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
                 timestamp: Date.now(),
               },
             ]);
-            setTimeout(() => handleSubmitRef.current(input), delay);
-            return;
           }
         }
 
