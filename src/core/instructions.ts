@@ -11,7 +11,7 @@ interface InstructionSource {
 }
 
 // Unlike skills, global instruction files are user-authored personal steering.
-// Keep global content later in prompt so it overrides repo-local guidance on conflicts.
+// Keep project-local content later in prompt so repo guidance overrides global defaults on conflicts.
 export const INSTRUCTION_SOURCES: InstructionSource[] = [
   {
     id: "soulforge",
@@ -208,8 +208,16 @@ export function buildInstructionPrompt(instructions: LoadedInstruction[]): strin
 
   if (globalInstructions.length > 0) {
     parts.push(
-      "Global instruction files apply across all projects and take priority over project-local instruction files when they conflict.",
+      "Global instruction files apply across all projects, but project-local instruction files take priority when they conflict.",
     );
+  }
+
+  if (globalInstructions.length > 0) {
+    const globalParts: string[] = [];
+    for (const inst of globalInstructions) {
+      globalParts.push(`[global:${inst.file}]\n${inst.content}`);
+    }
+    parts.push(`Global instruction files:\n${globalParts.join("\n\n")}`);
   }
 
   if (projectInstructions.length > 0) {
@@ -226,14 +234,6 @@ export function buildInstructionPrompt(instructions: LoadedInstruction[]): strin
         ? `Project-local instruction files:\n${projectParts.join("\n\n")}`
         : projectParts.join("\n\n"),
     );
-  }
-
-  if (globalInstructions.length > 0) {
-    const globalParts: string[] = [];
-    for (const inst of globalInstructions) {
-      globalParts.push(`[global:${inst.file}]\n${inst.content}`);
-    }
-    parts.push(`Global instruction files:\n${globalParts.join("\n\n")}`);
   }
 
   return `Project instructions:\n${parts.join("\n\n")}`;
