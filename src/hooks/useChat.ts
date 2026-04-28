@@ -3126,6 +3126,79 @@ export function useChat({
                 timestamp: Date.now(),
               },
             ]);
+
+            // If partial assistant/tool output exists, commit it and continue with "Continue."
+            // This avoids re-running tools and safely resumes from where we left off.
+            if (fullText.trim().length > 0 || completedCalls.length > 0) {
+              // Commit partial work (following stall retry pattern)
+              const partialMsg = buildAssistantMessage({
+                fullText,
+                completedCalls,
+                segments: finalSegments,
+                responseStartedAt,
+                now: Date.now(),
+              });
+              if (partialMsg) {
+                setMessages((prev) => [...prev, partialMsg]);
+
+                // Update coreMessages with partial work
+                const assistantContent: Array<TextPart | ToolCallPart> = [];
+                if (fullText.length > 0) {
+                  assistantContent.push({ type: "text", text: fullText });
+                }
+                for (const call of completedCalls) {
+                  const args = call.args;
+                  assistantContent.push({
+                    type: "tool-call",
+                    toolCallId: call.id,
+                    toolName: call.name,
+                    input:
+                      typeof args === "object" && args !== null && !Array.isArray(args) ? args : {},
+                  });
+                }
+                if (completedCalls.length > 0) {
+                  const toolContent = completedCalls.map((call) => ({
+                    type: "tool-result" as const,
+                    toolCallId: call.id,
+                    toolName: call.name,
+                    output: { type: "text" as const, value: call.result?.output ?? "" },
+                  }));
+                  setCoreMessages((prev) => [
+                    ...prev,
+                    { role: "assistant" as const, content: assistantContent },
+                    { role: "tool" as const, content: toolContent },
+                  ]);
+                } else if (fullText.length > 0) {
+                  setCoreMessages((prev) => [
+                    ...prev,
+                    { role: "assistant" as const, content: fullText },
+                  ]);
+                }
+              }
+
+              // Clean up stream state
+              streamSegmentsBuffer.current = [];
+              liveToolCallsBuffer.current = [];
+              lastFlushedSegments.current = [];
+              lastFlushedToolCalls.current = [];
+              lastFlushedStreamingChars.current = 0;
+              streamingCharsRef.current = 0;
+              toolCharsRef.current = 0;
+              setStreamingChars(0);
+              setStreamSegments([]);
+              setLiveToolCalls([]);
+
+              // Signal that a retry is pending
+              stallRetryPendingRef.current = true;
+
+              // Continue after backoff
+              setTimeout(() => handleSubmitRef.current("Continue."), delay);
+              return;
+            } else {
+              // No partial output - for now, throw to let user retry manually
+              // TODO: Implement stream retry using newCoreMessages for this case
+              throw new Error(`Transient error (retry ${transientRetryCount}/${MAX_TRANSIENT_RETRIES}): ${msg}`);
+            }
           }
         }
 
