@@ -2,6 +2,21 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.1] — 2026-04-28
+
+### Bug Fixes
+
+- **copilot**: route all models through /chat/completions, surface clear errors
+- **lock-in**: include ast_edit in edit-tool set
+- **lockin**: keep rail border constant across tool count changes
+- **tools**: shorten ast_edit description to fit popup row
+- prefer project instructions over global defaults (#56)
+### Features
+
+- **lock-in**: enable by default and hint toggle in input
+### Miscellaneous
+
+- bump deps and ignore app build artifacts
 ## [2.14.0] — 2026-04-24
 
 ### Bug Fixes
