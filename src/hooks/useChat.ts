@@ -729,7 +729,7 @@ export function useChat({
   const handleSubmitRef = useRef<(input: string) => void>(() => {});
   // Stream stall watchdog state — persists across handleSubmit calls so
   // auto-retry "Continue." inherits the count from the previous attempt.
-  const stallRetryCountRef = useRef(0);
+  const stallRetryCountRef = useRef<number>(0);
   const stallRetryPendingRef = useRef(false);
   // Per-turn token deltas captured from finish-step events. Reset at the start
   // of each handleSubmit run so the value emitted to the Hearth bridge in
@@ -1708,8 +1708,7 @@ export function useChat({
       baseTokenUsageRef.current = { ...currentUsage };
 
       // Abort controller for Ctrl+X
-      const abortController = new AbortController();
-      abortRef.current = abortController;
+      let abortController: AbortController;
 
       let fullText = "";
       let lastIncrementalSave = 0;
@@ -1840,6 +1839,12 @@ export function useChat({
       let unsubStallWatch3: (() => void) | null = null;
       let userAborted = false;
       let stallTriggered = false; // only true when the watchdog itself fires
+      let stallAborted = false; // true when abort is from stall watchdog
+      // Resolve retry settings once at handleSubmit scope so they're accessible
+      // in both the retry loop AND the outer catch block for streaming errors.
+      const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
+        resolveRetrySettings(effectiveConfig.retry);
+      let streamRetryCount = 0; // local retry counter (not a ref)
       // Reset retry count on real user messages (not auto-retry "Continue.")
       if (input !== "Continue." || !stallRetryPendingRef.current) {
         stallRetryCountRef.current = 0;
@@ -1848,7 +1853,18 @@ export function useChat({
 
       const responseStartedAt = Date.now();
 
-      try {
+      streamRetryLoop:
+      for (;;) {
+        // Reset state for retry
+        abortController = new AbortController();
+        abortRef.current = abortController;
+        fullText = "";
+        completedCalls.length = 0;
+        finalSegments.length = 0;
+        subagentCumulative.clear();
+        completedResultChars.clear();
+
+       try {
         setIsLoading(true);
         const modelId = activeModelRef.current;
         const model = resolveModel(modelId);
@@ -2114,8 +2130,6 @@ export function useChat({
         });
         let result: StreamTextResult<ToolSet, never> | undefined;
         let proxyBounced = false;
-        const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
-          resolveRetrySettings(effectiveConfig.retry);
         for (let retry = 0; retry <= MAX_TRANSIENT_RETRIES; retry++) {
           if (abortController.signal.aborted) break;
           try {
@@ -2340,7 +2354,10 @@ export function useChat({
           lastToolActivityTs = Date.now();
         };
         const onUserAbort = () => {
-          userAborted = true;
+          // Only mark as user-aborted if the abort wasn't from the stall watchdog.
+          if (!stallAborted) {
+            userAborted = true;
+          }
         };
         abortController.signal.addEventListener("abort", onUserAbort, { once: true });
         // Filter subagent events to this tab's own dispatches only —
@@ -2369,9 +2386,9 @@ export function useChat({
         const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
         if (effectiveConfig.watchdog)
           stallWatchdog = setInterval(() => {
-            // If we already aborted but the for-await loop is stuck on a dead
+            // If watchdog aborted but the for-await loop is stuck on a dead
             // connection that didn't honor the AbortSignal, force-resolve it.
-            if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
+            if (stallAborted && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
               // Force the stream iterator to end by calling return() on the SAME
               // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
               // call would create a fresh reader and fail on the locked stream.
@@ -2450,7 +2467,8 @@ export function useChat({
                 `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
               );
             }
-            stallAbortedAt = Date.now();
+            stallAborted = true; // Mark that abort is from watchdog
+            stallAbortedAt = Date.now(); // Keep for force-resolve timing
             abortController.abort();
           }, 10_000);
 
@@ -3087,17 +3105,115 @@ export function useChat({
         setStreamSegments([]);
         setLiveToolCalls([]);
         completeInProgressTasks(tabId);
+        break streamRetryLoop;
       } catch (err: unknown) {
         if (flushTimerRef.current) {
           clearInterval(flushTimerRef.current);
           flushTimerRef.current = null;
         }
         const isAbort = abortController.signal.aborted;
+        const msg = err instanceof Error ? err.message : String(err);
+        const isTransient =
+          /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
+            msg,
+          );
         const isStallRetry =
           isAbort &&
           stallTriggered &&
           !userAborted &&
           stallRetryCountRef.current <= STALL_MAX_RETRIES;
+
+        // Retry on transient errors during streaming (e.g. "socket connection closed unexpectedly")
+        if (isTransient && !isStallRetry) {
+          streamRetryCount++;
+          if (streamRetryCount < MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
+            const delay = RETRY_BASE_DELAY_MS * 2 ** (transientRetryCount - 1) + Math.random() * 500;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "system",
+                content: `Transient error: ${msg}. Retry ${String(streamRetryCount)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
+                timestamp: Date.now(),
+              },
+            ]);
+
+            // If partial assistant/tool output exists, commit it and continue with "Continue."
+            // This avoids re-running tools and safely resumes from where we left off.
+            if (fullText.trim().length > 0 || completedCalls.length > 0) {
+              // Commit partial work (following stall retry pattern)
+              const partialMsg = buildAssistantMessage({
+                fullText,
+                completedCalls,
+                segments: finalSegments,
+                responseStartedAt,
+                now: Date.now(),
+              });
+              if (partialMsg) {
+                setMessages((prev) => [...prev, partialMsg]);
+
+                // Update coreMessages with partial work
+                const assistantContent: Array<TextPart | ToolCallPart> = [];
+                if (fullText.length > 0) {
+                  assistantContent.push({ type: "text", text: fullText });
+                }
+                for (const call of completedCalls) {
+                  const args = call.args;
+                  assistantContent.push({
+                    type: "tool-call",
+                    toolCallId: call.id,
+                    toolName: call.name,
+                    input:
+                      typeof args === "object" && args !== null && !Array.isArray(args) ? args : {},
+                  });
+                }
+                if (completedCalls.length > 0) {
+                  const toolContent = completedCalls.map((call) => ({
+                    type: "tool-result" as const,
+                    toolCallId: call.id,
+                    toolName: call.name,
+                    output: { type: "text" as const, value: call.result?.output ?? "" },
+                  }));
+                  setCoreMessages((prev) => [
+                    ...prev,
+                    { role: "assistant" as const, content: assistantContent },
+                    { role: "tool" as const, content: toolContent },
+                  ]);
+                } else if (fullText.length > 0) {
+                  setCoreMessages((prev) => [
+                    ...prev,
+                    { role: "assistant" as const, content: fullText },
+                  ]);
+                }
+              }
+
+              // Clean up stream state
+              streamSegmentsBuffer.current = [];
+              liveToolCallsBuffer.current = [];
+              lastFlushedSegments.current = [];
+              lastFlushedToolCalls.current = [];
+              lastFlushedStreamingChars.current = 0;
+              streamingCharsRef.current = 0;
+              toolCharsRef.current = 0;
+              setStreamingChars(0);
+              setStreamSegments([]);
+              setLiveToolCalls([]);
+
+              // Signal that a retry is pending
+              stallRetryPendingRef.current = true;
+
+              // Continue after backoff
+              setTimeout(() => handleSubmitRef.current("Continue."), delay);
+              return;
+            } else {
+              // No partial output - retry the stream directly
+              stallRetryPendingRef.current = true;
+              const backoffDelay = RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
+              await new Promise(resolve => setTimeout(resolve, backoffDelay));
+              continue streamRetryLoop;
+            }
+          }
+        }
 
         // Auto-retry on stall: clean up, show a subtle system message, then
         // re-submit "Continue." so the agent picks up where it left off.
@@ -3615,9 +3731,11 @@ export function useChat({
       sidebarPlan,
       tokenUsage,
       coAuthorCommits,
-      forgeMode,
+        forgeMode,
     ],
   );
+  }
+}
 
   const setPlanMode = useCallback((on: boolean) => {
     planModeRef.current = on;

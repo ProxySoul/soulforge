@@ -137,6 +137,7 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
     const comp = layer.compaction
       ? { ...merged.compaction, ...layer.compaction }
       : merged.compaction;
+    const retry = layer.retry ? { ...merged.retry, ...layer.retry } : merged.retry;
     const providers = mergeProviders(merged.providers, layer.providers);
     const mcpServers = mergeMCPServers(merged.mcpServers, layer.mcpServers);
     merged = {
@@ -150,6 +151,7 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
       performance: perf,
       contextManagement: cm,
       compaction: comp,
+      retry,
       providers,
       mcpServers,
     };
@@ -184,6 +186,7 @@ export function saveProjectConfig(cwd: string, patch: Partial<AppConfig>): void 
     merged.contextManagement = { ...existing.contextManagement, ...patch.contextManagement };
   if (patch.agentFeatures)
     merged.agentFeatures = { ...existing.agentFeatures, ...patch.agentFeatures };
+  if (patch.retry) merged.retry = { ...existing.retry, ...patch.retry };
 
   writeFileSync(file, JSON.stringify(merged, null, 2));
 }
@@ -206,6 +209,7 @@ export function saveGlobalConfig(patch: Partial<AppConfig>): void {
     merged.contextManagement = { ...existing.contextManagement, ...patch.contextManagement };
   if (patch.agentFeatures)
     merged.agentFeatures = { ...existing.agentFeatures, ...patch.agentFeatures };
+  if (patch.retry) merged.retry = { ...existing.retry, ...patch.retry };
 
   writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2));
 }
@@ -241,6 +245,7 @@ const NESTED_KEYS = [
   "contextManagement",
   "agentFeatures",
   "compaction",
+  "retry",
 ] as const;
 
 export function applyConfigPatch<T extends Partial<AppConfig>>(
