@@ -168,6 +168,8 @@ brew tap proxysoul/tap && brew install soulforge
 
 macOS and Linux. Neovim and a Nerd Font auto-install on first launch.
 
+> **Windows:** not natively supported. Use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) for now. Tracked in [#57](https://github.com/proxysoul/soulforge/issues/57).
+
 <details>
 <summary><strong>Other install methods</strong></summary>
 <br/>
