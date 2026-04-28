@@ -200,9 +200,9 @@ export const LockInWrapper = memo(function LockInWrapper({
       {visible.length > 0 || children ? (
         <box
           flexDirection="column"
-          border={visible.length + hiddenCount >= 2 || children ? ["left"] : undefined}
+          border={["left"]}
           borderColor={effectiveDone ? t.textFaint : t.textMuted}
-          paddingLeft={visible.length + hiddenCount >= 2 || children ? 1 : 2}
+          paddingLeft={1}
           opacity={effectiveDone ? 0.6 : 1}
         >
           {hiddenCount > 0 ? (
@@ -220,14 +220,7 @@ export const LockInWrapper = memo(function LockInWrapper({
             const doneLabel = TOOL_LABELS_DONE[tc.name] ?? label;
             const displayLabel = tc.done ? doneLabel : label;
             const isLast = i === visible.length - 1 && !children;
-            const connector =
-              visible.length < 2 && !children
-                ? "  "
-                : isLast
-                  ? "└ "
-                  : i === 0 && hiddenCount === 0
-                    ? "┌ "
-                    : "├ ";
+            const connector = isLast ? "└ " : i === 0 && hiddenCount === 0 ? "┌ " : "├ ";
             const statusClr = tc.done ? (tc.error ? t.error : t.success) : t.brand;
 
             return (
