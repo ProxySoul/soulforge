@@ -1708,8 +1708,7 @@ export function useChat({
       baseTokenUsageRef.current = { ...currentUsage };
 
       // Abort controller for Ctrl+X
-      const abortController = new AbortController();
-      abortRef.current = abortController;
+      let abortController: AbortController;
 
       let fullText = "";
       let lastIncrementalSave = 0;
@@ -1845,7 +1844,7 @@ export function useChat({
       // in both the retry loop AND the outer catch block for streaming errors.
       const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
         resolveRetrySettings(effectiveConfig.retry);
-      let transientRetryCount = 0; // local retry counter (not a ref)
+      let streamRetryCount = 0; // local retry counter (not a ref)
       // Reset retry count on real user messages (not auto-retry "Continue.")
       if (input !== "Continue." || !stallRetryPendingRef.current) {
         stallRetryCountRef.current = 0;
@@ -1854,7 +1853,18 @@ export function useChat({
 
       const responseStartedAt = Date.now();
 
-      try {
+      streamRetryLoop:
+      for (;;) {
+        // Reset state for retry
+        abortController = new AbortController();
+        abortRef.current = abortController;
+        fullText = "";
+        completedCalls.length = 0;
+        finalSegments.length = 0;
+        subagentCumulative.clear();
+        completedResultChars.clear();
+
+       try {
         setIsLoading(true);
         const modelId = activeModelRef.current;
         const model = resolveModel(modelId);
@@ -3095,6 +3105,7 @@ export function useChat({
         setStreamSegments([]);
         setLiveToolCalls([]);
         completeInProgressTasks(tabId);
+        break streamRetryLoop;
       } catch (err: unknown) {
         if (flushTimerRef.current) {
           clearInterval(flushTimerRef.current);
@@ -3114,15 +3125,15 @@ export function useChat({
 
         // Retry on transient errors during streaming (e.g. "socket connection closed unexpectedly")
         if (isTransient && !isStallRetry) {
-          transientRetryCount++;
-          if (transientRetryCount <= MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
+          streamRetryCount++;
+          if (streamRetryCount < MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
             const delay = RETRY_BASE_DELAY_MS * 2 ** (transientRetryCount - 1) + Math.random() * 500;
             setMessages((prev) => [
               ...prev,
               {
                 id: crypto.randomUUID(),
                 role: "system",
-                content: `Transient error: ${msg}. Retry ${String(transientRetryCount)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
+                content: `Transient error: ${msg}. Retry ${String(streamRetryCount)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
                 timestamp: Date.now(),
               },
             ]);
@@ -3195,9 +3206,11 @@ export function useChat({
               setTimeout(() => handleSubmitRef.current("Continue."), delay);
               return;
             } else {
-              // No partial output - for now, throw to let user retry manually
-              // TODO: Implement stream retry using newCoreMessages for this case
-              throw new Error(`Transient error (retry ${transientRetryCount}/${MAX_TRANSIENT_RETRIES}): ${msg}`);
+              // No partial output - retry the stream directly
+              stallRetryPendingRef.current = true;
+              const backoffDelay = RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
+              await new Promise(resolve => setTimeout(resolve, backoffDelay));
+              continue streamRetryLoop;
             }
           }
         }
@@ -3718,9 +3731,11 @@ export function useChat({
       sidebarPlan,
       tokenUsage,
       coAuthorCommits,
-      forgeMode,
+        forgeMode,
     ],
   );
+  }
+}
 
   const setPlanMode = useCallback((on: boolean) => {
     planModeRef.current = on;
