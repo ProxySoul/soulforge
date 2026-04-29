@@ -3,7 +3,6 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
-import { garble } from "../../core/utils/splash.js";
 import {
   type ChangelogCommit,
   type ChangelogRelease,
@@ -12,7 +11,7 @@ import {
   performUpgrade,
 } from "../../core/version.js";
 import { useVersionStore } from "../../stores/version.js";
-import { Divider, PremiumPopup, VSpacer } from "../ui/index.js";
+import { Divider, PremiumPopup, Section, VSpacer } from "../ui/index.js";
 
 type Phase = "info" | "upgrading" | "success" | "failed";
 
@@ -56,8 +55,6 @@ const CHANGELOG_ERROR_QUIPS = [
 ];
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const GHOST_FADE = ["░", "▒", "▓"];
-const WISP = ["~∿~", "∿~∿", "·∿·", "∿·∿"];
 const MAX_LOG = 50;
 const BOLD = TextAttributes.BOLD;
 const ITALIC = TextAttributes.ITALIC;
@@ -67,14 +64,6 @@ const DIM = TextAttributes.DIM;
 
 function trunc(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
-}
-
-function Hr({ w, bg }: { w: number; bg: string; fg?: string }) {
-  return <Divider width={w - 4} bg={bg} />;
-}
-
-function Gap({ bg, n = 1 }: { w?: number; bg: string; n?: number }) {
-  return <VSpacer rows={n} bg={bg} />;
 }
 
 const TYPE_BADGE: Record<
@@ -203,27 +192,15 @@ export function UpdateModal({ visible, onClose }: Props) {
   const [errorMsg, setErrorMsg] = useState("");
   const upgrading = useRef(false);
 
-  // Entrance animation
-  const [tick, setTick] = useState(0);
-  const prevVisible = useRef(false);
   useEffect(() => {
-    if (visible && !prevVisible.current) {
-      setTick(0);
-      setPhase("info");
-    }
-    prevVisible.current = visible;
+    if (visible) setPhase("info");
   }, [visible]);
 
-  useEffect(() => {
-    if (!visible || tick >= 12) return;
-    const timer = setInterval(() => setTick((prev) => prev + 1), 60);
-    return () => clearInterval(timer);
-  }, [visible, tick]);
-
-  const pw = Math.min(76, Math.floor(termCols * 0.9));
-  const iw = pw - 2;
-  const maxChangelog = Math.max(6, Math.floor(termRows * 0.5) - 10);
-  const logH = Math.max(3, Math.min(6, Math.floor(termRows * 0.2)));
+  const pw = Math.min(80, Math.max(60, Math.floor(termCols * 0.78)));
+  const popupH = Math.min(30, Math.max(18, termRows - 4));
+  const iw = pw - 4;
+  const maxChangelog = Math.max(6, popupH - 14);
+  const logH = Math.max(3, Math.min(6, popupH - 12));
   const bg = t.bgPopup;
 
   // Animate spinner + cycle quips during upgrade
@@ -323,78 +300,42 @@ export function UpdateModal({ visible, onClose }: Props) {
   const releaseUrl = latest
     ? `https://github.com/ProxySoul/soulforge/releases/tag/v${latest}`
     : "https://github.com/ProxySoul/soulforge/releases";
-  const ghostIc = icon("ghost");
-  const sparkle = icon("sparkle");
-  const checkIc = icon("check");
-  const errorIc = icon("error");
   const arrowIc = icon("arrow_right");
 
-  // Entrance animation values
-  const ghostChar = tick < GHOST_FADE.length ? (GHOST_FADE[tick] ?? "░") : ghostIc;
-  const wispFrame = WISP[tick % WISP.length] ?? "";
-  const titleReady = tick >= 4;
-  const vCurrent = tick < 6 ? garble(`v${current}`) : `v${current}`;
-  const vLatest = tick < 7 ? garble(`v${latest ?? current}`) : `v${latest ?? current}`;
-
-  // ── Success: ask user to restart manually ─────────────────────────
+  // ── Success ─────────────────────────────────────────────────────────────
   if (phase === "success") {
     return (
       <PremiumPopup
         visible={visible}
         width={pw}
-        height={Math.min(22, termRows - 2)}
+        height={Math.min(16, termRows - 2)}
         borderColor={t.success}
         title="Upgrade Complete"
         titleIcon="check"
+        blurb="The forge has been retempered"
+        status="online"
+        footerHints={[
+          { key: "Esc", label: "close" },
+          { key: "↵", label: "close" },
+        ]}
       >
-        <box flexDirection="column">
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg}>
-              <span fg={t.success} attributes={BOLD}>
-                {checkIc} Upgrade Complete!
-              </span>
-            </text>
-          </box>
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandDim} attributes={DIM}>
-              {"  "}∿~∿
-            </text>
-          </box>
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg}>
-              <span fg={t.textPrimary}>{"  "}Successfully upgraded to </span>
-              <span fg={t.success} attributes={BOLD}>
-                v{latest}
-              </span>
-            </text>
-          </box>
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.textSecondary} attributes={ITALIC}>
-              {"  "}The forge has been retempered.
-            </text>
-          </box>
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandAlt}>
-              {"  "}Please close and restart SoulForge to use the new version.
-            </text>
-          </box>
-          <Gap w={iw} bg={bg} />
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} truncate>
-              <span fg={t.textFaint}> {"<Esc>"} close</span>
-            </text>
-          </box>
-        </box>
+        <Section>
+          <text bg={bg}>
+            <span fg={t.textPrimary}>Successfully upgraded to </span>
+            <span fg={t.success} attributes={BOLD}>
+              v{latest}
+            </span>
+          </text>
+          <VSpacer rows={1} bg={bg} />
+          <text bg={bg} fg={t.brandAlt}>
+            Please close and restart SoulForge to use the new version.
+          </text>
+        </Section>
       </PremiumPopup>
     );
   }
 
-  // ── Upgrading: spinner + quips + live log ────────────────────────
+  // ── Upgrading ───────────────────────────────────────────────────────────
   if (phase === "upgrading") {
     const spin = SPINNER[spinIdx % SPINNER.length];
     const quip = UPGRADE_QUIPS[quipIdx % UPGRADE_QUIPS.length] ?? "";
@@ -404,129 +345,84 @@ export function UpdateModal({ visible, onClose }: Props) {
       <PremiumPopup
         visible={visible}
         width={pw}
-        height={Math.min(24, termRows - 2)}
+        height={Math.min(20, termRows - 2)}
         borderColor={t.brand}
         title="Upgrading"
         titleIcon="sparkle"
+        blurb="Forging a fresh build"
       >
-        <box flexDirection="column">
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brand} attributes={BOLD}>
-              {ghostIc} Upgrading SoulForge…
-            </text>
-          </box>
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandDim} attributes={DIM}>
-              {"  "}∿~∿
-            </text>
-          </box>
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg}>
-              <span fg={t.brand}> {spin}</span>
-              <span fg={t.brandAlt} attributes={ITALIC}>
-                {" "}
-                {trunc(quip, iw - 8)}
-              </span>
-            </text>
-          </box>
-          <Gap w={iw} bg={bg} />
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
+        <Section>
+          <text bg={bg}>
+            <span fg={t.brand} attributes={BOLD}>
+              {spin}
+            </span>
+            <span fg={t.brandAlt} attributes={ITALIC}>
+              {"  "}
+              {trunc(quip, iw - 4)}
+            </span>
+          </text>
+          <VSpacer rows={1} bg={bg} />
+          <Divider width={iw} bg={bg} />
           <box flexDirection="column" height={logH} overflow="hidden">
             {visibleLog.length === 0 ? (
-              <box flexDirection="row" backgroundColor={bg}>
-                <text bg={bg} fg={t.textFaint}>
-                  {"  "}Waiting for output…
-                </text>
-              </box>
+              <text bg={bg} fg={t.textFaint}>
+                Waiting for output…
+              </text>
             ) : (
               visibleLog.map((line, i) => (
-                <box key={String(i)} flexDirection="row" backgroundColor={bg}>
-                  <text bg={bg} fg={i === visibleLog.length - 1 ? t.textSecondary : t.textFaint}>
-                    {"  "}
-                    {trunc(line, iw - 6)}
-                  </text>
-                </box>
+                <text
+                  key={String(i)}
+                  bg={bg}
+                  fg={i === visibleLog.length - 1 ? t.textSecondary : t.textFaint}
+                >
+                  {trunc(line, iw - 2)}
+                </text>
               ))
             )}
           </box>
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-        </box>
+        </Section>
       </PremiumPopup>
     );
   }
 
-  // ── Failed: error + manual command ───────────────────────────────
+  // ── Failed ──────────────────────────────────────────────────────────────
   if (phase === "failed") {
     return (
       <PremiumPopup
         visible={visible}
         width={pw}
-        height={Math.min(22, termRows - 2)}
+        height={Math.min(18, termRows - 2)}
         borderColor={t.brandSecondary}
         title="Upgrade Failed"
         titleIcon="error"
+        blurb="The forge sputtered"
+        status="error"
+        footerHints={[{ key: "Esc", label: "back" }]}
       >
-        <box
-          flexDirection="column"
-          borderStyle={undefined}
-          border={undefined}
-          borderColor={t.brandSecondary}
-          width={pw}
-        >
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandSecondary} attributes={BOLD}>
-              {errorIc} The Forge Sputtered
-            </text>
-          </box>
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandDim} attributes={DIM}>
-              {"  "}∿~∿
-            </text>
-          </box>
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandSecondary}>
+        <Section>
+          <text bg={bg} fg={t.brandSecondary}>
+            {trunc(errorMsg, iw - 2)}
+          </text>
+          <VSpacer rows={1} bg={bg} />
+          <text bg={bg} fg={t.textMuted} attributes={ITALIC}>
+            Try a manual upgrade:
+          </text>
+          <VSpacer rows={1} bg={bg} />
+          <text bg={bg}>
+            <span fg={t.textFaint}>
+              {arrowIc}
               {"  "}
-              {trunc(errorMsg, iw - 6)}
-            </text>
-          </box>
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.textMuted} attributes={ITALIC}>
-              {"  "}The spirits suggest a manual approach:
-            </text>
-          </box>
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg}>
-              <span fg={t.textFaint}>
-                {"    "}
-                {arrowIc}{" "}
-              </span>
-              <span fg={t.brand} attributes={BOLD}>
-                {trunc(upgradeCmd, iw - 10)}
-              </span>
-            </text>
-          </box>
-          <Gap w={iw} bg={bg} />
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.textMuted}>
-              {" "}
-              {"<Esc>"} back
-            </text>
-          </box>
-        </box>
+            </span>
+            <span fg={t.brand} attributes={BOLD}>
+              {trunc(upgradeCmd, iw - 4)}
+            </span>
+          </text>
+        </Section>
       </PremiumPopup>
     );
   }
 
-  // ── Info: no update available (already on latest) ────────────────
+  // ── Info: no update available ───────────────────────────────────────────
   if (!updateAvailable) {
     const quip = LATEST_QUIPS[Math.floor(Date.now() / 60000) % LATEST_QUIPS.length] ?? "";
     const clErrorQuip =
@@ -536,66 +432,43 @@ export function UpdateModal({ visible, onClose }: Props) {
       <PremiumPopup
         visible={visible}
         width={pw}
-        height={Math.min(26, termRows - 2)}
+        height={popupH}
         borderColor={t.brand}
-        title="Update Available"
-        titleIcon="sparkle"
+        title="Up to Date"
+        titleIcon="check"
+        blurb={`v${current} · latest`}
+        status="online"
+        footerHints={[
+          { key: "G", label: "open on GitHub" },
+          { key: "Esc", label: "close" },
+        ]}
       >
-        <box flexDirection="column">
-          <Gap w={iw} bg={bg} />
+        <Section>
           <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
-              <span fg={t.brand} attributes={BOLD}>
-                {" "}
-                {ghostChar}{" "}
-              </span>
-              <span fg={t.textPrimary} attributes={BOLD}>
-                {titleReady ? "SoulForge" : garble("SoulForge")}
-              </span>
-            </text>
-          </box>
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} fg={t.brandDim} attributes={DIM}>
-              {"   "}
-              {wispFrame}
-            </text>
-          </box>
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <Gap w={iw} bg={bg} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg}>
-              <span fg={t.textMuted}>
-                {"  "}
-                {icon("check")} Version{" "}
-              </span>
+              <span fg={t.textMuted}>{icon("check")} Version </span>
               <span fg={t.success} attributes={BOLD}>
-                {vCurrent}
+                v{current}
               </span>
               <span fg={t.textFaint}> — latest</span>
             </text>
           </box>
           <box flexDirection="row" backgroundColor={bg}>
             <text bg={bg}>
-              <span fg={t.textMuted}>
-                {"  "}
-                {icon("wrench")} Via{" "}
-              </span>
+              <span fg={t.textMuted}>{icon("wrench")} Via </span>
               <span fg={t.textSecondary}>{installMethod}</span>
             </text>
           </box>
-          <Gap w={iw} bg={bg} />
 
-          {/* Current version changelog */}
           {currentRelease && currentRelease.commits.length > 0 ? (
             <>
-              <Hr w={iw} bg={bg} fg={t.textFaint} />
-              <Gap w={iw} bg={bg} />
-              <box flexDirection="row" backgroundColor={bg}>
-                <text bg={bg} fg={t.brandAlt} attributes={BOLD}>
-                  {"  "}What's in this version
-                </text>
-              </box>
-              <Gap w={iw} bg={bg} />
+              <VSpacer rows={1} bg={bg} />
+              <Divider width={iw} bg={bg} />
+              <VSpacer rows={1} bg={bg} />
+              <text bg={bg} fg={t.brandAlt} attributes={BOLD}>
+                What's in this version
+              </text>
+              <VSpacer rows={1} bg={bg} />
               <ChangelogSection
                 releases={[currentRelease]}
                 maxLines={maxChangelog}
@@ -603,231 +476,132 @@ export function UpdateModal({ visible, onClose }: Props) {
                 bg={bg}
                 t={t}
               />
-              <Gap w={iw} bg={bg} />
             </>
           ) : changelogError ? (
             <>
-              <Hr w={iw} bg={bg} fg={t.textFaint} />
-              <Gap w={iw} bg={bg} />
-              <box flexDirection="row" backgroundColor={bg}>
-                <text bg={bg} fg={t.error} attributes={ITALIC}>
-                  {"  "}
-                  {icon("warning")} {clErrorQuip}
-                </text>
-              </box>
-              <Gap w={iw} bg={bg} />
+              <VSpacer rows={1} bg={bg} />
+              <Divider width={iw} bg={bg} />
+              <VSpacer rows={1} bg={bg} />
+              <text bg={bg} fg={t.error} attributes={ITALIC}>
+                {icon("warning")} {clErrorQuip}
+              </text>
             </>
           ) : (
             <>
-              <Hr w={iw} bg={bg} fg={t.textFaint} />
-              <Gap w={iw} bg={bg} />
-              <box flexDirection="row" backgroundColor={bg}>
-                <text bg={bg} fg={t.brandAlt} attributes={ITALIC}>
-                  {"  "}
-                  {quip}
-                </text>
-              </box>
-              <Gap w={iw} bg={bg} />
+              <VSpacer rows={1} bg={bg} />
+              <Divider width={iw} bg={bg} />
+              <VSpacer rows={1} bg={bg} />
+              <text bg={bg} fg={t.brandAlt} attributes={ITALIC}>
+                {quip}
+              </text>
             </>
           )}
-
-          <Hr w={iw} bg={bg} fg={t.textFaint} />
-          <box flexDirection="row" backgroundColor={bg}>
-            <text bg={bg} truncate>
-              <span fg={t.brandDim}>
-                {" "}
-                {icon("globe")} {"<G>"}
-              </span>
-              <span fg={t.textFaint}> view full changelog on GitHub</span>
-              <span fg={t.textFaint}>{"  "}</span>
-              <span fg={t.textFaint}>{"<Esc>"}</span>
-            </text>
-          </box>
-        </box>
+        </Section>
       </PremiumPopup>
     );
   }
 
-  // ── Info: update available ───────────────────────────────────────
+  // ── Info: update available ──────────────────────────────────────────────
+  const hints: { key: string; label: string }[] = [];
+  if (canAuto) hints.push({ key: "U", label: "upgrade" });
+  if (!isBinary) hints.push({ key: "C", label: copied ? "copied ✓" : "copy" });
+  hints.push({ key: "D", label: "dismiss" });
+  hints.push({ key: "G", label: "GitHub" });
+  hints.push({ key: "Esc", label: "close" });
+
   return (
     <PremiumPopup
       visible={visible}
       width={pw}
-      height={Math.min(22, termRows - 2)}
+      height={popupH}
       borderColor={t.success}
-      title="Check for Updates"
+      title="Update Available"
       titleIcon="sparkle"
+      blurb={`v${current} → v${latest}`}
+      status="warning"
+      footerHints={hints}
+      flash={copied ? { kind: "ok", message: "Command copied to clipboard" } : null}
     >
-      <box flexDirection="column">
-        <Gap w={iw} bg={bg} />
+      <Section>
         <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg}>
+            <span fg={t.textMuted}>{icon("clock")} Current </span>
+            <span fg={t.textPrimary}>v{current}</span>
+          </text>
+        </box>
+        <box flexDirection="row" backgroundColor={bg}>
+          <text bg={bg}>
+            <span fg={t.textMuted}>{icon("sparkle")} Latest </span>
             <span fg={t.success} attributes={BOLD}>
-              {" "}
-              {ghostChar}{" "}
-            </span>
-            <span fg={t.success} attributes={BOLD}>
-              {titleReady ? `${sparkle} Update Available` : garble("Update Available")}
-            </span>
-          </text>
-        </box>
-        <box flexDirection="row" backgroundColor={bg}>
-          <text bg={bg} fg={t.brandDim} attributes={DIM}>
-            {"   "}
-            {wispFrame}
-          </text>
-        </box>
-        <Hr w={iw} bg={bg} fg={t.textFaint} />
-        <Gap w={iw} bg={bg} />
-
-        {/* Version info with icons */}
-        <box flexDirection="row" backgroundColor={bg}>
-          <text bg={bg}>
-            <span fg={t.textMuted}>
-              {"  "}
-              {icon("clock")} Current{" "}
-            </span>
-            <span fg={t.textPrimary}>{vCurrent}</span>
-          </text>
-        </box>
-        <box flexDirection="row" backgroundColor={bg}>
-          <text bg={bg}>
-            <span fg={t.textMuted}>
-              {"  "}
-              {sparkle} Latest{" "}
-            </span>
-            <span fg={t.success} attributes={BOLD}>
-              {vLatest}
+              v{latest ?? current}
             </span>
           </text>
         </box>
         <box flexDirection="row" backgroundColor={bg}>
           <text bg={bg}>
-            <span fg={t.textMuted}>
-              {"  "}
-              {icon("wrench")} Via{" "}
-            </span>
+            <span fg={t.textMuted}>{icon("wrench")} Via </span>
             <span fg={t.textSecondary}>{installMethod}</span>
           </text>
         </box>
-        <Gap w={iw} bg={bg} />
 
-        {/* Changelog */}
         {changelog.length > 0 ? (
           <>
-            <Hr w={iw} bg={bg} fg={t.textFaint} />
-            <Gap w={iw} bg={bg} />
-            <box flexDirection="row" backgroundColor={bg}>
-              <text bg={bg} fg={t.brandAlt} attributes={BOLD}>
-                {"  "}What's new
-              </text>
-            </box>
-            <Gap w={iw} bg={bg} />
+            <VSpacer rows={1} bg={bg} />
+            <Divider width={iw} bg={bg} />
+            <VSpacer rows={1} bg={bg} />
+            <text bg={bg} fg={t.brandAlt} attributes={BOLD}>
+              What's new
+            </text>
+            <VSpacer rows={1} bg={bg} />
             <ChangelogSection releases={changelog} maxLines={maxChangelog} iw={iw} bg={bg} t={t} />
-            <Gap w={iw} bg={bg} />
           </>
         ) : changelogError ? (
           <>
-            <Hr w={iw} bg={bg} fg={t.textFaint} />
-            <Gap w={iw} bg={bg} />
-            <box flexDirection="row" backgroundColor={bg}>
-              <text bg={bg} fg={t.error} attributes={ITALIC}>
-                {"  "}
-                {icon("warning")}{" "}
-                {
-                  CHANGELOG_ERROR_QUIPS[
-                    Math.floor(Date.now() / 60000) % CHANGELOG_ERROR_QUIPS.length
-                  ]
-                }
-              </text>
-            </box>
-            <Gap w={iw} bg={bg} />
+            <VSpacer rows={1} bg={bg} />
+            <Divider width={iw} bg={bg} />
+            <VSpacer rows={1} bg={bg} />
+            <text bg={bg} fg={t.error} attributes={ITALIC}>
+              {icon("warning")}{" "}
+              {CHANGELOG_ERROR_QUIPS[Math.floor(Date.now() / 60000) % CHANGELOG_ERROR_QUIPS.length]}
+            </text>
           </>
         ) : null}
 
-        {/* Upgrade command */}
-        <Hr w={iw} bg={bg} fg={t.textFaint} />
-        <Gap w={iw} bg={bg} />
+        <VSpacer rows={1} bg={bg} />
+        <Divider width={iw} bg={bg} />
+        <VSpacer rows={1} bg={bg} />
         {isBinary ? (
           <>
-            <box flexDirection="row" backgroundColor={bg}>
-              <text bg={bg} fg={t.textMuted}>
+            <text bg={bg} fg={t.textMuted}>
+              {icon("globe")} Download from GitHub
+            </text>
+            <text bg={bg}>
+              <span fg={t.textFaint}>
+                {arrowIc}
                 {"  "}
-                {icon("globe")} Download from GitHub
-              </text>
-            </box>
-            <box flexDirection="row" backgroundColor={bg}>
-              <text bg={bg}>
-                <span fg={t.textFaint}>
-                  {"    "}
-                  {arrowIc}{" "}
-                </span>
-                <span fg={t.brand} attributes={BOLD}>
-                  {trunc(releaseUrl, iw - 10)}
-                </span>
-              </text>
-            </box>
+              </span>
+              <span fg={t.brand} attributes={BOLD}>
+                {trunc(releaseUrl, iw - 4)}
+              </span>
+            </text>
           </>
         ) : (
           <>
-            <box flexDirection="row" backgroundColor={bg}>
-              <text bg={bg} fg={t.textMuted}>
+            <text bg={bg} fg={t.textMuted}>
+              {icon("terminal")} Upgrade command
+            </text>
+            <text bg={bg}>
+              <span fg={t.textFaint}>
+                {arrowIc}
                 {"  "}
-                {icon("terminal")} Upgrade command
-              </text>
-            </box>
-            <box flexDirection="row" backgroundColor={bg}>
-              <text bg={bg}>
-                <span fg={t.textFaint}>
-                  {"    "}
-                  {arrowIc}{" "}
-                </span>
-                <span fg={t.brand} attributes={BOLD}>
-                  {trunc(upgradeCmd, iw - 10)}
-                </span>
-              </text>
-            </box>
+              </span>
+              <span fg={t.brand} attributes={BOLD}>
+                {trunc(upgradeCmd, iw - 4)}
+              </span>
+            </text>
           </>
         )}
-        <Gap w={iw} bg={bg} />
-
-        {/* Footer */}
-        <Hr w={iw} bg={bg} fg={t.textFaint} />
-        <box flexDirection="row" backgroundColor={bg}>
-          <text bg={bg} truncate>
-            {canAuto && (
-              <>
-                <span fg={t.success} attributes={BOLD}>
-                  {" "}
-                  {arrowIc} {"<U>"}
-                </span>
-                <span fg={t.textMuted}> upgrade</span>
-                <span fg={t.textFaint}>{"  "}</span>
-              </>
-            )}
-            {!isBinary && (
-              <span fg={copied ? t.success : t.textFaint}>
-                {copied ? " ✓ copied" : " <C> copy"}
-              </span>
-            )}
-            <span fg={t.textFaint}>{"  "}</span>
-            <span fg={t.textFaint}>{"<D>"} dismiss</span>
-            <span fg={t.textFaint}>{"  "}</span>
-            <span fg={t.textFaint}>{"<Esc>"}</span>
-          </text>
-        </box>
-        <box flexDirection="row" backgroundColor={bg}>
-          <text bg={bg} truncate>
-            <span fg={t.brandDim}>
-              {" "}
-              {icon("globe")} {"<G>"}
-            </span>
-            <span fg={t.textFaint}>
-              {isBinary ? " open release on GitHub" : " view full changelog on GitHub"}
-            </span>
-          </text>
-        </box>
-      </box>
+      </Section>
     </PremiumPopup>
   );
 }
