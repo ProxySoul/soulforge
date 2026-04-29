@@ -24,6 +24,155 @@ describe("normalizePath", () => {
   });
 });
 
+// Battle-hardening — these inputs reach normalizePath through dispatch's
+// targetFiles pipeline (subagent-tools.ts:539,541,737,763 + agent-runner.ts:344,351).
+// Schema *should* block them at z.array(z.string()), but internal callers,
+// programmatic invocation, and the auto-merge mutation at subagent-tools.ts:590-596
+// can punch through. Crash signature for any failure here:
+//   "undefined is not an object (evaluating 'n.startsWith')"  ← issue #59
+describe("normalizePath — adversarial inputs (issue #59)", () => {
+  // ── Non-string inputs: the literal #59 crash class ────────────────────
+  test("undefined → empty string (no crash)", () => {
+    expect(normalizePath(undefined as unknown as string)).toBe("");
+  });
+  test("null → empty string", () => {
+    expect(normalizePath(null as unknown as string)).toBe("");
+  });
+  test("number → empty string", () => {
+    expect(normalizePath(42 as unknown as string)).toBe("");
+  });
+  test("boolean → empty string", () => {
+    expect(normalizePath(true as unknown as string)).toBe("");
+  });
+  test("object → empty string", () => {
+    expect(normalizePath({} as unknown as string)).toBe("");
+  });
+  test("array → empty string", () => {
+    expect(normalizePath([] as unknown as string)).toBe("");
+  });
+  test("Symbol → empty string", () => {
+    expect(normalizePath(Symbol("x") as unknown as string)).toBe("");
+  });
+  test("NaN → empty string", () => {
+    expect(normalizePath(Number.NaN as unknown as string)).toBe("");
+  });
+
+  // ── Empty-ish strings ─────────────────────────────────────────────────
+  test("empty string → empty string", () => {
+    expect(normalizePath("")).toBe("");
+  });
+  test("just './' → empty string (./ stripped, nothing left)", () => {
+    expect(normalizePath("./")).toBe("");
+  });
+  test("'.' alone is left as-is (not a './' prefix)", () => {
+    expect(normalizePath(".")).toBe(".");
+  });
+  test("'..' is left as-is — we don't resolve parent refs", () => {
+    expect(normalizePath("..")).toBe("..");
+  });
+
+  // ── Windows / WSL path separators ─────────────────────────────────────
+  test("Windows backslash path → forward slash", () => {
+    expect(normalizePath("src\\core\\file.ts")).toBe("src/core/file.ts");
+  });
+  test("Windows drive letter preserved", () => {
+    expect(normalizePath("C:\\Users\\eru\\foo.ts")).toBe("C:/Users/eru/foo.ts");
+  });
+  test("UNC path — leading double-backslash collapses to single slash", () => {
+    // \\server\share\foo.ts → //server/share/foo.ts → /server/share/foo.ts
+    // (We don't preserve UNC roots; tests asserts the normalization, not UNC semantics.)
+    expect(normalizePath("\\\\server\\share\\foo.ts")).toBe("/server/share/foo.ts");
+  });
+  test("mixed separators normalize", () => {
+    expect(normalizePath("src\\core/file.ts")).toBe("src/core/file.ts");
+  });
+  test("Windows './' equivalent '.\\'  is stripped", () => {
+    expect(normalizePath(".\\src\\foo.ts")).toBe("src/foo.ts");
+  });
+  test("repeated Windows './' equivalents stripped", () => {
+    expect(normalizePath(".\\.\\foo.ts")).toBe("foo.ts");
+  });
+
+  // ── POSIX absolute paths and macOS specifics ──────────────────────────
+  test("POSIX absolute path preserved", () => {
+    expect(normalizePath("/usr/local/bin/sf")).toBe("/usr/local/bin/sf");
+  });
+  test("macOS Library path preserved", () => {
+    expect(normalizePath("/Users/eru/dev/bugRepro/main.swift")).toBe(
+      "/Users/eru/dev/bugRepro/main.swift",
+    );
+  });
+  test("absolute path with duplicate slashes collapses (root keeps single slash)", () => {
+    expect(normalizePath("//usr//local///bin/sf")).toBe("/usr/local/bin/sf");
+  });
+
+  // ── Pathological strings that have crashed similar normalizers ────────
+  test("very long path doesn't blow stack/regex", () => {
+    const deep = `${"a/".repeat(2000)}leaf.ts`;
+    expect(normalizePath(deep)).toBe(deep);
+  });
+  test("leading './' chain of 100 doesn't loop forever", () => {
+    const chained = `${"./".repeat(100)}foo.ts`;
+    expect(normalizePath(chained)).toBe("foo.ts");
+  });
+  test("string with embedded null byte stays intact (caller's job to validate)", () => {
+    expect(normalizePath("src/foo\0.ts")).toBe("src/foo\0.ts");
+  });
+  test("unicode path preserved", () => {
+    expect(normalizePath("src/café/файл.ts")).toBe("src/café/файл.ts");
+  });
+  test("emoji path preserved", () => {
+    expect(normalizePath("src/🔥/foo.ts")).toBe("src/🔥/foo.ts");
+  });
+  test("path with spaces preserved", () => {
+    expect(normalizePath("/Users/eru/My Documents/foo.ts")).toBe(
+      "/Users/eru/My Documents/foo.ts",
+    );
+  });
+  test("query-string-ish suffix preserved (we don't parse URLs)", () => {
+    expect(normalizePath("./foo.ts?v=1")).toBe("foo.ts?v=1");
+  });
+
+  // ── The actual issue #59 trigger: array containing non-strings ────────
+  // Mirrors what dispatch's subagent-tools.ts:541 does.
+  test("array.map(normalizePath) survives undefined entries (sparse array)", () => {
+    // sparse array — JSON-style hole that Zod doesn't catch reliably
+    const sparse = ["src/a.ts", undefined as unknown as string, "src/b.ts"];
+    const out = sparse.map((f) => normalizePath(f));
+    expect(out).toEqual(["src/a.ts", "", "src/b.ts"]);
+  });
+  test("array with null entries doesn't throw", () => {
+    const arr = [null as unknown as string, "src/b.ts", null as unknown as string];
+    expect(() => arr.map((f) => normalizePath(f))).not.toThrow();
+  });
+  test("array with mixed types doesn't throw", () => {
+    const arr = ["./src/a.ts", 0, false, "", "src/b.ts"] as unknown as string[];
+    const out = arr.map((f) => normalizePath(f));
+    expect(out).toEqual(["src/a.ts", "", "", "", "src/b.ts"]);
+  });
+
+  // ── Idempotency — normalize(normalize(x)) === normalize(x) ────────────
+  test("idempotent on POSIX paths", () => {
+    const inputs = ["./src/foo.ts", "src//foo.ts", "/abs/path.ts", "src/foo.ts"];
+    for (const i of inputs) {
+      expect(normalizePath(normalizePath(i))).toBe(normalizePath(i));
+    }
+  });
+  test("idempotent on Windows paths", () => {
+    const inputs = ["src\\foo.ts", "C:\\x\\y.ts", ".\\foo.ts"];
+    for (const i of inputs) {
+      expect(normalizePath(normalizePath(i))).toBe(normalizePath(i));
+    }
+  });
+  test("idempotent on garbage", () => {
+    const inputs = [undefined, null, 42, {}, []] as unknown[];
+    for (const i of inputs) {
+      const once = normalizePath(i as string);
+      expect(normalizePath(once)).toBe(once);
+    }
+  });
+});
+
 describe("AgentBus — file cache", () => {
   test("miss → release → hit cycle", () => {
     const bus = new AgentBus();

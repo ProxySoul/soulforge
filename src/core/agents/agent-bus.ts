@@ -10,7 +10,8 @@ import { logBackgroundError } from "../../stores/errors.js";
 import type { TaskTier } from "../../types/index.js";
 
 export function normalizePath(p: string): string {
-  let n = p;
+  if (typeof p !== "string" || p.length === 0) return "";
+  let n = p.replace(/\\/g, "/");
   while (n.startsWith("./")) n = n.slice(2);
   return n.replace(/\/+/g, "/");
 }
