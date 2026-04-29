@@ -41,12 +41,21 @@ const HINTS: Hint[] = [
   ["Type ", { h: "/mode architect" }, " — design-only analysis, no code changes"],
   ["Type ", { h: "/mode plan" }, " — research first, then a step-by-step plan"],
 
-  // Intelligence
-  ["Add a ", { h: "SOULFORGE.md" }, " to your repo — Forge reads it as project instructions"],
-  ["Run ", { h: "/lsp install" }, " to add language servers for smarter navigation"],
-  ["Run ", { h: "/diagnose" }, " to health-check your LSP and tree-sitter setup"],
+  // Hearth — remote control
+  [
+    "Run ",
+    { h: "soulforge hearth start" },
+    " to control your forge from ",
+    { h: "Telegram" },
+    " or ",
+    { h: "Discord" },
+  ],
+  ["Type ", { h: "/hearth" }, " to pair your phone — approve edits with a tap"],
+  // Checkpoints
+  ["Hit ", { h: "^B" }, " / ", { h: "^F" }, " to walk back and forward through checkpoints"],
+  ["Type ", { h: "/checkpoint undo" }, " to revert the last turn — files included"],
 
-  // Tabs & sessions
+  // Tabs
   [
     "Each tab gets its own ",
     { h: "model" },
@@ -57,15 +66,13 @@ const HINTS: Hint[] = [
     " — try ",
     { h: "^T" },
   ],
-  ["Hit ", { h: "^P" }, " to browse and resume any previous session"],
-  ["Type ", { h: "/session continue" }, " to pick up an interrupted generation"],
+  ["Type ", { h: "/claim" }, " to see which tab owns which files right now"],
 
-  // Editor & terminals
-  ["Forge can see the file open in your ", { h: "editor" }, " — open it with ", { h: "^E" }],
-  ["Type ", { h: "/terminals new" }, " to get a persistent shell alongside chat"],
+  // Steering
+  ["Type while Forge is working — ", { h: "steering" }, " redirects the agent mid-stream"],
 
-  // Router & models
-  ["Type ", { h: "/router" }, " — send code to one model, exploration to another"],
+  // Dispatch & router
+  ["Type ", { h: "/router" }, " — cheap model for research, strong model for edits"],
   [
     "Type ",
     { h: "/provider-settings" },
@@ -76,37 +83,38 @@ const HINTS: Hint[] = [
     ", and ",
     { h: "speed" },
   ],
-  [
-    "Add a ",
-    { h: "custom provider" },
-    " in ",
-    { h: "config.json" },
-    " — any OpenAI-compatible API works",
-  ],
+  // Sessions
+  ["Hit ", { h: "^P" }, " to browse and resume any previous session"],
+  ["Type ", { h: "/session continue" }, " to pick up an interrupted generation"],
+  ["Type ", { h: "/session export" }, " to save your chat as markdown or JSON"],
+
+  // Intelligence
+  ["Add a ", { h: "SOULFORGE.md" }, " to your repo — Forge reads it as project instructions"],
+  ["Run ", { h: "/lsp install" }, " to add language servers for smarter navigation"],
+  ["Run ", { h: "/diagnose" }, " to health-check your LSP and tree-sitter setup"],
+
+  // Editor & terminals
+  ["Forge can see the file open in your ", { h: "editor" }, " — open it with ", { h: "^E" }],
+  ["Type ", { h: "/terminals new" }, " to get a persistent shell alongside chat"],
+  ["Type ", { h: "/editor split" }, " to cycle the editor/chat ratio (40/50/60/70)"],
+
+  // Hooks & MCP
+  ["Type ", { h: "/hooks" }, " to run shell commands on agent events — auto-format on edit"],
+  ["Type ", { h: "/mcp" }, " to plug in MCP servers — agent gets their tools as ", { h: "mcp__*" }],
+
+  // Skills & memory
+  ["Hit ", { h: "^S" }, " to browse and install ", { h: "community skills" }, " from skills.sh"],
+  ["Ask Forge to ", { h: "remember" }, " a decision — it persists across sessions"],
 
   // Git
   ["Hit ", { h: "^G" }, " for the full git menu — commit, diff, stash, lazygit"],
   ["Type ", { h: "/git co-author" }, " to toggle the co-author trailer on commits"],
-  ["Type ", { h: "/changes" }, " to see every file Forge touched this session"],
-  ["Type ", { h: "/session export" }, " to save your chat as markdown or JSON"],
-
-  // Skills & memory
-  ["Hit ", { h: "^S" }, " to browse and install ", { h: "community skills" }],
-  ["Ask Forge to ", { h: "remember" }, " a decision — it persists across sessions"],
 
   // Context
   ["Running low on context? Type ", { h: "/compact" }, " to summarize and free space"],
 
   // Themes
   ["Type ", { h: "/theme" }, " to live-preview 24 themes with ", { h: "transparency" }, " support"],
-  [
-    "Drop a ",
-    { h: ".json" },
-    " in ",
-    { h: "~/.soulforge/themes/" },
-    " for a custom theme — hot-reloads",
-  ],
-
   // Headless & CLI
   ["Run ", { h: "soulforge --headless" }, " for one-shot CLI mode — great for CI/CD"],
   ["Run ", { h: "soulforge --headless --chat" }, " for interactive multi-turn CLI sessions"],
@@ -114,10 +122,8 @@ const HINTS: Hint[] = [
   // Discovery
   ["Type ", { h: "/instructions" }, " to toggle which instruction files Forge reads"],
   ["Type ", { h: "/privacy" }, " to hide sensitive files from Forge — like .gitignore for AI"],
-  ["Type while Forge is working — ", { h: "steering" }, " redirects the agent mid-stream"],
   ["Type ", { h: "/update" }, " to check for new SoulForge versions"],
 ];
-
 function hintPlainText(hint: Hint): string {
   return hint.map((s) => (typeof s === "string" ? s : s.h)).join("");
 }
