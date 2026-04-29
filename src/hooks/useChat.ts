@@ -729,7 +729,7 @@ export function useChat({
   const handleSubmitRef = useRef<(input: string) => void>(() => {});
   // Stream stall watchdog state — persists across handleSubmit calls so
   // auto-retry "Continue." inherits the count from the previous attempt.
-  const stallRetryCountRef = useRef(0);
+  const stallRetryCountRef = useRef<number>(0);
   const stallRetryPendingRef = useRef(false);
   // Per-turn token deltas captured from finish-step events. Reset at the start
   // of each handleSubmit run so the value emitted to the Hearth bridge in
@@ -1708,8 +1708,7 @@ export function useChat({
       baseTokenUsageRef.current = { ...currentUsage };
 
       // Abort controller for Ctrl+X
-      const abortController = new AbortController();
-      abortRef.current = abortController;
+      let abortController: AbortController;
 
       let fullText = "";
       let lastIncrementalSave = 0;
@@ -1840,6 +1839,12 @@ export function useChat({
       let unsubStallWatch3: (() => void) | null = null;
       let userAborted = false;
       let stallTriggered = false; // only true when the watchdog itself fires
+      let stallAborted = false; // true when abort is from stall watchdog
+      // Resolve retry settings once at handleSubmit scope so they're accessible
+      // in both the retry loop AND the outer catch block for streaming errors.
+      const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
+        resolveRetrySettings(effectiveConfig.retry);
+      let streamRetryCount = 0; // local retry counter (not a ref)
       // Reset retry count on real user messages (not auto-retry "Continue.")
       if (input !== "Continue." || !stallRetryPendingRef.current) {
         stallRetryCountRef.current = 0;
@@ -1848,1268 +1853,1481 @@ export function useChat({
 
       const responseStartedAt = Date.now();
 
-      try {
-        setIsLoading(true);
-        const modelId = activeModelRef.current;
-        const model = resolveModel(modelId);
+      for (;;) {
+        // Reset state for retry
+        let proxyBounced = false;
+        abortController = new AbortController();
+        abortRef.current = abortController;
+        fullText = "";
+        completedCalls.length = 0;
+        finalSegments.length = 0;
+        subagentCumulative.clear();
+        completedResultChars.clear();
 
-        // Resolve subagent models from task router
-        // spark/ember are primary; coding/exploration/trivial are legacy config fallbacks
-        const tr = effectiveConfig.taskRouter;
-        const sparkModelId = tr?.spark ?? tr?.exploration ?? tr?.trivial ?? undefined;
-        const emberModelId = tr?.ember ?? tr?.coding ?? undefined;
-        const webSearchModelId = tr?.webSearch ?? undefined;
-        const desloppifyModelId = tr?.desloppify ?? undefined;
-        const verifyModelId = tr?.verify ?? undefined;
-        const hasSubagentModels =
-          sparkModelId || emberModelId || desloppifyModelId || verifyModelId;
-        const subagentModels = hasSubagentModels
-          ? {
-              spark: sparkModelId ? resolveModel(sparkModelId) : undefined,
-              ember: emberModelId ? resolveModel(emberModelId) : undefined,
-              desloppify: desloppifyModelId ? resolveModel(desloppifyModelId) : undefined,
-              verify: verifyModelId ? resolveModel(verifyModelId) : undefined,
+        try {
+          setIsLoading(true);
+          const modelId = activeModelRef.current;
+          const model = resolveModel(modelId);
+
+          // Resolve subagent models from task router
+          // spark/ember are primary; coding/exploration/trivial are legacy config fallbacks
+          const tr = effectiveConfig.taskRouter;
+          const sparkModelId = tr?.spark ?? tr?.exploration ?? tr?.trivial ?? undefined;
+          const emberModelId = tr?.ember ?? tr?.coding ?? undefined;
+          const webSearchModelId = tr?.webSearch ?? undefined;
+          const desloppifyModelId = tr?.desloppify ?? undefined;
+          const verifyModelId = tr?.verify ?? undefined;
+          const hasSubagentModels =
+            sparkModelId || emberModelId || desloppifyModelId || verifyModelId;
+          const subagentModels = hasSubagentModels
+            ? {
+                spark: sparkModelId ? resolveModel(sparkModelId) : undefined,
+                ember: emberModelId ? resolveModel(emberModelId) : undefined,
+                desloppify: desloppifyModelId ? resolveModel(desloppifyModelId) : undefined,
+                verify: verifyModelId ? resolveModel(verifyModelId) : undefined,
+              }
+            : undefined;
+          const webSearchModel = webSearchModelId ? resolveModel(webSearchModelId) : undefined;
+          webSearchModelLabelRef.current = webSearchModelId
+            ? getShortModelLabel(webSearchModelId)
+            : null;
+
+          // Web access: when disabled, null out both approval AND model so the tool is inert
+          const webSearchEnabled = effectiveConfig.webSearch !== false;
+          const webSearchApproval = webSearchEnabled
+            ? interactiveCallbacks.onWebSearchApproval
+            : undefined;
+          const fetchPageApproval = interactiveCallbacks.onFetchPageApproval;
+          const effectiveWebSearchModel = webSearchEnabled ? webSearchModel : undefined;
+
+          // Build providerOptions (thinking, effort, context management)
+          const {
+            providerOptions,
+            headers,
+            contextWindow: fetchedCtxWindow,
+          } = await buildProviderOptions(modelId, effectiveConfig);
+          // Propagate accurate context window from provider metadata (authoritative)
+          if (fetchedCtxWindow > 0) {
+            const prev = pinnedContextWindow.current.get(modelId) ?? 0;
+            if (fetchedCtxWindow !== prev) {
+              pinnedContextWindow.current.set(modelId, fetchedCtxWindow);
+              contextManagerRef.current.setContextWindow(fetchedCtxWindow);
+              if (visibleRef.current)
+                useStatusBarStore.getState().setContextWindow(fetchedCtxWindow);
             }
-          : undefined;
-        const webSearchModel = webSearchModelId ? resolveModel(webSearchModelId) : undefined;
-        webSearchModelLabelRef.current = webSearchModelId
-          ? getShortModelLabel(webSearchModelId)
-          : null;
-
-        // Web access: when disabled, null out both approval AND model so the tool is inert
-        const webSearchEnabled = effectiveConfig.webSearch !== false;
-        const webSearchApproval = webSearchEnabled
-          ? interactiveCallbacks.onWebSearchApproval
-          : undefined;
-        const fetchPageApproval = interactiveCallbacks.onFetchPageApproval;
-        const effectiveWebSearchModel = webSearchEnabled ? webSearchModel : undefined;
-
-        // Build providerOptions (thinking, effort, context management)
-        const {
-          providerOptions,
-          headers,
-          contextWindow: fetchedCtxWindow,
-        } = await buildProviderOptions(modelId, effectiveConfig);
-        // Propagate accurate context window from provider metadata (authoritative)
-        if (fetchedCtxWindow > 0) {
-          const prev = pinnedContextWindow.current.get(modelId) ?? 0;
-          if (fetchedCtxWindow !== prev) {
-            pinnedContextWindow.current.set(modelId, fetchedCtxWindow);
-            contextManagerRef.current.setContextWindow(fetchedCtxWindow);
-            if (visibleRef.current) useStatusBarStore.getState().setContextWindow(fetchedCtxWindow);
           }
-        }
 
-        steeringAbortedRef.current = false;
-        /**
-         * flushBeforeSteering — commit accumulated assistant content + steering
-         * messages into the messages list so the UI shows:
-         *   <previous assistant response> → <steering> → <new streaming>
-         * instead of lumping steering before the final combined response.
-         */
-        const flushBeforeSteering = (steeringMsgs: ChatMessage[]) => {
-          // Merge completed tool calls + in-progress ones from the live buffer
-          const completedIds = new Set(completedCalls.map((c) => c.id));
-          const livePending = liveToolCallsBuffer.current
-            .filter((tc) => !completedIds.has(tc.id))
-            .map((tc) => ({
-              id: tc.id,
-              name: tc.toolName,
-              args: safeParseArgs(tc.args),
-              ...(tc.state === "done" && tc.result
-                ? { result: { success: true as const, output: tc.result } }
-                : tc.state === "error" && tc.error
-                  ? { result: { success: false as const, output: tc.error, error: tc.error } }
-                  : {}),
-            }));
-          const allCalls = [...completedCalls, ...livePending];
-          const hasContent = hasRenderableAssistantContent({
-            fullText,
-            toolCallCount: allCalls.length,
-            segments: finalSegments,
+          steeringAbortedRef.current = false;
+          /**
+           * flushBeforeSteering — commit accumulated assistant content + steering
+           * messages into the messages list so the UI shows:
+           *   <previous assistant response> → <steering> → <new streaming>
+           * instead of lumping steering before the final combined response.
+           */
+          const flushBeforeSteering = (steeringMsgs: ChatMessage[]) => {
+            // Merge completed tool calls + in-progress ones from the live buffer
+            const completedIds = new Set(completedCalls.map((c) => c.id));
+            const livePending = liveToolCallsBuffer.current
+              .filter((tc) => !completedIds.has(tc.id))
+              .map((tc) => ({
+                id: tc.id,
+                name: tc.toolName,
+                args: safeParseArgs(tc.args),
+                ...(tc.state === "done" && tc.result
+                  ? { result: { success: true as const, output: tc.result } }
+                  : tc.state === "error" && tc.error
+                    ? { result: { success: false as const, output: tc.error, error: tc.error } }
+                    : {}),
+              }));
+            const allCalls = [...completedCalls, ...livePending];
+            const hasContent = hasRenderableAssistantContent({
+              fullText,
+              toolCallCount: allCalls.length,
+              segments: finalSegments,
+            });
+
+            if (!hasContent) {
+              setMessages((prev) => [...prev, ...steeringMsgs]);
+            } else {
+              const flushedAssistant: ChatMessage = {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: fullText,
+                timestamp: Date.now(),
+                toolCalls: allCalls.length > 0 ? allCalls : undefined,
+                segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
+              };
+              setMessages((prev) => [...prev, flushedAssistant, ...steeringMsgs]);
+            }
+
+            // Reset accumulators so subsequent steps start fresh
+            fullText = "";
+            completedCalls.length = 0;
+            finalSegments.length = 0;
+
+            // Clear streaming display buffers (mutate in-place — closures hold direct refs)
+            streamSegmentsBuffer.current.length = 0;
+            liveToolCallsBuffer.current.length = 0;
+            lastFlushedSegments.current = [];
+            lastFlushedToolCalls.current = [];
+            lastFlushedStreamingChars.current = 0;
+            streamingCharsRef.current = 0;
+            toolCharsRef.current = 0;
+            segmentsDirty.current = false;
+            toolCallsDirty.current = false;
+            setStreamSegments([]);
+            setLiveToolCalls([]);
+          };
+
+          const drainSteering = (): { text: string; images?: ImageAttachment[] } | null => {
+            if (steeringAbortedRef.current) return null;
+            const queue = messageQueueRef.current;
+            if (queue.length === 0) return null;
+            // Drain ALL queued steering messages at once
+            const drained: ChatMessage[] = [];
+            const texts: string[] = [];
+            const allImages: ImageAttachment[] = [];
+            for (const item of queue) {
+              const content = item?.content;
+              if (content) {
+                drained.push({
+                  id: crypto.randomUUID(),
+                  role: "user" as const,
+                  content,
+                  timestamp: Date.now(),
+                  showInChat: true,
+                  isSteering: true,
+                  images: item.images && item.images.length > 0 ? item.images : undefined,
+                });
+                texts.push(content);
+                if (item.images) allImages.push(...item.images);
+              }
+            }
+            messageQueueRef.current = [];
+            setMessageQueue([]);
+
+            if (drained.length > 0) {
+              // Flush current progress + steering into messages
+              flushBeforeSteering(drained);
+            }
+
+            if (texts.length === 0) return null;
+            return {
+              text: texts.join("\n\n"),
+              images: allImages.length > 0 ? allImages : undefined,
+            };
+          };
+
+          if (!contextManager.isRepoMapReady()) {
+            setIsLoading(true);
+
+            const answer = await new Promise<string>((resolve) => {
+              const questionId = crypto.randomUUID();
+              const warning =
+                "\n\nProceeding without it will significantly reduce capabilities — no soul tools (search, impact analysis, structural queries), no surgical file reads.";
+
+              const updateQuestion = () => {
+                const s = useRepoMapStore.getState();
+                const progress = s.scanProgress || "starting…";
+                const stats =
+                  s.files > 0 ? ` (${String(s.files)} files, ${String(s.symbols)} symbols)` : "";
+                const status = s.scanError
+                  ? `**Soul Map scan failed:** ${s.scanError}`
+                  : `**Soul Map indexing:** ${progress}${stats}`;
+                setPendingQuestion((prev) =>
+                  prev?.id === questionId ? { ...prev, question: `${status}${warning}` } : prev,
+                );
+              };
+
+              const cleanup = () => {
+                clearInterval(progressTimer);
+                clearInterval(readyPoller);
+              };
+
+              setPendingQuestion({
+                id: questionId,
+                question: `**Soul Map indexing:** starting…${warning}`,
+                options: [{ label: "Proceed without Soul Map", value: "skip" }],
+                allowSkip: false,
+                hideOther: true,
+                resolve: (answer) => {
+                  cleanup();
+                  setPendingQuestion(null);
+                  resolve(answer);
+                },
+              });
+
+              const progressTimer = setInterval(updateQuestion, 500);
+
+              const readyPoller = setInterval(() => {
+                if (contextManager.isRepoMapReady()) {
+                  cleanup();
+                  setPendingQuestion(null);
+                  resolve("ready");
+                }
+              }, 200);
+
+              abortController.signal.addEventListener(
+                "abort",
+                () => {
+                  cleanup();
+                  resolve("abort");
+                },
+                { once: true },
+              );
+            });
+
+            if (answer === "abort" || abortController.signal.aborted) return;
+
+            if (answer === "skip") {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content:
+                    "⚠ Proceeding without Soul Map — soul tools unavailable, dispatch agents will have limited capabilities.",
+                  timestamp: Date.now(),
+                },
+              ]);
+            }
+          }
+
+          setLoadingStartedAt(Date.now());
+
+          const agent = createForgeAgent({
+            model,
+            fullModelId: modelId,
+            contextManager,
+            forgeMode: contextManager.getForgeMode(),
+            interactive: interactiveCallbacks,
+            editorIntegration: effectiveConfig.editorIntegration,
+            subagentModels,
+            webSearchModel: effectiveWebSearchModel,
+            onApproveWebSearch: webSearchApproval,
+            onApproveFetchPage: fetchPageApproval,
+            onApproveOutsideCwd: promptOutsideCwd,
+            onApproveDestructive: promptDestructive,
+            providerOptions,
+            headers,
+            codeExecution: effectiveConfig.codeExecution,
+            computerUse: effectiveConfig.computerUse,
+            anthropicTextEditor: effectiveConfig.anthropicTextEditor,
+            cwd,
+            sessionId: sessionIdRef.current,
+            sharedCacheRef: sharedCacheRef.current,
+            agentFeatures: {
+              ...effectiveConfig.agentFeatures,
+              onDemandTools: !useToolsStore.getState().disabledTools.has("request_tools"),
+            },
+            planExecution: planExecutionRef.current,
+            drainSteering,
+            disablePruning: !["subagents", "both"].includes(
+              effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+            ),
+            disabledTools: useToolsStore.getState().disabledTools,
+            tabId,
+            tabLabel,
           });
+          let result: StreamTextResult<ToolSet, never> | undefined;
+          for (let degradeLevel = 0; degradeLevel <= 2; degradeLevel++) {
+            if (abortController.signal.aborted) break;
+            try {
+              const currentAgent =
+                degradeLevel === 0
+                  ? agent
+                  : (() => {
+                      const degraded = degradeProviderOptions(activeModelRef.current, degradeLevel);
+                      return createForgeAgent({
+                        model,
+                        fullModelId: modelId,
+                        contextManager,
+                        forgeMode: contextManager.getForgeMode(),
+                        interactive: interactiveCallbacks,
+                        editorIntegration: effectiveConfig.editorIntegration,
+                        subagentModels,
+                        webSearchModel: effectiveWebSearchModel,
+                        onApproveWebSearch: webSearchApproval,
+                        onApproveFetchPage: fetchPageApproval,
+                        onApproveOutsideCwd: promptOutsideCwd,
+                        onApproveDestructive: promptDestructive,
+                        providerOptions: degraded.providerOptions,
+                        headers: degraded.headers,
+                        codeExecution: effectiveConfig.codeExecution,
+                        computerUse: effectiveConfig.computerUse,
+                        anthropicTextEditor: effectiveConfig.anthropicTextEditor,
+                        cwd,
+                        sessionId: sessionIdRef.current,
+                        sharedCacheRef: sharedCacheRef.current,
+                        agentFeatures: {
+                          ...effectiveConfig.agentFeatures,
+                          onDemandTools: !useToolsStore
+                            .getState()
+                            .disabledTools.has("request_tools"),
+                        },
+                        planExecution: planExecutionRef.current,
+                        drainSteering,
+                        disablePruning: !["subagents", "both"].includes(
+                          effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+                        ),
+                        disabledTools: useToolsStore.getState().disabledTools,
+                        tabId,
+                        tabLabel,
+                      });
+                    })();
+              result = (await currentAgent.stream({
+                messages: newCoreMessages,
+                abortSignal: abortController.signal,
+                options: { userMessage: input },
+              })) as unknown as StreamTextResult<ToolSet, never>;
+              break;
+            } catch (err: unknown) {
+              if (!isProviderOptionsError(err) || degradeLevel === 2) throw err;
+            }
+          }
 
-          if (!hasContent) {
-            setMessages((prev) => [...prev, ...steeringMsgs]);
-          } else {
-            const flushedAssistant: ChatMessage = {
-              id: crypto.randomUUID(),
+          const toolCallArgs = new Map<string, string>();
+          const thinkingParser = createThinkingParser();
+          let hasNativeReasoning = false;
+          let thinkingIdCounter = 0;
+          const streamErrors: string[] = [];
+
+          const buf = streamSegmentsBuffer.current;
+          const tcBuf = liveToolCallsBuffer.current;
+
+          const updateStreamingEstimate = (newChars: number) => {
+            streamingCharsRef.current += newChars;
+            const estimatedNewTokens = Math.round(streamingCharsRef.current / 3.5);
+            const base = baseTokenUsageRef.current;
+            pendingTokenUsage.current = {
+              ...base,
+              completion: base.completion + estimatedNewTokens,
+              total: base.total + estimatedNewTokens,
+            };
+            pendingLastStepOutput.current = estimatedNewTokens;
+          };
+
+          const appendText = (text: string) => {
+            fullText += text;
+            updateStreamingEstimate(text.length);
+            segmentsDirty.current = true;
+            const lastSeg = finalSegments[finalSegments.length - 1];
+            if (lastSeg?.type === "text") {
+              lastSeg.content += text;
+            } else {
+              finalSegments.push({ type: "text", content: text });
+            }
+            const lastBuf = buf[buf.length - 1];
+            if (lastBuf?.type === "text") {
+              lastBuf.content += text;
+            } else {
+              buf.push({ type: "text" as const, content: text });
+            }
+          };
+
+          const pushReasoningSegment = (id: string) => {
+            segmentsDirty.current = true;
+            finalSegments.push({ type: "reasoning", content: "", id });
+            buf.push({ type: "reasoning", content: "", id, done: false } as StreamSegment);
+          };
+
+          const appendReasoningContent = (text: string) => {
+            updateStreamingEstimate(text.length);
+            segmentsDirty.current = true;
+            const lastSeg = finalSegments[finalSegments.length - 1];
+            if (lastSeg?.type === "reasoning") {
+              lastSeg.content += text;
+            }
+            const lastBuf = buf[buf.length - 1];
+            if (lastBuf?.type === "reasoning") {
+              lastBuf.content += text;
+            }
+          };
+
+          const markReasoningDone = () => {
+            const lastBuf = buf[buf.length - 1];
+            if (lastBuf?.type === "reasoning" && !lastBuf.done) {
+              segmentsDirty.current = true;
+              lastBuf.done = true;
+            }
+          };
+
+          flushTimerRef.current = setInterval(flushStreamState, 32);
+
+          if (!result) {
+            throw new Error("Stream aborted before result was assigned");
+          }
+
+          // ── Stream stall watchdog ──────────────────────────────────
+          // Detects hung API connections and auto-retries transparently.
+          //
+          // How it works:
+          //   - Every stream event + subagent event resets a timer
+          //   - Tool execution pauses the timer (tools have their own timeouts)
+          //   - On stall: abort + auto-retry with backoff (up to 2 retries)
+          //   - User Ctrl+X always wins — sets userAborted flag
+          //   - After max retries, surfaces error to user
+          //
+          // Stall threshold: 90s between content chunks, 180s before first content.
+          // "First content" = actual text or tool-call, not just start-step metadata.
+          // First-content is generous for free tiers, deep reasoning, and large contexts.
+          // Paused entirely while tools execute (they have their own timeouts).
+          const STALL_CHUNK_MS = 120_000;
+          const STALL_FIRST_CHUNK_MS = 180_000;
+          const STALL_TOOL_MAX_MS = 900_000; // 15min — dispatch worst case
+          let lastActivityTs = Date.now();
+          let lastToolActivityTs = Date.now();
+          let toolsInFlight = 0;
+          let gotFirstContent = false;
+          let betweenSteps = false; // true after finish-step until next start-step
+          const markActivity = () => {
+            lastActivityTs = Date.now();
+          };
+          const markToolStart = () => {
+            toolsInFlight++;
+            lastToolActivityTs = Date.now();
+          };
+          const markToolEnd = () => {
+            toolsInFlight = Math.max(0, toolsInFlight - 1);
+            lastActivityTs = Date.now();
+            lastToolActivityTs = Date.now();
+          };
+          const onUserAbort = () => {
+            // Only mark as user-aborted if the abort wasn't from the stall watchdog.
+            if (!stallAborted) {
+              userAborted = true;
+            }
+          };
+          abortController.signal.addEventListener("abort", onUserAbort, { once: true });
+          // Filter subagent events to this tab's own dispatches only —
+          // global event bus is shared across tabs, so unfiltered events from
+          // other tabs would keep our watchdog alive during a genuine stall.
+          const isOurEvent = (parentToolCallId: string) =>
+            liveToolCallsBuffer.current.some((c) => c.id === parentToolCallId);
+          unsubStallWatch1 = onMultiAgentEvent((evt) => {
+            if (!isOurEvent(evt.parentToolCallId)) return;
+            markActivity();
+            lastToolActivityTs = Date.now();
+          });
+          unsubStallWatch2 = onSubagentStep((evt) => {
+            if (!isOurEvent(evt.parentToolCallId)) return;
+            markActivity();
+            lastToolActivityTs = Date.now();
+          });
+          unsubStallWatch3 = onAgentStats((evt) => {
+            if (!isOurEvent(evt.parentToolCallId)) return;
+            markActivity();
+            lastToolActivityTs = Date.now();
+          });
+          // Track whether the watchdog already fired abort — subsequent interval
+          // ticks should force-resolve the stream if the abort didn't propagate.
+          let stallAbortedAt = 0;
+          const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
+          if (effectiveConfig.watchdog)
+            stallWatchdog = setInterval(() => {
+              // If watchdog aborted but the for-await loop is stuck on a dead
+              // connection that didn't honor the AbortSignal, force-resolve it.
+              if (stallAborted && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
+                // Force the stream iterator to end by calling return() on the SAME
+                // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
+                // call would create a fresh reader and fail on the locked stream.
+                try {
+                  streamIterator?.return?.();
+                } catch {}
+                // Clear ourselves — nothing more we can do
+                if (stallWatchdog) {
+                  clearInterval(stallWatchdog);
+                  stallWatchdog = null;
+                }
+                return;
+              }
+              if (abortController.signal.aborted) return;
+              // Pause while a user prompt is active (local TUI popup, plan review,
+              // ask_user) or a remote approval callback is awaiting Telegram/etc.
+              // The user may need minutes to tap — not stream inactivity.
+              if (
+                pendingQuestionRef.current ||
+                pendingPlanReviewRef.current ||
+                remoteApprovalActiveRef.current > 0
+              ) {
+                lastActivityTs = Date.now();
+                lastToolActivityTs = Date.now();
+                return;
+              }
+              // While tools run, only fire if tool itself is stuck (15min max)
+              if (toolsInFlight > 0) {
+                if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
+              } else {
+                // Between steps (SDK making a new API call) or before first chunk:
+                // use the generous first-chunk timeout since the provider may be
+                // processing a large context or queueing the request.
+                const threshold =
+                  !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
+                if (Date.now() - lastActivityTs <= threshold) return;
+              }
+              // Capture the actual threshold that fired for the user-facing message
+              const firedThresholdMs =
+                toolsInFlight > 0
+                  ? STALL_TOOL_MAX_MS
+                  : !gotFirstContent || betweenSteps
+                    ? STALL_FIRST_CHUNK_MS
+                    : STALL_CHUNK_MS;
+              stallTriggered = true;
+              stallRetryCountRef.current++;
+              const count = stallRetryCountRef.current;
+              if (count <= STALL_MAX_RETRIES) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "system",
+                    content: `Connection stalled — no activity for ${String(Math.round(firedThresholdMs / 1000))}s. Auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})…`,
+                    timestamp: Date.now(),
+                    showInChat: true,
+                  },
+                ]);
+                logBackgroundError(
+                  "stream-stall",
+                  `No stream activity — auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})`,
+                );
+              } else {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "system",
+                    content: `Connection stalled ${String(STALL_MAX_RETRIES)} times — giving up. You can resend your message to try again.`,
+                    timestamp: Date.now(),
+                    showInChat: true,
+                  },
+                ]);
+                logBackgroundError(
+                  "stream-stall",
+                  `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
+                );
+              }
+              stallAborted = true; // Mark that abort is from watchdog
+              stallAbortedAt = Date.now(); // Keep for force-resolve timing
+              abortController.abort();
+            }, 10_000);
+
+          let streamEventCount = 0;
+          let yieldBeforeNext = false;
+          // Capture the iterator so the watchdog can call .return() on the SAME
+          // instance the loop holds. Calling [Symbol.asyncIterator]() again would
+          // try getReader() on an already-locked ReadableStream and throw.
+          const streamIterator = (
+            result.fullStream as AsyncIterable<
+              typeof result.fullStream extends AsyncIterable<infer T> ? T : never
+            >
+          )[Symbol.asyncIterator]();
+          for await (const part of { [Symbol.asyncIterator]: () => streamIterator }) {
+            markActivity();
+            if (yieldBeforeNext || ++streamEventCount % 5 === 0) {
+              yieldBeforeNext = false;
+              await new Promise<void>((r) => setTimeout(r, 0));
+            }
+            switch (part.type) {
+              case "start-step": {
+                betweenSteps = false;
+                const warnings = (part as { warnings?: Array<{ type: string; message?: string }> })
+                  .warnings;
+                if (warnings && warnings.length > 0) {
+                  const msg = warnings
+                    .map((w) => `[${w.type}]${w.message ? ` ${w.message}` : ""}`)
+                    .join("; ");
+                  if (process.env.SOULFORGE_DEBUG_API) {
+                    import("../core/tools/tee.js").then(({ saveTee }) =>
+                      saveTee("provider-warnings", msg),
+                    );
+                  }
+                }
+                break;
+              }
+              case "reasoning-start": {
+                hasNativeReasoning = true;
+                pushReasoningSegment(part.id);
+                break;
+              }
+              case "reasoning-delta": {
+                gotFirstContent = true;
+                appendReasoningContent(part.text);
+                void import("../hearth/bridge.js").then(({ reasoningStreamEmitter }) => {
+                  reasoningStreamEmitter.append(tabId, part.text);
+                });
+                break;
+              }
+              case "reasoning-end":
+                markReasoningDone();
+                break;
+              case "text-delta": {
+                gotFirstContent = true;
+                if (hasNativeReasoning) {
+                  appendText(part.text);
+                } else {
+                  const parsed = thinkingParser.feed(part.text);
+                  for (const chunk of parsed) {
+                    switch (chunk.type) {
+                      case "text":
+                        appendText(chunk.content);
+                        break;
+                      case "reasoning-start":
+                        pushReasoningSegment(`thinking-${String(thinkingIdCounter++)}`);
+                        break;
+                      case "reasoning-content":
+                        appendReasoningContent(chunk.content);
+                        break;
+                      case "reasoning-end":
+                        markReasoningDone();
+                        break;
+                    }
+                  }
+                }
+                // Stream visible text to Hearth surfaces in real time (coalesced).
+                void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                  bridgeStreamEmitter.stream(tabId, { type: "text", content: part.text });
+                });
+                queueMicrotaskFlush();
+                break;
+              }
+              case "tool-input-start": {
+                gotFirstContent = true;
+                markToolStart();
+                segmentsDirty.current = true;
+                toolCallsDirty.current = true;
+                void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                  bridgeStreamEmitter.stream(tabId, {
+                    type: "tool-call",
+                    tool: part.toolName,
+                    toolCallId: part.id,
+                  });
+                });
+
+                // Detect code_execution child calls: if a code_execution call is currently
+                // running (state !== "done"/"error"), any new tool call is a child spawned from it.
+                const activeCodeExec = tcBuf.find(
+                  (c) => c.toolName === "code_execution" && c.state === "running",
+                );
+                const isChildCall = activeCodeExec && part.toolName !== "code_execution";
+
+                // Child calls don't get their own segment — they're nested under the parent
+                if (!isChildCall) {
+                  const lastToolSeg = finalSegments[finalSegments.length - 1];
+                  if (lastToolSeg?.type === "tools") {
+                    lastToolSeg.toolCallIds.push(part.id);
+                  } else {
+                    finalSegments.push({ type: "tools", toolCallIds: [part.id] });
+                  }
+                  const lastBufSeg = buf[buf.length - 1];
+                  if (lastBufSeg?.type === "tools") {
+                    lastBufSeg.callIds.push(part.id);
+                  } else {
+                    buf.push({ type: "tools" as const, callIds: [part.id] });
+                  }
+                }
+
+                tcBuf.push({
+                  id: part.id,
+                  toolName: part.toolName,
+                  state: "running",
+                  ...(isChildCall ? { parentId: activeCodeExec.id } : {}),
+                  ...(part.toolName === "web_search" && webSearchModelLabelRef.current
+                    ? { backend: webSearchModelLabelRef.current }
+                    : {}),
+                });
+                toolCallArgs.set(part.id, "");
+                queueMicrotaskFlush();
+                break;
+              }
+              case "tool-input-delta": {
+                toolCallArgs.set(part.id, (toolCallArgs.get(part.id) ?? "") + part.delta);
+                const tc = tcBuf.find((c) => c.id === part.id);
+                if (tc) {
+                  tc.args = toolCallArgs.get(part.id);
+                  if (
+                    tc.toolName === "dispatch" ||
+                    tc.toolName === "plan" ||
+                    tc.toolName === "write_plan"
+                  ) {
+                    toolCallsDirty.current = true;
+                    queueMicrotaskFlush();
+                  }
+                }
+                toolCharsRef.current += part.delta.length;
+                break;
+              }
+              case "file": {
+                // Code execution can generate image files — capture them for inline display
+                const file = (part as { file?: { mediaType?: string; uint8Array?: Uint8Array } })
+                  .file;
+                if (
+                  file?.mediaType?.startsWith("image/") &&
+                  file.uint8Array &&
+                  file.uint8Array.length > 0
+                ) {
+                  // Find the active code_execution tool call to attach the image to
+                  const codeExecTc = tcBuf.find(
+                    (c) => c.toolName === "code_execution" && c.state === "running",
+                  );
+                  if (codeExecTc) {
+                    try {
+                      const { renderImageFromData } = await import("../core/terminal/image.js");
+                      const art = await renderImageFromData(
+                        Buffer.from(file.uint8Array),
+                        `image-${String(Date.now())}.png`,
+                      );
+                      if (art) {
+                        if (!codeExecTc.imageArt) codeExecTc.imageArt = [];
+                        codeExecTc.imageArt.push(art);
+                        toolCallsDirty.current = true;
+                        queueMicrotaskFlush();
+                      }
+                    } catch {
+                      // Image rendering failed — silently skip
+                    }
+                  }
+                }
+                break;
+              }
+              case "tool-result": {
+                markToolEnd();
+                toolCallsDirty.current = true;
+                const resultStr =
+                  typeof part.output === "string" ? part.output : JSON.stringify(part.output);
+                const tc = tcBuf.find((c) => c.id === part.toolCallId);
+                if (tc) {
+                  tc.state = "done";
+                  tc.result = resultStr;
+                  tc.progressText = undefined;
+                  // Extract half-block image art from shell tool results
+                  if (
+                    typeof part.output === "object" &&
+                    part.output !== null &&
+                    "_imageArt" in part.output
+                  ) {
+                    tc.imageArt = (
+                      part.output as {
+                        _imageArt: Array<{
+                          name: string;
+                          lines: string[];
+                          kittyImageId?: number;
+                          kittyCols?: number;
+                          kittyRows?: number;
+                        }>;
+                      }
+                    )._imageArt;
+                  }
+                }
+                toolCharsRef.current += resultStr.length;
+                const parsedArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
+                // Extract structured result — part.output is already our {success, output, error?} object
+                let toolResult: import("../types/index.js").ToolResult;
+                if (
+                  typeof part.output === "object" &&
+                  part.output !== null &&
+                  "success" in part.output
+                ) {
+                  const r = part.output as {
+                    success: boolean;
+                    output?: string;
+                    error?: string;
+                    backend?: string;
+                    outlineOnly?: boolean;
+                    filesEdited?: string[];
+                  };
+                  toolResult = {
+                    success: r.success,
+                    output: r.output ?? "",
+                    error: r.error,
+                    backend: r.backend,
+                    outlineOnly: r.outlineOnly,
+                    filesEdited: r.filesEdited,
+                  };
+                } else {
+                  toolResult = { success: true, output: resultStr };
+                }
+                // Dispatch tool returns DispatchOutput (no `success` field) — extract filesEdited
+                if (
+                  typeof part.output === "object" &&
+                  part.output !== null &&
+                  "filesEdited" in part.output
+                ) {
+                  const d = part.output as { filesEdited?: string[] };
+                  if (d.filesEdited) toolResult.filesEdited = d.filesEdited;
+                }
+                // Preserve imageArt from the streaming LiveToolCall for the final ToolCall
+                const streamingTc = tcBuf.find((c) => c.id === part.toolCallId);
+                const completedCall: import("../types/index.js").ToolCall = {
+                  id: part.toolCallId,
+                  name: part.toolName,
+                  args: parsedArgs,
+                  result: toolResult,
+                };
+                if (streamingTc?.parentId) {
+                  completedCall.parentId = streamingTc.parentId;
+                }
+                if (streamingTc?.imageArt) {
+                  completedCall.imageArt = streamingTc.imageArt;
+                }
+                completedCalls.push(completedCall);
+                if (workingStateRef.current) {
+                  extractFromToolCall(workingStateRef.current, part.toolName, parsedArgs);
+                  extractFromToolResult(
+                    workingStateRef.current,
+                    part.toolName,
+                    resultStr,
+                    parsedArgs,
+                  );
+                  syncV2Slots();
+                }
+                // Stream tool-result summary to Hearth (truncated — adapters render).
+                void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                  bridgeStreamEmitter.stream(tabId, {
+                    type: "tool-result",
+                    tool: part.toolName,
+                    toolCallId: part.toolCallId,
+                    summary: toolResult.error
+                      ? `✗ ${toolResult.error.slice(0, 200)}`
+                      : `✓ ${(toolResult.output ?? "").slice(0, 200)}`,
+                  });
+                });
+                flushStreamState();
+                yieldBeforeNext = true;
+                break;
+              }
+              case "tool-error": {
+                markToolEnd();
+                toolCallsDirty.current = true;
+                let errorMsg: string;
+                if (typeof part.error === "string") {
+                  errorMsg = part.error;
+                } else if (typeof part.error === "object" && part.error !== null) {
+                  const e = part.error;
+                  if ("errorCode" in e && typeof e.errorCode === "string") errorMsg = e.errorCode;
+                  else if ("error_code" in e && typeof e.error_code === "string")
+                    errorMsg = e.error_code;
+                  else if ("message" in e && typeof e.message === "string") errorMsg = e.message;
+                  else errorMsg = JSON.stringify(e);
+                } else {
+                  errorMsg = String(part.error);
+                }
+                const tc = tcBuf.find((c) => c.id === part.toolCallId);
+                if (tc) {
+                  tc.state = "error";
+                  tc.error = errorMsg;
+                  tc.progressText = undefined;
+                }
+                const errorArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
+                completedCalls.push({
+                  id: part.toolCallId,
+                  name: part.toolName,
+                  args: errorArgs,
+                  result: { success: false, output: "", error: errorMsg },
+                });
+                if (workingStateRef.current) {
+                  extractFromToolCall(workingStateRef.current, part.toolName, errorArgs);
+                  workingStateRef.current.addFailure(`${part.toolName}: ${errorMsg.slice(0, 200)}`);
+                  syncV2Slots();
+                }
+                void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                  bridgeStreamEmitter.stream(tabId, {
+                    type: "tool-result",
+                    tool: part.toolName,
+                    toolCallId: part.toolCallId,
+                    summary: `✗ ${errorMsg.slice(0, 200)}`,
+                  });
+                });
+                flushStreamState();
+                yieldBeforeNext = true;
+                break;
+              }
+              case "finish-step": {
+                betweenSteps = true;
+                const stepTotal = part.usage.inputTokens ?? 0;
+                const stepOut = part.usage.outputTokens ?? 0;
+                const details = (
+                  part.usage as {
+                    inputTokenDetails?: {
+                      cacheReadTokens?: number;
+                      cacheWriteTokens?: number;
+                      noCacheTokens?: number;
+                    };
+                  }
+                ).inputTokenDetails;
+                const stepCache = details?.cacheReadTokens ?? 0;
+                const stepCacheWrite = details?.cacheWriteTokens ?? 0;
+                const stepNoCache = details?.noCacheTokens ?? 0;
+                // prompt = uncached input ONLY. cacheWrite tracked separately.
+                // inputTokens from SDK = total (noCache + cacheRead + cacheWrite)
+                const stepIn =
+                  stepNoCache > 0
+                    ? stepNoCache
+                    : Math.max(0, stepTotal - stepCache - stepCacheWrite);
+                if (process.env.SOULFORGE_DEBUG_API) {
+                  const line = `[cache] step total=${String(stepTotal)} noCache=${String(stepNoCache)} cacheRead=${String(stepCache)} cacheWrite=${String(stepCacheWrite)} prompt=${String(stepIn)} output=${String(stepOut)}\n`;
+                  try {
+                    const g = globalThis as unknown as Record<string, string>;
+                    g.__cacheLog = (g.__cacheLog ?? "") + line;
+                    Bun.write(
+                      `${process.cwd()}/.soulforge/api-export/cache-steps.log`,
+                      g.__cacheLog,
+                    );
+                  } catch {}
+                }
+                const base = baseTokenUsageRef.current;
+                const newUsage: TokenUsage = {
+                  ...base,
+                  prompt: base.prompt + stepIn,
+                  completion: base.completion + stepOut,
+                  total: base.total + stepTotal + stepOut,
+                  cacheRead: base.cacheRead + stepCache,
+                  cacheWrite: base.cacheWrite + stepCacheWrite,
+                  lastStepInput: stepIn,
+                  lastStepOutput: stepOut,
+                  lastStepCacheRead: stepCache,
+                  modelBreakdown: accumulateModelUsage(base.modelBreakdown, modelId, {
+                    input: stepIn,
+                    output: stepOut,
+                    cacheRead: stepCache,
+                    cacheWrite: stepCacheWrite,
+                  }),
+                };
+                pendingTokenUsage.current = newUsage;
+                baseTokenUsageRef.current = newUsage;
+                streamingCharsRef.current = 0;
+                if (stepTotal > 0) pendingContextTokens.current = stepTotal;
+                pendingLastStepOutput.current = stepOut;
+                // Accumulate per-turn delta so the Hearth bridge's turn-done
+                // reports real numbers instead of zeros.
+                turnTokensRef.current = {
+                  input: turnTokensRef.current.input + stepIn,
+                  output: turnTokensRef.current.output + stepOut,
+                  cacheRead: turnTokensRef.current.cacheRead + stepCache,
+                };
+                queueMicrotaskFlush();
+
+                if (completedCalls.length > 0 && Date.now() - lastIncrementalSave > 10_000) {
+                  lastIncrementalSave = Date.now();
+                  queueMicrotask(() => {
+                    try {
+                      const snapshot = getWorkspaceSnapshot?.();
+                      if (!snapshot) return;
+                      const partialMsg: ChatMessage = {
+                        id: crypto.randomUUID(),
+                        role: "assistant",
+                        content: fullText,
+                        timestamp: Date.now(),
+                        toolCalls: [...completedCalls],
+                        segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
+                      };
+                      setMessages((prev) => {
+                        const allMsgs = [...prev, partialMsg];
+                        const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
+                          sessionId: sessionIdRef.current,
+                          title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
+                          customTitle: customTitleRef.current,
+                          cwd,
+                          snapshot,
+                          currentTabMessages: allMsgs.filter(
+                            (m) => m.role !== "system" || m.showInChat,
+                          ),
+                          currentTabCoreMessages: coreMessagesRef.current,
+                        });
+                        updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+                        sessionManager
+                          .saveSession(meta, tabMessages, tabCoreMessages)
+                          .catch(() => {});
+                        return prev;
+                      });
+                    } catch {
+                      // Don't let checkpoint failures interrupt streaming
+                    }
+                  });
+                }
+                break;
+              }
+              case "error": {
+                const err = part.error;
+                const errText =
+                  (err instanceof Error ? err.message : null) ||
+                  (typeof err === "string" ? err : null) ||
+                  JSON.stringify(err);
+                const errStack = err instanceof Error ? err.stack : undefined;
+                const sErr =
+                  err != null && typeof err === "object" ? (err as Record<string, unknown>) : null;
+                const sBody =
+                  sErr && typeof sErr.responseBody === "string" && sErr.responseBody.length > 0
+                    ? (sErr.responseBody as string).slice(0, 500)
+                    : undefined;
+                const sData =
+                  sErr?.data != null ? JSON.stringify(sErr.data).slice(0, 500) : undefined;
+                const enriched = sBody ?? sData;
+                const displayErr = enriched ? `${errText} · ${enriched}` : errText;
+                logBackgroundError("api", displayErr);
+                appendText(`\n\n_Error: ${displayErr}_`);
+                if (streamErrors.length < 50) {
+                  streamErrors.push(
+                    errStack ? `Error: ${displayErr}\n\n${errStack}` : `Error: ${displayErr}`,
+                  );
+                }
+                break;
+              }
+            }
+          }
+
+          // Clean up stream stall watchdog
+          if (stallWatchdog) clearInterval(stallWatchdog);
+          unsubStallWatch1?.();
+          unsubStallWatch2?.();
+          unsubStallWatch3?.();
+
+          // If the watchdog fired but the stream ended gracefully (some providers
+          // close the stream instead of throwing on abort), re-throw so the catch
+          // block's auto-retry logic kicks in.
+          if (stallTriggered && abortController.signal.aborted && !userAborted) {
+            throw new Error("Stream stall — abort did not throw");
+          }
+
+          // Log agent stop reason for debugging (visible via /errors) — only when errors occurred
+          if (streamErrors.length > 0) {
+            logBackgroundError(
+              "agent-stop",
+              `streamErrors=${String(streamErrors.length)}: ${streamErrors[0]?.slice(0, 200)}`,
+            );
+          }
+
+          if (flushTimerRef.current) {
+            clearInterval(flushTimerRef.current);
+            flushTimerRef.current = null;
+          }
+          flushStreamState();
+
+          if (!hasNativeReasoning) {
+            for (const chunk of thinkingParser.flush()) {
+              switch (chunk.type) {
+                case "text":
+                  appendText(chunk.content);
+                  break;
+                case "reasoning-content":
+                  appendReasoningContent(chunk.content);
+                  break;
+                default:
+                  break;
+              }
+            }
+          }
+
+          let responseMessages: ModelMessage[];
+          try {
+            const timeout = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("response timeout")), 10_000),
+            );
+            const responseData = await Promise.race([result.response, timeout]);
+            responseMessages = responseData.messages;
+          } catch {
+            responseMessages =
+              fullText.length > 0 ? [{ role: "assistant" as const, content: fullText }] : [];
+          }
+
+          // Embed plan as a segment if one was created (skip when plan post-action will handle it)
+          if (activePlanRef.current && !planPostActionRef.current) {
+            finalSegments.push({ type: "plan", plan: activePlanRef.current });
+          }
+          setActivePlan(null);
+          setSidebarPlan(null);
+
+          if (workingStateRef.current && fullText.length > 0) {
+            extractFromAssistantMessage(workingStateRef.current, {
               role: "assistant",
               content: fullText,
-              timestamp: Date.now(),
-              toolCalls: allCalls.length > 0 ? allCalls : undefined,
-              segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
-            };
-            setMessages((prev) => [...prev, flushedAssistant, ...steeringMsgs]);
+            });
+            syncV2Slots();
           }
 
-          // Reset accumulators so subsequent steps start fresh
-          fullText = "";
-          completedCalls.length = 0;
-          finalSegments.length = 0;
+          const assistantMsg = buildAssistantMessage({
+            fullText,
+            completedCalls,
+            segments: finalSegments,
+            responseStartedAt,
+            now: Date.now(),
+          });
 
-          // Clear streaming display buffers (mutate in-place — closures hold direct refs)
-          streamSegmentsBuffer.current.length = 0;
-          liveToolCallsBuffer.current.length = 0;
+          const errorMsgs: ChatMessage[] = streamErrors.map((errContent) => ({
+            id: crypto.randomUUID(),
+            role: "system" as const,
+            content: errContent,
+            timestamp: Date.now(),
+          }));
+
+          setMessages((prev) => {
+            const allMsgs = [...prev, ...(assistantMsg ? [assistantMsg] : []), ...errorMsgs];
+            queueMicrotask(() => {
+              const snapshot = getWorkspaceSnapshot?.();
+              if (snapshot) {
+                const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
+                  sessionId: sessionIdRef.current,
+                  title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
+                  customTitle: customTitleRef.current,
+                  cwd,
+                  snapshot,
+                  currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
+                  currentTabCoreMessages: coreMessagesRef.current,
+                });
+                updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
+                sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
+              }
+            });
+            // Finalize streaming: flush any remaining text + reasoning + emit turn-done.
+            // Individual text-delta / tool-call / tool-result / reasoning-delta events
+            // were already streamed during the turn.
+            if (assistantMsg) {
+              void import("../hearth/bridge.js").then(
+                ({ bridgeStreamEmitter, reasoningStreamEmitter }) => {
+                  reasoningStreamEmitter.flushNow(tabId);
+                  bridgeStreamEmitter.flushNow(tabId);
+                  bridgeStreamEmitter.stream(tabId, {
+                    type: "turn-done",
+                    turn: 0,
+                    output: assistantMsg.content,
+                    steps: assistantMsg.toolCalls?.length ?? 0,
+                    tokens: { ...turnTokensRef.current },
+                    toolCalls: (assistantMsg.toolCalls ?? []).map((c) => c.name),
+                    filesEdited: [],
+                    duration: assistantMsg.durationMs ?? 0,
+                  });
+                },
+              );
+            }
+            return allMsgs;
+          });
+
+          // Sanitize empty assistant content — Anthropic rejects empty text blocks.
+          // Instead of filtering (which could orphan tool messages), patch empty content.
+          const filteredResponseMessages = responseMessages
+            .map((m) => {
+              if (m.role !== "assistant") return m;
+              if (typeof m.content === "string" && m.content.length === 0) {
+                // Completely empty string content — drop the message only if the
+                // next message is NOT a tool message (which would be orphaned).
+                return null;
+              }
+              if (Array.isArray(m.content)) {
+                // Strip empty text parts from arrays — keep tool-call parts intact
+                const cleaned = m.content.filter(
+                  (p: { type: string; text?: string }) =>
+                    p.type !== "text" || (typeof p.text === "string" && p.text.length > 0),
+                );
+                if (cleaned.length === 0) return null;
+                if (cleaned.length !== m.content.length) return { ...m, content: cleaned };
+              }
+              return m;
+            })
+            .filter((m, i, arr) => {
+              if (m !== null) return true;
+              // Keep null (empty assistant) if next message is a tool message — replace with placeholder
+              const next = arr[i + 1];
+              return next?.role === "tool";
+            })
+            .map(
+              (m) =>
+                // Replace nulls kept for tool pairing with minimal valid content
+                m ?? { role: "assistant" as const, content: "(continued)" },
+            );
+          setCoreMessages((prev) => {
+            const updated = [...prev, ...filteredResponseMessages];
+            const target = effectiveConfig.contextManagement?.pruningTarget ?? "subagents";
+            return ["main", "both"].includes(target) ? pruneOldToolResults(updated) : updated;
+          });
+          streamSegmentsBuffer.current = [];
+          liveToolCallsBuffer.current = [];
           lastFlushedSegments.current = [];
           lastFlushedToolCalls.current = [];
           lastFlushedStreamingChars.current = 0;
           streamingCharsRef.current = 0;
           toolCharsRef.current = 0;
-          segmentsDirty.current = false;
-          toolCallsDirty.current = false;
+          setStreamingChars(0);
           setStreamSegments([]);
           setLiveToolCalls([]);
-        };
-
-        const drainSteering = (): { text: string; images?: ImageAttachment[] } | null => {
-          if (steeringAbortedRef.current) return null;
-          const queue = messageQueueRef.current;
-          if (queue.length === 0) return null;
-          // Drain ALL queued steering messages at once
-          const drained: ChatMessage[] = [];
-          const texts: string[] = [];
-          const allImages: ImageAttachment[] = [];
-          for (const item of queue) {
-            const content = item?.content;
-            if (content) {
-              drained.push({
-                id: crypto.randomUUID(),
-                role: "user" as const,
-                content,
-                timestamp: Date.now(),
-                showInChat: true,
-                isSteering: true,
-                images: item.images && item.images.length > 0 ? item.images : undefined,
-              });
-              texts.push(content);
-              if (item.images) allImages.push(...item.images);
-            }
-          }
-          messageQueueRef.current = [];
-          setMessageQueue([]);
-
-          if (drained.length > 0) {
-            // Flush current progress + steering into messages
-            flushBeforeSteering(drained);
-          }
-
-          if (texts.length === 0) return null;
-          return {
-            text: texts.join("\n\n"),
-            images: allImages.length > 0 ? allImages : undefined,
-          };
-        };
-
-        if (!contextManager.isRepoMapReady()) {
-          setIsLoading(true);
-
-          const answer = await new Promise<string>((resolve) => {
-            const questionId = crypto.randomUUID();
-            const warning =
-              "\n\nProceeding without it will significantly reduce capabilities — no soul tools (search, impact analysis, structural queries), no surgical file reads.";
-
-            const updateQuestion = () => {
-              const s = useRepoMapStore.getState();
-              const progress = s.scanProgress || "starting…";
-              const stats =
-                s.files > 0 ? ` (${String(s.files)} files, ${String(s.symbols)} symbols)` : "";
-              const status = s.scanError
-                ? `**Soul Map scan failed:** ${s.scanError}`
-                : `**Soul Map indexing:** ${progress}${stats}`;
-              setPendingQuestion((prev) =>
-                prev?.id === questionId ? { ...prev, question: `${status}${warning}` } : prev,
-              );
-            };
-
-            const cleanup = () => {
-              clearInterval(progressTimer);
-              clearInterval(readyPoller);
-            };
-
-            setPendingQuestion({
-              id: questionId,
-              question: `**Soul Map indexing:** starting…${warning}`,
-              options: [{ label: "Proceed without Soul Map", value: "skip" }],
-              allowSkip: false,
-              hideOther: true,
-              resolve: (answer) => {
-                cleanup();
-                setPendingQuestion(null);
-                resolve(answer);
-              },
-            });
-
-            const progressTimer = setInterval(updateQuestion, 500);
-
-            const readyPoller = setInterval(() => {
-              if (contextManager.isRepoMapReady()) {
-                cleanup();
-                setPendingQuestion(null);
-                resolve("ready");
-              }
-            }, 200);
-
-            abortController.signal.addEventListener(
-              "abort",
-              () => {
-                cleanup();
-                resolve("abort");
-              },
-              { once: true },
-            );
-          });
-
-          if (answer === "abort" || abortController.signal.aborted) return;
-
-          if (answer === "skip") {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content:
-                  "⚠ Proceeding without Soul Map — soul tools unavailable, dispatch agents will have limited capabilities.",
-                timestamp: Date.now(),
-              },
-            ]);
-          }
-        }
-
-        setLoadingStartedAt(Date.now());
-
-        const agent = createForgeAgent({
-          model,
-          fullModelId: modelId,
-          contextManager,
-          forgeMode: contextManager.getForgeMode(),
-          interactive: interactiveCallbacks,
-          editorIntegration: effectiveConfig.editorIntegration,
-          subagentModels,
-          webSearchModel: effectiveWebSearchModel,
-          onApproveWebSearch: webSearchApproval,
-          onApproveFetchPage: fetchPageApproval,
-          onApproveOutsideCwd: promptOutsideCwd,
-          onApproveDestructive: promptDestructive,
-          providerOptions,
-          headers,
-          codeExecution: effectiveConfig.codeExecution,
-          computerUse: effectiveConfig.computerUse,
-          anthropicTextEditor: effectiveConfig.anthropicTextEditor,
-          cwd,
-          sessionId: sessionIdRef.current,
-          sharedCacheRef: sharedCacheRef.current,
-          agentFeatures: {
-            ...effectiveConfig.agentFeatures,
-            onDemandTools: !useToolsStore.getState().disabledTools.has("request_tools"),
-          },
-          planExecution: planExecutionRef.current,
-          drainSteering,
-          disablePruning: !["subagents", "both"].includes(
-            effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
-          ),
-          disabledTools: useToolsStore.getState().disabledTools,
-          tabId,
-          tabLabel,
-        });
-        let result: StreamTextResult<ToolSet, never> | undefined;
-        let proxyBounced = false;
-        const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
-          resolveRetrySettings(effectiveConfig.retry);
-        for (let retry = 0; retry <= MAX_TRANSIENT_RETRIES; retry++) {
-          if (abortController.signal.aborted) break;
-          try {
-            for (let degradeLevel = 0; degradeLevel <= 2; degradeLevel++) {
-              if (abortController.signal.aborted) break;
-              try {
-                const currentAgent =
-                  degradeLevel === 0
-                    ? agent
-                    : (() => {
-                        const degraded = degradeProviderOptions(
-                          activeModelRef.current,
-                          degradeLevel,
-                        );
-                        return createForgeAgent({
-                          model,
-                          fullModelId: modelId,
-                          contextManager,
-                          forgeMode: contextManager.getForgeMode(),
-                          interactive: interactiveCallbacks,
-                          editorIntegration: effectiveConfig.editorIntegration,
-                          subagentModels,
-                          webSearchModel: effectiveWebSearchModel,
-                          onApproveWebSearch: webSearchApproval,
-                          onApproveFetchPage: fetchPageApproval,
-                          onApproveOutsideCwd: promptOutsideCwd,
-                          onApproveDestructive: promptDestructive,
-                          providerOptions: degraded.providerOptions,
-                          headers: degraded.headers,
-                          codeExecution: effectiveConfig.codeExecution,
-                          computerUse: effectiveConfig.computerUse,
-                          anthropicTextEditor: effectiveConfig.anthropicTextEditor,
-                          cwd,
-                          sessionId: sessionIdRef.current,
-                          sharedCacheRef: sharedCacheRef.current,
-                          agentFeatures: {
-                            ...effectiveConfig.agentFeatures,
-                            onDemandTools: !useToolsStore
-                              .getState()
-                              .disabledTools.has("request_tools"),
-                          },
-                          planExecution: planExecutionRef.current,
-                          drainSteering,
-                          disablePruning: !["subagents", "both"].includes(
-                            effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
-                          ),
-                          disabledTools: useToolsStore.getState().disabledTools,
-                          tabId,
-                          tabLabel,
-                        });
-                      })();
-                result = (await currentAgent.stream({
-                  messages: newCoreMessages,
-                  abortSignal: abortController.signal,
-                  options: { userMessage: input },
-                })) as unknown as StreamTextResult<ToolSet, never>;
-                break;
-              } catch (err: unknown) {
-                if (!isProviderOptionsError(err) || degradeLevel === 2) throw err;
-              }
-            }
-            break;
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            const isTransient =
-              /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
-                msg,
-              );
-            if (!isTransient || retry === MAX_TRANSIENT_RETRIES || abortController.signal.aborted) {
-              throw err;
-            }
-            // Self-heal the proxy on connection-level failures (wedged child process).
-            // At most once per submit, hard-capped by an 8s timeout so a stuck
-            // ensureProxy() can never block the retry loop.
-            const isConnErr =
-              /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
-                msg,
-              );
-            if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
-              proxyBounced = true;
-              // Probe /v1/models first — a healthy proxy means the error is
-              // upstream (Claude subscription flake) and bouncing is pointless.
-              const healthy = await proxyHealthProbe().catch(() => false);
-              if (!healthy) {
-                await Promise.race([
-                  bounceProxy().catch(() => false),
-                  new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
-                ]);
-              }
-            }
-            const delay = RETRY_BASE_DELAY_MS * 2 ** retry + Math.random() * 500;
-            const delaySec = Math.round(delay / 1000);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: `Retry ${String(retry + 1)}/${String(MAX_TRANSIENT_RETRIES)}: ${msg} [delay:${String(delaySec)}s]`,
-                timestamp: Date.now(),
-              },
-            ]);
-            await new Promise<void>((resolve, reject) => {
-              const timer = setTimeout(resolve, delay);
-              const onAbort = () => {
-                clearTimeout(timer);
-                reject(new Error("aborted"));
-              };
-              if (abortController.signal.aborted) {
-                clearTimeout(timer);
-                reject(new Error("aborted"));
-              } else {
-                abortController.signal.addEventListener("abort", onAbort, { once: true });
-              }
-            });
-          }
-        }
-
-        const toolCallArgs = new Map<string, string>();
-        const thinkingParser = createThinkingParser();
-        let hasNativeReasoning = false;
-        let thinkingIdCounter = 0;
-        const streamErrors: string[] = [];
-
-        const buf = streamSegmentsBuffer.current;
-        const tcBuf = liveToolCallsBuffer.current;
-
-        const updateStreamingEstimate = (newChars: number) => {
-          streamingCharsRef.current += newChars;
-          const estimatedNewTokens = Math.round(streamingCharsRef.current / 3.5);
-          const base = baseTokenUsageRef.current;
-          pendingTokenUsage.current = {
-            ...base,
-            completion: base.completion + estimatedNewTokens,
-            total: base.total + estimatedNewTokens,
-          };
-          pendingLastStepOutput.current = estimatedNewTokens;
-        };
-
-        const appendText = (text: string) => {
-          fullText += text;
-          updateStreamingEstimate(text.length);
-          segmentsDirty.current = true;
-          const lastSeg = finalSegments[finalSegments.length - 1];
-          if (lastSeg?.type === "text") {
-            lastSeg.content += text;
-          } else {
-            finalSegments.push({ type: "text", content: text });
-          }
-          const lastBuf = buf[buf.length - 1];
-          if (lastBuf?.type === "text") {
-            lastBuf.content += text;
-          } else {
-            buf.push({ type: "text" as const, content: text });
-          }
-        };
-
-        const pushReasoningSegment = (id: string) => {
-          segmentsDirty.current = true;
-          finalSegments.push({ type: "reasoning", content: "", id });
-          buf.push({ type: "reasoning", content: "", id, done: false } as StreamSegment);
-        };
-
-        const appendReasoningContent = (text: string) => {
-          updateStreamingEstimate(text.length);
-          segmentsDirty.current = true;
-          const lastSeg = finalSegments[finalSegments.length - 1];
-          if (lastSeg?.type === "reasoning") {
-            lastSeg.content += text;
-          }
-          const lastBuf = buf[buf.length - 1];
-          if (lastBuf?.type === "reasoning") {
-            lastBuf.content += text;
-          }
-        };
-
-        const markReasoningDone = () => {
-          const lastBuf = buf[buf.length - 1];
-          if (lastBuf?.type === "reasoning" && !lastBuf.done) {
-            segmentsDirty.current = true;
-            lastBuf.done = true;
-          }
-        };
-
-        flushTimerRef.current = setInterval(flushStreamState, 32);
-
-        if (!result) {
-          throw new Error("Stream aborted before result was assigned");
-        }
-
-        // ── Stream stall watchdog ──────────────────────────────────
-        // Detects hung API connections and auto-retries transparently.
-        //
-        // How it works:
-        //   - Every stream event + subagent event resets a timer
-        //   - Tool execution pauses the timer (tools have their own timeouts)
-        //   - On stall: abort + auto-retry with backoff (up to 2 retries)
-        //   - User Ctrl+X always wins — sets userAborted flag
-        //   - After max retries, surfaces error to user
-        //
-        // Stall threshold: 90s between content chunks, 180s before first content.
-        // "First content" = actual text or tool-call, not just start-step metadata.
-        // First-content is generous for free tiers, deep reasoning, and large contexts.
-        // Paused entirely while tools execute (they have their own timeouts).
-        const STALL_CHUNK_MS = 120_000;
-        const STALL_FIRST_CHUNK_MS = 180_000;
-        const STALL_TOOL_MAX_MS = 900_000; // 15min — dispatch worst case
-        let lastActivityTs = Date.now();
-        let lastToolActivityTs = Date.now();
-        let toolsInFlight = 0;
-        let gotFirstContent = false;
-        let betweenSteps = false; // true after finish-step until next start-step
-        const markActivity = () => {
-          lastActivityTs = Date.now();
-        };
-        const markToolStart = () => {
-          toolsInFlight++;
-          lastToolActivityTs = Date.now();
-        };
-        const markToolEnd = () => {
-          toolsInFlight = Math.max(0, toolsInFlight - 1);
-          lastActivityTs = Date.now();
-          lastToolActivityTs = Date.now();
-        };
-        const onUserAbort = () => {
-          userAborted = true;
-        };
-        abortController.signal.addEventListener("abort", onUserAbort, { once: true });
-        // Filter subagent events to this tab's own dispatches only —
-        // global event bus is shared across tabs, so unfiltered events from
-        // other tabs would keep our watchdog alive during a genuine stall.
-        const isOurEvent = (parentToolCallId: string) =>
-          liveToolCallsBuffer.current.some((c) => c.id === parentToolCallId);
-        unsubStallWatch1 = onMultiAgentEvent((evt) => {
-          if (!isOurEvent(evt.parentToolCallId)) return;
-          markActivity();
-          lastToolActivityTs = Date.now();
-        });
-        unsubStallWatch2 = onSubagentStep((evt) => {
-          if (!isOurEvent(evt.parentToolCallId)) return;
-          markActivity();
-          lastToolActivityTs = Date.now();
-        });
-        unsubStallWatch3 = onAgentStats((evt) => {
-          if (!isOurEvent(evt.parentToolCallId)) return;
-          markActivity();
-          lastToolActivityTs = Date.now();
-        });
-        // Track whether the watchdog already fired abort — subsequent interval
-        // ticks should force-resolve the stream if the abort didn't propagate.
-        let stallAbortedAt = 0;
-        const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
-        if (effectiveConfig.watchdog)
-          stallWatchdog = setInterval(() => {
-            // If we already aborted but the for-await loop is stuck on a dead
-            // connection that didn't honor the AbortSignal, force-resolve it.
-            if (stallAbortedAt > 0 && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
-              // Force the stream iterator to end by calling return() on the SAME
-              // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
-              // call would create a fresh reader and fail on the locked stream.
-              try {
-                streamIterator?.return?.();
-              } catch {}
-              // Clear ourselves — nothing more we can do
-              if (stallWatchdog) {
-                clearInterval(stallWatchdog);
-                stallWatchdog = null;
-              }
-              return;
-            }
-            if (abortController.signal.aborted) return;
-            // Pause while a user prompt is active (local TUI popup, plan review,
-            // ask_user) or a remote approval callback is awaiting Telegram/etc.
-            // The user may need minutes to tap — not stream inactivity.
-            if (
-              pendingQuestionRef.current ||
-              pendingPlanReviewRef.current ||
-              remoteApprovalActiveRef.current > 0
-            ) {
-              lastActivityTs = Date.now();
-              lastToolActivityTs = Date.now();
-              return;
-            }
-            // While tools run, only fire if tool itself is stuck (15min max)
-            if (toolsInFlight > 0) {
-              if (Date.now() - lastToolActivityTs <= STALL_TOOL_MAX_MS) return;
-            } else {
-              // Between steps (SDK making a new API call) or before first chunk:
-              // use the generous first-chunk timeout since the provider may be
-              // processing a large context or queueing the request.
-              const threshold =
-                !gotFirstContent || betweenSteps ? STALL_FIRST_CHUNK_MS : STALL_CHUNK_MS;
-              if (Date.now() - lastActivityTs <= threshold) return;
-            }
-            // Capture the actual threshold that fired for the user-facing message
-            const firedThresholdMs =
-              toolsInFlight > 0
-                ? STALL_TOOL_MAX_MS
-                : !gotFirstContent || betweenSteps
-                  ? STALL_FIRST_CHUNK_MS
-                  : STALL_CHUNK_MS;
-            stallTriggered = true;
-            stallRetryCountRef.current++;
-            const count = stallRetryCountRef.current;
-            if (count <= STALL_MAX_RETRIES) {
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: crypto.randomUUID(),
-                  role: "system",
-                  content: `Connection stalled — no activity for ${String(Math.round(firedThresholdMs / 1000))}s. Auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})…`,
-                  timestamp: Date.now(),
-                  showInChat: true,
-                },
-              ]);
-              logBackgroundError(
-                "stream-stall",
-                `No stream activity — auto-retrying (${String(count)}/${String(STALL_MAX_RETRIES)})`,
-              );
-            } else {
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: crypto.randomUUID(),
-                  role: "system",
-                  content: `Connection stalled ${String(STALL_MAX_RETRIES)} times — giving up. You can resend your message to try again.`,
-                  timestamp: Date.now(),
-                  showInChat: true,
-                },
-              ]);
-              logBackgroundError(
-                "stream-stall",
-                `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
-              );
-            }
-            stallAbortedAt = Date.now();
-            abortController.abort();
-          }, 10_000);
-
-        let streamEventCount = 0;
-        let yieldBeforeNext = false;
-        // Capture the iterator so the watchdog can call .return() on the SAME
-        // instance the loop holds. Calling [Symbol.asyncIterator]() again would
-        // try getReader() on an already-locked ReadableStream and throw.
-        const streamIterator = (
-          result.fullStream as AsyncIterable<
-            typeof result.fullStream extends AsyncIterable<infer T> ? T : never
-          >
-        )[Symbol.asyncIterator]();
-        for await (const part of { [Symbol.asyncIterator]: () => streamIterator }) {
-          markActivity();
-          if (yieldBeforeNext || ++streamEventCount % 5 === 0) {
-            yieldBeforeNext = false;
-            await new Promise<void>((r) => setTimeout(r, 0));
-          }
-          switch (part.type) {
-            case "start-step": {
-              betweenSteps = false;
-              const warnings = (part as { warnings?: Array<{ type: string; message?: string }> })
-                .warnings;
-              if (warnings && warnings.length > 0) {
-                const msg = warnings
-                  .map((w) => `[${w.type}]${w.message ? ` ${w.message}` : ""}`)
-                  .join("; ");
-                if (process.env.SOULFORGE_DEBUG_API) {
-                  import("../core/tools/tee.js").then(({ saveTee }) =>
-                    saveTee("provider-warnings", msg),
-                  );
-                }
-              }
-              break;
-            }
-            case "reasoning-start": {
-              hasNativeReasoning = true;
-              pushReasoningSegment(part.id);
-              break;
-            }
-            case "reasoning-delta": {
-              gotFirstContent = true;
-              appendReasoningContent(part.text);
-              void import("../hearth/bridge.js").then(({ reasoningStreamEmitter }) => {
-                reasoningStreamEmitter.append(tabId, part.text);
-              });
-              break;
-            }
-            case "reasoning-end":
-              markReasoningDone();
-              break;
-            case "text-delta": {
-              gotFirstContent = true;
-              if (hasNativeReasoning) {
-                appendText(part.text);
-              } else {
-                const parsed = thinkingParser.feed(part.text);
-                for (const chunk of parsed) {
-                  switch (chunk.type) {
-                    case "text":
-                      appendText(chunk.content);
-                      break;
-                    case "reasoning-start":
-                      pushReasoningSegment(`thinking-${String(thinkingIdCounter++)}`);
-                      break;
-                    case "reasoning-content":
-                      appendReasoningContent(chunk.content);
-                      break;
-                    case "reasoning-end":
-                      markReasoningDone();
-                      break;
-                  }
-                }
-              }
-              // Stream visible text to Hearth surfaces in real time (coalesced).
-              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
-                bridgeStreamEmitter.stream(tabId, { type: "text", content: part.text });
-              });
-              queueMicrotaskFlush();
-              break;
-            }
-            case "tool-input-start": {
-              gotFirstContent = true;
-              markToolStart();
-              segmentsDirty.current = true;
-              toolCallsDirty.current = true;
-              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
-                bridgeStreamEmitter.stream(tabId, {
-                  type: "tool-call",
-                  tool: part.toolName,
-                  toolCallId: part.id,
-                });
-              });
-
-              // Detect code_execution child calls: if a code_execution call is currently
-              // running (state !== "done"/"error"), any new tool call is a child spawned from it.
-              const activeCodeExec = tcBuf.find(
-                (c) => c.toolName === "code_execution" && c.state === "running",
-              );
-              const isChildCall = activeCodeExec && part.toolName !== "code_execution";
-
-              // Child calls don't get their own segment — they're nested under the parent
-              if (!isChildCall) {
-                const lastToolSeg = finalSegments[finalSegments.length - 1];
-                if (lastToolSeg?.type === "tools") {
-                  lastToolSeg.toolCallIds.push(part.id);
-                } else {
-                  finalSegments.push({ type: "tools", toolCallIds: [part.id] });
-                }
-                const lastBufSeg = buf[buf.length - 1];
-                if (lastBufSeg?.type === "tools") {
-                  lastBufSeg.callIds.push(part.id);
-                } else {
-                  buf.push({ type: "tools" as const, callIds: [part.id] });
-                }
-              }
-
-              tcBuf.push({
-                id: part.id,
-                toolName: part.toolName,
-                state: "running",
-                ...(isChildCall ? { parentId: activeCodeExec.id } : {}),
-                ...(part.toolName === "web_search" && webSearchModelLabelRef.current
-                  ? { backend: webSearchModelLabelRef.current }
-                  : {}),
-              });
-              toolCallArgs.set(part.id, "");
-              queueMicrotaskFlush();
-              break;
-            }
-            case "tool-input-delta": {
-              toolCallArgs.set(part.id, (toolCallArgs.get(part.id) ?? "") + part.delta);
-              const tc = tcBuf.find((c) => c.id === part.id);
-              if (tc) {
-                tc.args = toolCallArgs.get(part.id);
-                if (
-                  tc.toolName === "dispatch" ||
-                  tc.toolName === "plan" ||
-                  tc.toolName === "write_plan"
-                ) {
-                  toolCallsDirty.current = true;
-                  queueMicrotaskFlush();
-                }
-              }
-              toolCharsRef.current += part.delta.length;
-              break;
-            }
-            case "file": {
-              // Code execution can generate image files — capture them for inline display
-              const file = (part as { file?: { mediaType?: string; uint8Array?: Uint8Array } })
-                .file;
-              if (
-                file?.mediaType?.startsWith("image/") &&
-                file.uint8Array &&
-                file.uint8Array.length > 0
-              ) {
-                // Find the active code_execution tool call to attach the image to
-                const codeExecTc = tcBuf.find(
-                  (c) => c.toolName === "code_execution" && c.state === "running",
-                );
-                if (codeExecTc) {
-                  try {
-                    const { renderImageFromData } = await import("../core/terminal/image.js");
-                    const art = await renderImageFromData(
-                      Buffer.from(file.uint8Array),
-                      `image-${String(Date.now())}.png`,
-                    );
-                    if (art) {
-                      if (!codeExecTc.imageArt) codeExecTc.imageArt = [];
-                      codeExecTc.imageArt.push(art);
-                      toolCallsDirty.current = true;
-                      queueMicrotaskFlush();
-                    }
-                  } catch {
-                    // Image rendering failed — silently skip
-                  }
-                }
-              }
-              break;
-            }
-            case "tool-result": {
-              markToolEnd();
-              toolCallsDirty.current = true;
-              const resultStr =
-                typeof part.output === "string" ? part.output : JSON.stringify(part.output);
-              const tc = tcBuf.find((c) => c.id === part.toolCallId);
-              if (tc) {
-                tc.state = "done";
-                tc.result = resultStr;
-                tc.progressText = undefined;
-                // Extract half-block image art from shell tool results
-                if (
-                  typeof part.output === "object" &&
-                  part.output !== null &&
-                  "_imageArt" in part.output
-                ) {
-                  tc.imageArt = (
-                    part.output as {
-                      _imageArt: Array<{
-                        name: string;
-                        lines: string[];
-                        kittyImageId?: number;
-                        kittyCols?: number;
-                        kittyRows?: number;
-                      }>;
-                    }
-                  )._imageArt;
-                }
-              }
-              toolCharsRef.current += resultStr.length;
-              const parsedArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
-              // Extract structured result — part.output is already our {success, output, error?} object
-              let toolResult: import("../types/index.js").ToolResult;
-              if (
-                typeof part.output === "object" &&
-                part.output !== null &&
-                "success" in part.output
-              ) {
-                const r = part.output as {
-                  success: boolean;
-                  output?: string;
-                  error?: string;
-                  backend?: string;
-                  outlineOnly?: boolean;
-                  filesEdited?: string[];
-                };
-                toolResult = {
-                  success: r.success,
-                  output: r.output ?? "",
-                  error: r.error,
-                  backend: r.backend,
-                  outlineOnly: r.outlineOnly,
-                  filesEdited: r.filesEdited,
-                };
-              } else {
-                toolResult = { success: true, output: resultStr };
-              }
-              // Dispatch tool returns DispatchOutput (no `success` field) — extract filesEdited
-              if (
-                typeof part.output === "object" &&
-                part.output !== null &&
-                "filesEdited" in part.output
-              ) {
-                const d = part.output as { filesEdited?: string[] };
-                if (d.filesEdited) toolResult.filesEdited = d.filesEdited;
-              }
-              // Preserve imageArt from the streaming LiveToolCall for the final ToolCall
-              const streamingTc = tcBuf.find((c) => c.id === part.toolCallId);
-              const completedCall: import("../types/index.js").ToolCall = {
-                id: part.toolCallId,
-                name: part.toolName,
-                args: parsedArgs,
-                result: toolResult,
-              };
-              if (streamingTc?.parentId) {
-                completedCall.parentId = streamingTc.parentId;
-              }
-              if (streamingTc?.imageArt) {
-                completedCall.imageArt = streamingTc.imageArt;
-              }
-              completedCalls.push(completedCall);
-              if (workingStateRef.current) {
-                extractFromToolCall(workingStateRef.current, part.toolName, parsedArgs);
-                extractFromToolResult(
-                  workingStateRef.current,
-                  part.toolName,
-                  resultStr,
-                  parsedArgs,
-                );
-                syncV2Slots();
-              }
-              // Stream tool-result summary to Hearth (truncated — adapters render).
-              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
-                bridgeStreamEmitter.stream(tabId, {
-                  type: "tool-result",
-                  tool: part.toolName,
-                  toolCallId: part.toolCallId,
-                  summary: toolResult.error
-                    ? `✗ ${toolResult.error.slice(0, 200)}`
-                    : `✓ ${(toolResult.output ?? "").slice(0, 200)}`,
-                });
-              });
-              flushStreamState();
-              yieldBeforeNext = true;
-              break;
-            }
-            case "tool-error": {
-              markToolEnd();
-              toolCallsDirty.current = true;
-              let errorMsg: string;
-              if (typeof part.error === "string") {
-                errorMsg = part.error;
-              } else if (typeof part.error === "object" && part.error !== null) {
-                const e = part.error;
-                if ("errorCode" in e && typeof e.errorCode === "string") errorMsg = e.errorCode;
-                else if ("error_code" in e && typeof e.error_code === "string")
-                  errorMsg = e.error_code;
-                else if ("message" in e && typeof e.message === "string") errorMsg = e.message;
-                else errorMsg = JSON.stringify(e);
-              } else {
-                errorMsg = String(part.error);
-              }
-              const tc = tcBuf.find((c) => c.id === part.toolCallId);
-              if (tc) {
-                tc.state = "error";
-                tc.error = errorMsg;
-                tc.progressText = undefined;
-              }
-              const errorArgs = safeParseArgs(toolCallArgs.get(part.toolCallId));
-              completedCalls.push({
-                id: part.toolCallId,
-                name: part.toolName,
-                args: errorArgs,
-                result: { success: false, output: "", error: errorMsg },
-              });
-              if (workingStateRef.current) {
-                extractFromToolCall(workingStateRef.current, part.toolName, errorArgs);
-                workingStateRef.current.addFailure(`${part.toolName}: ${errorMsg.slice(0, 200)}`);
-                syncV2Slots();
-              }
-              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
-                bridgeStreamEmitter.stream(tabId, {
-                  type: "tool-result",
-                  tool: part.toolName,
-                  toolCallId: part.toolCallId,
-                  summary: `✗ ${errorMsg.slice(0, 200)}`,
-                });
-              });
-              flushStreamState();
-              yieldBeforeNext = true;
-              break;
-            }
-            case "finish-step": {
-              betweenSteps = true;
-              const stepTotal = part.usage.inputTokens ?? 0;
-              const stepOut = part.usage.outputTokens ?? 0;
-              const details = (
-                part.usage as {
-                  inputTokenDetails?: {
-                    cacheReadTokens?: number;
-                    cacheWriteTokens?: number;
-                    noCacheTokens?: number;
-                  };
-                }
-              ).inputTokenDetails;
-              const stepCache = details?.cacheReadTokens ?? 0;
-              const stepCacheWrite = details?.cacheWriteTokens ?? 0;
-              const stepNoCache = details?.noCacheTokens ?? 0;
-              // prompt = uncached input ONLY. cacheWrite tracked separately.
-              // inputTokens from SDK = total (noCache + cacheRead + cacheWrite)
-              const stepIn =
-                stepNoCache > 0 ? stepNoCache : Math.max(0, stepTotal - stepCache - stepCacheWrite);
-              if (process.env.SOULFORGE_DEBUG_API) {
-                const line = `[cache] step total=${String(stepTotal)} noCache=${String(stepNoCache)} cacheRead=${String(stepCache)} cacheWrite=${String(stepCacheWrite)} prompt=${String(stepIn)} output=${String(stepOut)}\n`;
-                try {
-                  const g = globalThis as unknown as Record<string, string>;
-                  g.__cacheLog = (g.__cacheLog ?? "") + line;
-                  Bun.write(`${process.cwd()}/.soulforge/api-export/cache-steps.log`, g.__cacheLog);
-                } catch {}
-              }
-              const base = baseTokenUsageRef.current;
-              const newUsage: TokenUsage = {
-                ...base,
-                prompt: base.prompt + stepIn,
-                completion: base.completion + stepOut,
-                total: base.total + stepTotal + stepOut,
-                cacheRead: base.cacheRead + stepCache,
-                cacheWrite: base.cacheWrite + stepCacheWrite,
-                lastStepInput: stepIn,
-                lastStepOutput: stepOut,
-                lastStepCacheRead: stepCache,
-                modelBreakdown: accumulateModelUsage(base.modelBreakdown, modelId, {
-                  input: stepIn,
-                  output: stepOut,
-                  cacheRead: stepCache,
-                  cacheWrite: stepCacheWrite,
-                }),
-              };
-              pendingTokenUsage.current = newUsage;
-              baseTokenUsageRef.current = newUsage;
-              streamingCharsRef.current = 0;
-              if (stepTotal > 0) pendingContextTokens.current = stepTotal;
-              pendingLastStepOutput.current = stepOut;
-              // Accumulate per-turn delta so the Hearth bridge's turn-done
-              // reports real numbers instead of zeros.
-              turnTokensRef.current = {
-                input: turnTokensRef.current.input + stepIn,
-                output: turnTokensRef.current.output + stepOut,
-                cacheRead: turnTokensRef.current.cacheRead + stepCache,
-              };
-              queueMicrotaskFlush();
-
-              if (completedCalls.length > 0 && Date.now() - lastIncrementalSave > 10_000) {
-                lastIncrementalSave = Date.now();
-                queueMicrotask(() => {
-                  try {
-                    const snapshot = getWorkspaceSnapshot?.();
-                    if (!snapshot) return;
-                    const partialMsg: ChatMessage = {
-                      id: crypto.randomUUID(),
-                      role: "assistant",
-                      content: fullText,
-                      timestamp: Date.now(),
-                      toolCalls: [...completedCalls],
-                      segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
-                    };
-                    setMessages((prev) => {
-                      const allMsgs = [...prev, partialMsg];
-                      const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-                        sessionId: sessionIdRef.current,
-                        title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
-                        customTitle: customTitleRef.current,
-                        cwd,
-                        snapshot,
-                        currentTabMessages: allMsgs.filter(
-                          (m) => m.role !== "system" || m.showInChat,
-                        ),
-                        currentTabCoreMessages: coreMessagesRef.current,
-                      });
-                      updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-                      sessionManager
-                        .saveSession(meta, tabMessages, tabCoreMessages)
-                        .catch(() => {});
-                      return prev;
-                    });
-                  } catch {
-                    // Don't let checkpoint failures interrupt streaming
-                  }
-                });
-              }
-              break;
-            }
-            case "error": {
-              const err = part.error;
-              const errText =
-                (err instanceof Error ? err.message : null) ||
-                (typeof err === "string" ? err : null) ||
-                JSON.stringify(err);
-              const errStack = err instanceof Error ? err.stack : undefined;
-              const sErr =
-                err != null && typeof err === "object" ? (err as Record<string, unknown>) : null;
-              const sBody =
-                sErr && typeof sErr.responseBody === "string" && sErr.responseBody.length > 0
-                  ? (sErr.responseBody as string).slice(0, 500)
-                  : undefined;
-              const sData =
-                sErr?.data != null ? JSON.stringify(sErr.data).slice(0, 500) : undefined;
-              const enriched = sBody ?? sData;
-              const displayErr = enriched ? `${errText} · ${enriched}` : errText;
-              logBackgroundError("api", displayErr);
-              appendText(`\n\n_Error: ${displayErr}_`);
-              if (streamErrors.length < 50) {
-                streamErrors.push(
-                  errStack ? `Error: ${displayErr}\n\n${errStack}` : `Error: ${displayErr}`,
-                );
-              }
-              break;
-            }
-          }
-        }
-
-        // Clean up stream stall watchdog
-        if (stallWatchdog) clearInterval(stallWatchdog);
-        unsubStallWatch1?.();
-        unsubStallWatch2?.();
-        unsubStallWatch3?.();
-
-        // If the watchdog fired but the stream ended gracefully (some providers
-        // close the stream instead of throwing on abort), re-throw so the catch
-        // block's auto-retry logic kicks in.
-        if (stallTriggered && abortController.signal.aborted && !userAborted) {
-          throw new Error("Stream stall — abort did not throw");
-        }
-
-        // Log agent stop reason for debugging (visible via /errors) — only when errors occurred
-        if (streamErrors.length > 0) {
-          logBackgroundError(
-            "agent-stop",
-            `streamErrors=${String(streamErrors.length)}: ${streamErrors[0]?.slice(0, 200)}`,
-          );
-        }
-
-        if (flushTimerRef.current) {
-          clearInterval(flushTimerRef.current);
-          flushTimerRef.current = null;
-        }
-        flushStreamState();
-
-        if (!hasNativeReasoning) {
-          for (const chunk of thinkingParser.flush()) {
-            switch (chunk.type) {
-              case "text":
-                appendText(chunk.content);
-                break;
-              case "reasoning-content":
-                appendReasoningContent(chunk.content);
-                break;
-              default:
-                break;
-            }
-          }
-        }
-
-        let responseMessages: ModelMessage[];
-        try {
-          const timeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("response timeout")), 10_000),
-          );
-          const responseData = await Promise.race([result.response, timeout]);
-          responseMessages = responseData.messages;
-        } catch {
-          responseMessages =
-            fullText.length > 0 ? [{ role: "assistant" as const, content: fullText }] : [];
-        }
-
-        // Embed plan as a segment if one was created (skip when plan post-action will handle it)
-        if (activePlanRef.current && !planPostActionRef.current) {
-          finalSegments.push({ type: "plan", plan: activePlanRef.current });
-        }
-        setActivePlan(null);
-        setSidebarPlan(null);
-
-        if (workingStateRef.current && fullText.length > 0) {
-          extractFromAssistantMessage(workingStateRef.current, {
-            role: "assistant",
-            content: fullText,
-          });
-          syncV2Slots();
-        }
-
-        const assistantMsg = buildAssistantMessage({
-          fullText,
-          completedCalls,
-          segments: finalSegments,
-          responseStartedAt,
-          now: Date.now(),
-        });
-
-        const errorMsgs: ChatMessage[] = streamErrors.map((errContent) => ({
-          id: crypto.randomUUID(),
-          role: "system" as const,
-          content: errContent,
-          timestamp: Date.now(),
-        }));
-
-        setMessages((prev) => {
-          const allMsgs = [...prev, ...(assistantMsg ? [assistantMsg] : []), ...errorMsgs];
-          queueMicrotask(() => {
-            const snapshot = getWorkspaceSnapshot?.();
-            if (snapshot) {
-              const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-                sessionId: sessionIdRef.current,
-                title: customTitleRef.current ?? SessionManager.deriveTitle(allMsgs),
-                customTitle: customTitleRef.current,
-                cwd,
-                snapshot,
-                currentTabMessages: allMsgs.filter((m) => m.role !== "system" || m.showInChat),
-                currentTabCoreMessages: coreMessagesRef.current,
-              });
-              updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-              sessionManager.saveSession(meta, tabMessages, tabCoreMessages).catch(() => {});
-            }
-          });
-          // Finalize streaming: flush any remaining text + reasoning + emit turn-done.
-          // Individual text-delta / tool-call / tool-result / reasoning-delta events
-          // were already streamed during the turn.
-          if (assistantMsg) {
-            void import("../hearth/bridge.js").then(
-              ({ bridgeStreamEmitter, reasoningStreamEmitter }) => {
-                reasoningStreamEmitter.flushNow(tabId);
-                bridgeStreamEmitter.flushNow(tabId);
-                bridgeStreamEmitter.stream(tabId, {
-                  type: "turn-done",
-                  turn: 0,
-                  output: assistantMsg.content,
-                  steps: assistantMsg.toolCalls?.length ?? 0,
-                  tokens: { ...turnTokensRef.current },
-                  toolCalls: (assistantMsg.toolCalls ?? []).map((c) => c.name),
-                  filesEdited: [],
-                  duration: assistantMsg.durationMs ?? 0,
-                });
-              },
-            );
-          }
-          return allMsgs;
-        });
-
-        // Sanitize empty assistant content — Anthropic rejects empty text blocks.
-        // Instead of filtering (which could orphan tool messages), patch empty content.
-        const filteredResponseMessages = responseMessages
-          .map((m) => {
-            if (m.role !== "assistant") return m;
-            if (typeof m.content === "string" && m.content.length === 0) {
-              // Completely empty string content — drop the message only if the
-              // next message is NOT a tool message (which would be orphaned).
-              return null;
-            }
-            if (Array.isArray(m.content)) {
-              // Strip empty text parts from arrays — keep tool-call parts intact
-              const cleaned = m.content.filter(
-                (p: { type: string; text?: string }) =>
-                  p.type !== "text" || (typeof p.text === "string" && p.text.length > 0),
-              );
-              if (cleaned.length === 0) return null;
-              if (cleaned.length !== m.content.length) return { ...m, content: cleaned };
-            }
-            return m;
-          })
-          .filter((m, i, arr) => {
-            if (m !== null) return true;
-            // Keep null (empty assistant) if next message is a tool message — replace with placeholder
-            const next = arr[i + 1];
-            return next?.role === "tool";
-          })
-          .map(
-            (m) =>
-              // Replace nulls kept for tool pairing with minimal valid content
-              m ?? { role: "assistant" as const, content: "(continued)" },
-          );
-        setCoreMessages((prev) => {
-          const updated = [...prev, ...filteredResponseMessages];
-          const target = effectiveConfig.contextManagement?.pruningTarget ?? "subagents";
-          return ["main", "both"].includes(target) ? pruneOldToolResults(updated) : updated;
-        });
-        streamSegmentsBuffer.current = [];
-        liveToolCallsBuffer.current = [];
-        lastFlushedSegments.current = [];
-        lastFlushedToolCalls.current = [];
-        lastFlushedStreamingChars.current = 0;
-        streamingCharsRef.current = 0;
-        toolCharsRef.current = 0;
-        setStreamingChars(0);
-        setStreamSegments([]);
-        setLiveToolCalls([]);
-        completeInProgressTasks(tabId);
-      } catch (err: unknown) {
-        if (flushTimerRef.current) {
-          clearInterval(flushTimerRef.current);
-          flushTimerRef.current = null;
-        }
-        const isAbort = abortController.signal.aborted;
-        const isStallRetry =
-          isAbort &&
-          stallTriggered &&
-          !userAborted &&
-          stallRetryCountRef.current <= STALL_MAX_RETRIES;
-
-        // Auto-retry on stall: clean up, show a subtle system message, then
-        // re-submit "Continue." so the agent picks up where it left off.
-        // We preserve partial work (completedCalls, fullText, coreMessages)
-        // so the agent has full context on the retry.
-        if (isStallRetry) {
+          completeInProgressTasks(tabId);
+          break;
+        } catch (err: unknown) {
           if (flushTimerRef.current) {
             clearInterval(flushTimerRef.current);
             flushTimerRef.current = null;
           }
-          // Commit any partial assistant output so the retry has context
-          if (fullText.trim().length > 0 || completedCalls.length > 0) {
+          const isAbort = abortController.signal.aborted;
+          const msg = err instanceof Error ? err.message : String(err);
+          const isTransient =
+            /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
+              msg,
+            );
+          const isConnErr =
+            /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
+              msg,
+            );
+          if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
+            proxyBounced = true;
+            const healthy = await proxyHealthProbe().catch(() => false);
+            if (!healthy) {
+              await Promise.race([
+                bounceProxy().catch(() => false),
+                new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+              ]);
+            }
+          }
+          const isStallRetry =
+            isAbort &&
+            stallTriggered &&
+            !userAborted &&
+            stallRetryCountRef.current <= STALL_MAX_RETRIES;
+
+          // Retry on transient errors during streaming (e.g. "socket connection closed unexpectedly")
+          if (isTransient && !isStallRetry) {
+            streamRetryCount++;
+            if (streamRetryCount <= MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
+              const delay = RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Transient error: ${msg}. Retry ${String(streamRetryCount)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
+                  timestamp: Date.now(),
+                },
+              ]);
+
+              // If partial assistant/tool output exists, commit it and continue with "Continue."
+              // This avoids re-running tools and safely resumes from where we left off.
+              if (fullText.trim().length > 0 || completedCalls.length > 0) {
+                // Commit partial work (following stall retry pattern)
+                const partialMsg = buildAssistantMessage({
+                  fullText,
+                  completedCalls,
+                  segments: finalSegments,
+                  responseStartedAt,
+                  now: Date.now(),
+                });
+                if (partialMsg) {
+                  setMessages((prev) => [...prev, partialMsg]);
+
+                  // Update coreMessages with partial work
+                  const assistantContent: Array<TextPart | ToolCallPart> = [];
+                  if (fullText.length > 0) {
+                    assistantContent.push({ type: "text", text: fullText });
+                  }
+                  for (const call of completedCalls) {
+                    const args = call.args;
+                    assistantContent.push({
+                      type: "tool-call",
+                      toolCallId: call.id,
+                      toolName: call.name,
+                      input:
+                        typeof args === "object" && args !== null && !Array.isArray(args)
+                          ? args
+                          : {},
+                    });
+                  }
+                  if (completedCalls.length > 0) {
+                    const toolContent = completedCalls.map((call) => ({
+                      type: "tool-result" as const,
+                      toolCallId: call.id,
+                      toolName: call.name,
+                      output: { type: "text" as const, value: call.result?.output ?? "" },
+                    }));
+                    setCoreMessages((prev) => [
+                      ...prev,
+                      { role: "assistant" as const, content: assistantContent },
+                      { role: "tool" as const, content: toolContent },
+                    ]);
+                  } else if (fullText.length > 0) {
+                    setCoreMessages((prev) => [
+                      ...prev,
+                      { role: "assistant" as const, content: fullText },
+                    ]);
+                  }
+                }
+
+                // Clean up stream state
+                streamSegmentsBuffer.current = [];
+                liveToolCallsBuffer.current = [];
+                lastFlushedSegments.current = [];
+                lastFlushedToolCalls.current = [];
+                lastFlushedStreamingChars.current = 0;
+                streamingCharsRef.current = 0;
+                toolCharsRef.current = 0;
+                setStreamingChars(0);
+                setStreamSegments([]);
+                setLiveToolCalls([]);
+
+                // Signal that a retry is pending
+                stallRetryPendingRef.current = true;
+
+                // Stay in-loop: await backoff then continue (avoids racing finally block)
+                await new Promise((resolve) => setTimeout(resolve, delay));
+                continue;
+              } else {
+                // No partial output - retry the stream directly
+                stallRetryPendingRef.current = true;
+                const backoffDelay =
+                  RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                continue;
+              }
+            }
+          }
+
+          // Auto-retry on stall: clean up, show a subtle system message, then
+          // re-submit "Continue." so the agent picks up where it left off.
+          // We preserve partial work (completedCalls, fullText, coreMessages)
+          // so the agent has full context on the retry.
+          if (isStallRetry) {
+            if (flushTimerRef.current) {
+              clearInterval(flushTimerRef.current);
+              flushTimerRef.current = null;
+            }
+            // Commit any partial assistant output so the retry has context
+            if (fullText.trim().length > 0 || completedCalls.length > 0) {
+              const partialMsg = buildAssistantMessage({
+                fullText,
+                completedCalls,
+                segments: finalSegments,
+                responseStartedAt,
+                now: Date.now(),
+              });
+              if (!partialMsg) return;
+              setMessages((prev) => [...prev, partialMsg]);
+              // Flush the streaming buffer and send the stall warning — tool-calls
+              // and text were already streamed in real time during the turn.
+              void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
+                bridgeStreamEmitter.flushNow(tabId);
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "warning",
+                  message: `Stream stalled, auto-retrying (${String(stallRetryCountRef.current)}/${String(STALL_MAX_RETRIES)})`,
+                });
+              });
+              if (completedCalls.length > 0) {
+                const assistantContent: Array<TextPart | ToolCallPart> = [];
+                if (fullText.length > 0) {
+                  assistantContent.push({ type: "text", text: fullText });
+                }
+                for (const call of completedCalls) {
+                  const args = call.args;
+                  assistantContent.push({
+                    type: "tool-call",
+                    toolCallId: call.id,
+                    toolName: call.name,
+                    input:
+                      typeof args === "object" && args !== null && !Array.isArray(args) ? args : {},
+                  });
+                }
+                const toolContent = completedCalls.map((call) => ({
+                  type: "tool-result" as const,
+                  toolCallId: call.id,
+                  toolName: call.name,
+                  output: { type: "text" as const, value: call.result?.output ?? "" },
+                }));
+                setCoreMessages((prev) => [
+                  ...prev,
+                  { role: "assistant" as const, content: assistantContent },
+                  { role: "tool" as const, content: toolContent },
+                ]);
+              } else if (fullText.length > 0) {
+                setCoreMessages((prev) => [
+                  ...prev,
+                  { role: "assistant" as const, content: fullText },
+                ]);
+              }
+            }
+            // System message already shown by the watchdog — no duplicate needed.
+            // Clean up stream state
+            streamSegmentsBuffer.current = [];
+            liveToolCallsBuffer.current = [];
+            lastFlushedSegments.current = [];
+            lastFlushedToolCalls.current = [];
+            lastFlushedStreamingChars.current = 0;
+            streamingCharsRef.current = 0;
+            toolCharsRef.current = 0;
+            setStreamingChars(0);
+            setStreamSegments([]);
+            setLiveToolCalls([]);
+            // Signal that a stall retry is pending so:
+            // 1. finally block doesn't fire competing handleSubmit (messageQueue/compact)
+            // 2. next handleSubmit("Continue.") preserves the retry count
+            stallRetryPendingRef.current = true;
+            // Backoff: 2s first, 5s second
+            const backoffMs = stallRetryCountRef.current === 1 ? 2_000 : 5_000;
+            setTimeout(() => handleSubmitRef.current("Continue."), backoffMs);
+            // Skip the rest of the catch — finally block will clean up
+            return;
+          }
+
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          // Log non-abort errors to /errors for debugging
+          if (!isAbort) {
+            logBackgroundError("agent-error", rawMsg);
+          }
+          // ── StopFailure hook ──
+          if (!isAbort) {
+            runHooks({
+              event: "StopFailure",
+              toolInput: { error: rawMsg },
+              sessionId: sessionIdRef.current,
+              cwd,
+            }).catch(() => {});
+          }
+          const isTransientStream =
+            /overloaded|529|429|rate.?limit|too many requests|503|502/i.test(rawMsg);
+          const errObj =
+            err != null && typeof err === "object" ? (err as Record<string, unknown>) : null;
+          const apiBody =
+            errObj && typeof errObj.responseBody === "string" && errObj.responseBody.length > 0
+              ? errObj.responseBody
+              : undefined;
+          const apiData =
+            errObj?.data != null ? JSON.stringify(errObj.data).slice(0, 500) : undefined;
+          const detail = apiBody?.slice(0, 500) ?? apiData;
+          const enrichedMsg = detail ? `${rawMsg} · ${detail}` : rawMsg;
+          const errorMsg = isTransientStream
+            ? `Provider returned a transient error (${rawMsg.slice(0, 120)}). Please retry.`
+            : enrichedMsg;
+          const errorStack = !isTransientStream && err instanceof Error ? err.stack : undefined;
+          // Mark in-flight tool calls as interrupted so they don't show stuck spinners
+          if (isAbort) {
+            const completedIds = new Set(completedCalls.map((c) => c.id));
+            // Use snapshot saved before abort() cleared the buffers
+            const liveBuf =
+              abortedToolCallsSnapshot.current.length > 0
+                ? abortedToolCallsSnapshot.current
+                : liveToolCallsBuffer.current;
+            for (const seg of finalSegments) {
+              if (seg.type === "tools") {
+                for (const id of seg.toolCallIds) {
+                  if (!completedIds.has(id)) {
+                    const live = liveBuf.find((c: LiveToolCall) => c.id === id);
+                    const args = live?.args ? safeParseArgs(live.args) : {};
+                    completedCalls.push({
+                      id,
+                      name: live?.toolName ?? "unknown",
+                      args,
+                      result: { success: false, output: "", error: "Interrupted by user (Ctrl+X)" },
+                    });
+                  }
+                }
+              }
+            }
+            abortedSegmentsSnapshot.current = [];
+            abortedToolCallsSnapshot.current = [];
+          }
+
+          const hasPlanPostAction = !!planPostActionRef.current;
+          if (
+            !hasPlanPostAction &&
+            hasRenderableAssistantContent({
+              fullText,
+              toolCallCount: completedCalls.length,
+              segments: finalSegments,
+            })
+          ) {
             const partialMsg = buildAssistantMessage({
               fullText,
               completedCalls,
@@ -3119,15 +3337,7 @@ export function useChat({
             });
             if (!partialMsg) return;
             setMessages((prev) => [...prev, partialMsg]);
-            // Flush the streaming buffer and send the stall warning — tool-calls
-            // and text were already streamed in real time during the turn.
-            void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
-              bridgeStreamEmitter.flushNow(tabId);
-              bridgeStreamEmitter.stream(tabId, {
-                type: "warning",
-                message: `Stream stalled, auto-retrying (${String(stallRetryCountRef.current)}/${String(STALL_MAX_RETRIES)})`,
-              });
-            });
+
             if (completedCalls.length > 0) {
               const assistantContent: Array<TextPart | ToolCallPart> = [];
               if (fullText.length > 0) {
@@ -3154,15 +3364,56 @@ export function useChat({
                 { role: "assistant" as const, content: assistantContent },
                 { role: "tool" as const, content: toolContent },
               ]);
-            } else if (fullText.length > 0) {
+            } else {
               setCoreMessages((prev) => [
                 ...prev,
                 { role: "assistant" as const, content: fullText },
               ]);
             }
           }
-          // System message already shown by the watchdog — no duplicate needed.
-          // Clean up stream state
+          if (!hasPlanPostAction) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "system",
+                content: isAbort
+                  ? "Generation interrupted."
+                  : errorStack
+                    ? `Error: ${errorMsg}\n\n${errorStack}`
+                    : `Error: ${errorMsg}`,
+                timestamp: Date.now(),
+              },
+            ]);
+            // Flush streaming buffers (text + reasoning) and emit abort/error + turn-done.
+            void import("../hearth/bridge.js").then(
+              ({ bridgeStreamEmitter, reasoningStreamEmitter }) => {
+                reasoningStreamEmitter.discard(tabId);
+                bridgeStreamEmitter.flushNow(tabId);
+                if (isAbort) {
+                  bridgeStreamEmitter.stream(tabId, {
+                    type: "warning",
+                    message: "Generation interrupted.",
+                  });
+                } else {
+                  bridgeStreamEmitter.stream(tabId, {
+                    type: "error",
+                    error: errorMsg,
+                  });
+                }
+                bridgeStreamEmitter.stream(tabId, {
+                  type: "turn-done",
+                  turn: 0,
+                  output: fullText,
+                  steps: completedCalls.length,
+                  tokens: { ...turnTokensRef.current },
+                  toolCalls: completedCalls.map((c) => c.name),
+                  filesEdited: [],
+                  duration: 0,
+                });
+              },
+            );
+          }
           streamSegmentsBuffer.current = [];
           liveToolCallsBuffer.current = [];
           lastFlushedSegments.current = [];
@@ -3173,339 +3424,168 @@ export function useChat({
           setStreamingChars(0);
           setStreamSegments([]);
           setLiveToolCalls([]);
-          // Signal that a stall retry is pending so:
-          // 1. finally block doesn't fire competing handleSubmit (messageQueue/compact)
-          // 2. next handleSubmit("Continue.") preserves the retry count
-          stallRetryPendingRef.current = true;
-          // Backoff: 2s first, 5s second
-          const backoffMs = stallRetryCountRef.current === 1 ? 2_000 : 5_000;
-          setTimeout(() => handleSubmitRef.current("Continue."), backoffMs);
-          // Skip the rest of the catch — finally block will clean up
-          return;
-        }
-
-        const rawMsg = err instanceof Error ? err.message : String(err);
-        // Log non-abort errors to /errors for debugging
-        if (!isAbort) {
-          logBackgroundError("agent-error", rawMsg);
-        }
-        // ── StopFailure hook ──
-        if (!isAbort) {
-          runHooks({
-            event: "StopFailure",
-            toolInput: { error: rawMsg },
-            sessionId: sessionIdRef.current,
-            cwd,
-          }).catch(() => {});
-        }
-        const isTransientStream = /overloaded|529|429|rate.?limit|too many requests|503|502/i.test(
-          rawMsg,
-        );
-        const errObj =
-          err != null && typeof err === "object" ? (err as Record<string, unknown>) : null;
-        const apiBody =
-          errObj && typeof errObj.responseBody === "string" && errObj.responseBody.length > 0
-            ? errObj.responseBody
-            : undefined;
-        const apiData =
-          errObj?.data != null ? JSON.stringify(errObj.data).slice(0, 500) : undefined;
-        const detail = apiBody?.slice(0, 500) ?? apiData;
-        const enrichedMsg = detail ? `${rawMsg} · ${detail}` : rawMsg;
-        const errorMsg = isTransientStream
-          ? `Provider returned a transient error (${rawMsg.slice(0, 120)}). Please retry.`
-          : enrichedMsg;
-        const errorStack = !isTransientStream && err instanceof Error ? err.stack : undefined;
-        // Mark in-flight tool calls as interrupted so they don't show stuck spinners
-        if (isAbort) {
-          const completedIds = new Set(completedCalls.map((c) => c.id));
-          // Use snapshot saved before abort() cleared the buffers
-          const liveBuf =
-            abortedToolCallsSnapshot.current.length > 0
-              ? abortedToolCallsSnapshot.current
-              : liveToolCallsBuffer.current;
-          for (const seg of finalSegments) {
-            if (seg.type === "tools") {
-              for (const id of seg.toolCallIds) {
-                if (!completedIds.has(id)) {
-                  const live = liveBuf.find((c: LiveToolCall) => c.id === id);
-                  const args = live?.args ? safeParseArgs(live.args) : {};
-                  completedCalls.push({
-                    id,
-                    name: live?.toolName ?? "unknown",
-                    args,
-                    result: { success: false, output: "", error: "Interrupted by user (Ctrl+X)" },
-                  });
-                }
-              }
-            }
+          resetInProgressTasks(tabId);
+        } finally {
+          if (stallWatchdog) clearInterval(stallWatchdog);
+          unsubStallWatch1?.();
+          unsubStallWatch2?.();
+          unsubStallWatch3?.();
+          unsubAgentStats();
+          unsubMultiAgent();
+          unsubToolProgress();
+          if (visibleRef.current) useStatusBarStore.getState().setSubagentChars(0);
+          if (abortController.signal.aborted) getWorkspaceCoordinator().releaseAll(tabId);
+          if (!stallRetryPendingRef.current) setIsLoading(false);
+          // ── Stop hook ── (fires when agent finishes responding)
+          if (!stallRetryPendingRef.current) {
+            runHooks({
+              event: "Stop",
+              toolInput: { stop_hook_active: true },
+              sessionId: sessionIdRef.current,
+              cwd,
+            }).catch(() => {});
           }
-          abortedSegmentsSnapshot.current = [];
-          abortedToolCallsSnapshot.current = [];
-        }
+          abortRef.current = null;
+          planExecutionRef.current = false;
+          setPendingQuestion(null);
+          setPendingPlanReview(null);
+          contextManager.invalidateFileTree();
 
-        const hasPlanPostAction = !!planPostActionRef.current;
-        if (
-          !hasPlanPostAction &&
-          hasRenderableAssistantContent({
-            fullText,
-            toolCallCount: completedCalls.length,
-            segments: finalSegments,
-          })
-        ) {
-          const partialMsg = buildAssistantMessage({
-            fullText,
-            completedCalls,
-            segments: finalSegments,
-            responseStartedAt,
-            now: Date.now(),
-          });
-          if (!partialMsg) return;
-          setMessages((prev) => [...prev, partialMsg]);
+          const postAction = planPostActionRef.current;
+          let willContinue = false;
+          if (postAction) {
+            planPostActionRef.current = null;
+            const pContent = postAction.planContent;
 
-          if (completedCalls.length > 0) {
-            const assistantContent: Array<TextPart | ToolCallPart> = [];
-            if (fullText.length > 0) {
-              assistantContent.push({ type: "text", text: fullText });
-            }
-            for (const call of completedCalls) {
-              const args = call.args;
-              assistantContent.push({
-                type: "tool-call",
-                toolCallId: call.id,
-                toolName: call.name,
-                input:
-                  typeof args === "object" && args !== null && !Array.isArray(args) ? args : {},
-              });
-            }
-            const toolContent = completedCalls.map((call) => ({
-              type: "tool-result" as const,
-              toolCallId: call.id,
-              toolName: call.name,
-              output: { type: "text" as const, value: call.result?.output ?? "" },
-            }));
-            setCoreMessages((prev) => [
-              ...prev,
-              { role: "assistant" as const, content: assistantContent },
-              { role: "tool" as const, content: toolContent },
-            ]);
-          } else {
-            setCoreMessages((prev) => [...prev, { role: "assistant" as const, content: fullText }]);
-          }
-        }
-        if (!hasPlanPostAction) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: "system",
-              content: isAbort
-                ? "Generation interrupted."
-                : errorStack
-                  ? `Error: ${errorMsg}\n\n${errorStack}`
-                  : `Error: ${errorMsg}`,
-              timestamp: Date.now(),
-            },
-          ]);
-          // Flush streaming buffers (text + reasoning) and emit abort/error + turn-done.
-          void import("../hearth/bridge.js").then(
-            ({ bridgeStreamEmitter, reasoningStreamEmitter }) => {
-              reasoningStreamEmitter.discard(tabId);
-              bridgeStreamEmitter.flushNow(tabId);
-              if (isAbort) {
-                bridgeStreamEmitter.stream(tabId, {
-                  type: "warning",
-                  message: "Generation interrupted.",
-                });
-              } else {
-                bridgeStreamEmitter.stream(tabId, {
-                  type: "error",
-                  error: errorMsg,
-                });
-              }
-              bridgeStreamEmitter.stream(tabId, {
-                type: "turn-done",
-                turn: 0,
-                output: fullText,
-                steps: completedCalls.length,
-                tokens: { ...turnTokensRef.current },
-                toolCalls: completedCalls.map((c) => c.name),
-                filesEdited: [],
-                duration: 0,
-              });
-            },
-          );
-        }
-        streamSegmentsBuffer.current = [];
-        liveToolCallsBuffer.current = [];
-        lastFlushedSegments.current = [];
-        lastFlushedToolCalls.current = [];
-        lastFlushedStreamingChars.current = 0;
-        streamingCharsRef.current = 0;
-        toolCharsRef.current = 0;
-        setStreamingChars(0);
-        setStreamSegments([]);
-        setLiveToolCalls([]);
-        resetInProgressTasks(tabId);
-      } finally {
-        if (stallWatchdog) clearInterval(stallWatchdog);
-        unsubStallWatch1?.();
-        unsubStallWatch2?.();
-        unsubStallWatch3?.();
-        unsubAgentStats();
-        unsubMultiAgent();
-        unsubToolProgress();
-        if (visibleRef.current) useStatusBarStore.getState().setSubagentChars(0);
-        if (abortController.signal.aborted) getWorkspaceCoordinator().releaseAll(tabId);
-        if (!stallRetryPendingRef.current) setIsLoading(false);
-        // ── Stop hook ── (fires when agent finishes responding)
-        if (!stallRetryPendingRef.current) {
-          runHooks({
-            event: "Stop",
-            toolInput: { stop_hook_active: true },
-            sessionId: sessionIdRef.current,
-            cwd,
-          }).catch(() => {});
-        }
-        abortRef.current = null;
-        planExecutionRef.current = false;
-        setPendingQuestion(null);
-        setPendingPlanReview(null);
-        contextManager.invalidateFileTree();
-
-        const postAction = planPostActionRef.current;
-        let willContinue = false;
-        if (postAction) {
-          planPostActionRef.current = null;
-          const pContent = postAction.planContent;
-
-          if (postAction.action === "revise") {
-            willContinue = true;
-            setActivePlan(null);
-            setSidebarPlan(null);
-            setCoreMessages((prev) => {
-              let planIdx = -1;
-              for (let i = prev.length - 1; i >= 0; i--) {
-                const m = prev[i];
-                if (
-                  m?.role === "assistant" &&
-                  Array.isArray(m.content) &&
-                  m.content.some(
-                    (p: unknown) =>
-                      typeof p === "object" &&
-                      p !== null &&
-                      "type" in p &&
-                      (p as { type: string }).type === "tool-call" &&
-                      "toolName" in p &&
-                      (p as { toolName: string }).toolName === "plan",
-                  )
-                ) {
-                  planIdx = i;
-                  break;
+            if (postAction.action === "revise") {
+              willContinue = true;
+              setActivePlan(null);
+              setSidebarPlan(null);
+              setCoreMessages((prev) => {
+                let planIdx = -1;
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  const m = prev[i];
+                  if (
+                    m?.role === "assistant" &&
+                    Array.isArray(m.content) &&
+                    m.content.some(
+                      (p: unknown) =>
+                        typeof p === "object" &&
+                        p !== null &&
+                        "type" in p &&
+                        (p as { type: string }).type === "tool-call" &&
+                        "toolName" in p &&
+                        (p as { toolName: string }).toolName === "plan",
+                    )
+                  ) {
+                    planIdx = i;
+                    break;
+                  }
                 }
-              }
-              if (planIdx < 0) return prev;
-              return prev.slice(0, planIdx);
-            });
-            setTimeout(() => handleSubmit(postAction.reviseFeedback ?? "Revise the plan."), 0);
-          } else {
-            planModeRef.current = false;
-            planRequestRef.current = null;
-            setForgeMode("default");
+                if (planIdx < 0) return prev;
+                return prev.slice(0, planIdx);
+              });
+              setTimeout(() => handleSubmit(postAction.reviseFeedback ?? "Revise the plan."), 0);
+            } else {
+              planModeRef.current = false;
+              planRequestRef.current = null;
+              setForgeMode("default");
 
-            if (postAction.action === "cancel") {
-              clearTasks(tabId);
-              setMessages((prev) => [
-                ...prev,
-                {
+              if (postAction.action === "cancel") {
+                clearTasks(tabId);
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "system",
+                    content: `Plan cancelled: ${postAction.plan?.title ?? ""}`,
+                    timestamp: Date.now(),
+                    showInChat: true,
+                  },
+                ]);
+              } else if (
+                (postAction.action === "clear_execute" || postAction.action === "execute") &&
+                pContent
+              ) {
+                willContinue = true;
+                const isClear = postAction.action === "clear_execute";
+                if (isClear) {
+                  contextManager.resetConversationTracking();
+                  setCoreMessages([]);
+                  setTokenUsage({ ...ZERO_USAGE });
+                }
+                const statusMsg: ChatMessage = {
                   id: crypto.randomUUID(),
                   role: "system",
-                  content: `Plan cancelled: ${postAction.plan?.title ?? ""}`,
+                  content: isClear
+                    ? "Context cleared — executing plan with fresh context..."
+                    : "Plan accepted — executing...",
                   timestamp: Date.now(),
-                  showInChat: true,
-                },
-              ]);
-            } else if (
-              (postAction.action === "clear_execute" || postAction.action === "execute") &&
-              pContent
-            ) {
-              willContinue = true;
-              const isClear = postAction.action === "clear_execute";
-              if (isClear) {
-                contextManager.resetConversationTracking();
-                setCoreMessages([]);
-                setTokenUsage({ ...ZERO_USAGE });
+                };
+                setMessages(isClear ? [statusMsg] : (prev) => [...prev, statusMsg]);
+                if (postAction.plan) {
+                  setActivePlan(postAction.plan);
+                  setSidebarPlan(postAction.plan);
+                }
+                planExecutionRef.current = true;
+                const isFullPlan = postAction.plan?.depth !== "light";
+                const execPrompt = isFullPlan
+                  ? `Execute this plan. The checklist is already live in the UI.\n` +
+                    `Workflow per step:\n` +
+                    `1. update_plan_step(stepId, "active")\n` +
+                    `2. Apply edits: each step has old→new diffs — use edit_file with the exact old/new text.\n` +
+                    `3. Run shell commands from the step if present.\n` +
+                    `4. update_plan_step(stepId, "done")\n\n` +
+                    `All file content is included in the code_snippets below. Edits are pre-validated against this content.\n\n${pContent}`
+                  : `Execute this plan. The checklist is already live in the UI.\n` +
+                    `Workflow per step:\n` +
+                    `1. update_plan_step(stepId, "active")\n` +
+                    `2. Read the target files, then apply the changes described in the step details.\n` +
+                    `3. Run shell commands from the step if present.\n` +
+                    `4. update_plan_step(stepId, "done")\n\n` +
+                    `This is a light plan — read files as needed before editing.\n\n${pContent}`;
+                setTimeout(() => handleSubmit(execPrompt), 0);
               }
-              const statusMsg: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: "system",
-                content: isClear
-                  ? "Context cleared — executing plan with fresh context..."
-                  : "Plan accepted — executing...",
-                timestamp: Date.now(),
-              };
-              setMessages(isClear ? [statusMsg] : (prev) => [...prev, statusMsg]);
-              if (postAction.plan) {
-                setActivePlan(postAction.plan);
-                setSidebarPlan(postAction.plan);
-              }
-              planExecutionRef.current = true;
-              const isFullPlan = postAction.plan?.depth !== "light";
-              const execPrompt = isFullPlan
-                ? `Execute this plan. The checklist is already live in the UI.\n` +
-                  `Workflow per step:\n` +
-                  `1. update_plan_step(stepId, "active")\n` +
-                  `2. Apply edits: each step has old→new diffs — use edit_file with the exact old/new text.\n` +
-                  `3. Run shell commands from the step if present.\n` +
-                  `4. update_plan_step(stepId, "done")\n\n` +
-                  `All file content is included in the code_snippets below. Edits are pre-validated against this content.\n\n${pContent}`
-                : `Execute this plan. The checklist is already live in the UI.\n` +
-                  `Workflow per step:\n` +
-                  `1. update_plan_step(stepId, "active")\n` +
-                  `2. Read the target files, then apply the changes described in the step details.\n` +
-                  `3. Run shell commands from the step if present.\n` +
-                  `4. update_plan_step(stepId, "done")\n\n` +
-                  `This is a light plan — read files as needed before editing.\n\n${pContent}`;
-              setTimeout(() => handleSubmit(execPrompt), 0);
             }
+          } else if (pendingCompactRef.current) {
+            willContinue = true;
+            pendingCompactRef.current = false;
+            const planSnapshot = activePlanRef.current;
+            const buildPlanHint = () =>
+              planSnapshot
+                ? (() => {
+                    const active = planSnapshot.steps.find((s) => s.status === "active");
+                    const done = planSnapshot.steps.filter((s) => s.status === "done").length;
+                    const total = planSnapshot.steps.length;
+                    return ` You are executing plan "${planSnapshot.title}" — ${String(done)}/${String(total)} steps done.${active ? ` Currently on step [${active.id}]: ${active.label}.` : ""}`;
+                  })()
+                : "";
+            summarizeConversationRef
+              .current({ skipQueueDrain: true })
+              .then(() => {
+                setTimeout(() => handleSubmitRef.current(`Continue.${buildPlanHint()}`), 0);
+              })
+              .catch(() => {
+                // Compaction failed — still continue so the agent doesn't hang
+                setTimeout(() => handleSubmitRef.current(`Continue.${buildPlanHint()}`), 0);
+              });
           }
-        } else if (pendingCompactRef.current) {
-          willContinue = true;
-          pendingCompactRef.current = false;
-          const planSnapshot = activePlanRef.current;
-          const buildPlanHint = () =>
-            planSnapshot
-              ? (() => {
-                  const active = planSnapshot.steps.find((s) => s.status === "active");
-                  const done = planSnapshot.steps.filter((s) => s.status === "done").length;
-                  const total = planSnapshot.steps.length;
-                  return ` You are executing plan "${planSnapshot.title}" — ${String(done)}/${String(total)} steps done.${active ? ` Currently on step [${active.id}]: ${active.label}.` : ""}`;
-                })()
-              : "";
-          summarizeConversationRef
-            .current({ skipQueueDrain: true })
-            .then(() => {
-              setTimeout(() => handleSubmitRef.current(`Continue.${buildPlanHint()}`), 0);
-            })
-            .catch(() => {
-              // Compaction failed — still continue so the agent doesn't hang
-              setTimeout(() => handleSubmitRef.current(`Continue.${buildPlanHint()}`), 0);
-            });
-        }
 
-        if (!willContinue && !stallRetryPendingRef.current) {
-          setActivePlan(null);
-          setSidebarPlan(null);
-          clearTasks(tabId);
-          setMessageQueue((queue) => {
-            if (queue.length > 0) {
-              const [next, ...rest] = queue;
-              if (next) {
-                setTimeout(() => handleSubmitRef.current(next.content), 0);
+          if (!willContinue && !stallRetryPendingRef.current) {
+            setActivePlan(null);
+            setSidebarPlan(null);
+            clearTasks(tabId);
+            setMessageQueue((queue) => {
+              if (queue.length > 0) {
+                const [next, ...rest] = queue;
+                if (next) {
+                  setTimeout(() => handleSubmitRef.current(next.content), 0);
+                }
+                return rest;
               }
-              return rest;
-            }
-            return queue;
-          });
+              return queue;
+            });
+          }
         }
       }
     },
