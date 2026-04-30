@@ -1845,18 +1845,15 @@ export function useChat({
         resolveRetrySettings(effectiveConfig.retry);
       let streamRetryCount = 0; // local retry counter (not a ref)
       // Model fallback: per-model fallback chains
-      // Look up fallbacks for the CURRENT model from the Record<modelId, fallbackArray>
-      // Also support legacy format (string[]) for backward compatibility
+      // Format: Record<modelId, fallbackArray>
       const raw = effectiveConfig.modelFallback;
       let fallbackModels: string[] = [];
-      if (Array.isArray(raw)) {
-        // Legacy format: global fallback array (migrate to new format)
-        fallbackModels = (raw as unknown as string[]).filter((m) => m && m.trim().length > 0);
-      } else if (raw && typeof raw === "object") {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
         fallbackModels = ((raw as Record<string, string[]>)[activeModelRef.current] ?? []).filter(
           (m) => m && m.trim().length > 0,
         );
       }
+      // Legacy string[] format is no longer supported - use Record format
       let fallbackIndex = -1; // -1 = primary model, 0+ = index into fallbackModels
       const primaryModelId = activeModelRef.current; // Store for cycling back
       let cycleCount = 0; // Track how many times we've cycled back to primary
