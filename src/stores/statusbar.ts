@@ -35,14 +35,18 @@ interface ModelPricing {
   output: number;
 }
 
-// Prices in USD per million tokens. Sources:
-// Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
+// Prices in USD per million tokens. Sources (verified 2026-04-30):
+// Anthropic: https://docs.claude.com/en/docs/about-claude/pricing
 // OpenAI:    https://openai.com/api/pricing/
 // Google:    https://ai.google.dev/gemini-api/docs/pricing
 // DeepSeek:  https://api-docs.deepseek.com/quick_start/pricing
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // ── Anthropic Claude ──────────────────────────────────────────────
-  // cacheWrite = 1.25× base input (5-min TTL), cacheRead = 0.1× base input
+  // Source: https://docs.claude.com/en/docs/about-claude/pricing (2026-04-30)
+  // cacheWrite = 5-min TTL (1.25× base). 1h TTL would be 2× base; SDK doesn't
+  // expose which TTL was used, and we always request the 5m default.
+  // cacheRead = 0.1× base input.
+  "claude-opus-4-7": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-6": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-5": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-1": { input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 },
@@ -59,13 +63,14 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   "claude-3-haiku": { input: 0.25, cacheWrite: 0.3, cacheRead: 0.03, output: 1.25 },
 
   // ── OpenAI ────────────────────────────────────────────────────────
-  // Source: https://platform.openai.com/docs/pricing (2026-04-02)
-  // cacheWrite = same as input (OpenAI doesn't charge extra for cache writes)
-  // cacheRead = 10% of input for GPT-5.4 family, 25% for GPT-4.1/o3/o4-mini, 50% for GPT-4o
+  // Source: https://openai.com/api/pricing/ (2026-04-30)
+  // Only GPT-5.5 / 5.4 / 5.4-mini are on the official flagship page.
+  // Older models retained as fallbacks for historical model IDs.
+  // cacheRead = 10% of input across the GPT-5.x family.
+  "gpt-5.5": { input: 5, cacheWrite: 5, cacheRead: 0.5, output: 30 },
   "gpt-5.4": { input: 2.5, cacheWrite: 2.5, cacheRead: 0.25, output: 15 },
   "gpt-5.4-mini": { input: 0.75, cacheWrite: 0.75, cacheRead: 0.075, output: 4.5 },
-  "gpt-5.4-nano": { input: 0.2, cacheWrite: 0.2, cacheRead: 0.02, output: 1.25 },
-  "gpt-5.4-pro": { input: 30, cacheWrite: 30, cacheRead: 3, output: 180 },
+  // Legacy / no-longer-listed (estimates retained for back-compat with old IDs)
   "gpt-4.1": { input: 2, cacheWrite: 2, cacheRead: 0.5, output: 8 },
   "gpt-4.1-mini": { input: 0.4, cacheWrite: 0.4, cacheRead: 0.1, output: 1.6 },
   "gpt-4.1-nano": { input: 0.1, cacheWrite: 0.1, cacheRead: 0.025, output: 0.4 },
@@ -76,23 +81,27 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   "o4-mini": { input: 1.1, cacheWrite: 1.1, cacheRead: 0.275, output: 4.4 },
 
   // ── Google Gemini ─────────────────────────────────────────────────
-  // Source: https://ai.google.dev/gemini-api/docs/pricing (2026-04-02)
-  // cacheRead = 0.1× input for Gemini models (context caching)
+  // Source: https://ai.google.dev/gemini-api/docs/pricing (2026-04-30)
+  // Pro tiers double for prompts >200k; we use the ≤200k rate (typical agent context).
+  // cacheRead = 10% of input.
+  "gemini-3.1-pro": { input: 2, cacheWrite: 2, cacheRead: 0.2, output: 12 },
+  "gemini-3-flash": { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 3 },
+  "gemini-3.1-flash-lite": { input: 0.25, cacheWrite: 0.25, cacheRead: 0.025, output: 1.5 },
   "gemini-2.5-pro": { input: 1.25, cacheWrite: 1.25, cacheRead: 0.125, output: 10 },
   "gemini-2.5-flash": { input: 0.3, cacheWrite: 0.3, cacheRead: 0.03, output: 2.5 },
   "gemini-2.5-flash-lite": { input: 0.1, cacheWrite: 0.1, cacheRead: 0.01, output: 0.4 },
   "gemini-2.0-flash": { input: 0.1, cacheWrite: 0.1, cacheRead: 0.025, output: 0.4 },
   "gemini-2.0-flash-lite": { input: 0.075, cacheWrite: 0.075, cacheRead: 0.019, output: 0.3 },
-  "gemini-3-flash": { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 3 },
-  "gemini-3.1-pro": { input: 2, cacheWrite: 2, cacheRead: 0.2, output: 12 },
-  "gemini-3.1-flash-lite": { input: 0.25, cacheWrite: 0.25, cacheRead: 0.025, output: 1.5 },
 
   // ── DeepSeek ──────────────────────────────────────────────────────
-  // Source: https://api-docs.deepseek.com/quick_start/pricing (2026-07)
-  // Both deepseek-chat and deepseek-reasoner are DeepSeek-V3.2 with identical pricing.
-  // cacheRead = 10% of input ($0.028).
-  "deepseek-chat": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
-  "deepseek-reasoner": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
+  // Source: https://api-docs.deepseek.com/quick_start/pricing (2026-04-30)
+  // deepseek-chat / deepseek-reasoner are aliases for deepseek-v4-flash (non-thinking / thinking).
+  // Cache hit price reduced to 1/10 of input on 2026-04-26.
+  // v4-pro list price; 75%-off promo runs until 2026-05-31.
+  "deepseek-v4-pro": { input: 1.74, cacheWrite: 1.74, cacheRead: 0.0145, output: 3.48 },
+  "deepseek-v4-flash": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.014, output: 0.28 },
+  "deepseek-chat": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.014, output: 0.28 },
+  "deepseek-reasoner": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.014, output: 0.28 },
   "deepseek-v3": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
   "deepseek-r1": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
 
@@ -124,9 +133,10 @@ const DEFAULT_PRICING: ModelPricing = { input: 3, cacheWrite: 3.75, cacheRead: 0
 // ── GitHub Copilot (premium request model) ─────────────────────
 // Copilot bills per "premium request" ($0.04 × multiplier per API call).
 // Per-token costs are estimated from multiplier / typical request size.
-// Models with multiplier 0 (GPT-4o, GPT-4.1) are free on paid plans.
-// Source: https://docs.github.com/en/copilot/managing-copilot/monitoring-usage-and-entitlements/about-premium-requests
+// Models with multiplier 0 (GPT-4o, GPT-4.1, GPT-5-mini) are free on paid plans.
+// Source: https://docs.github.com/en/copilot/managing-copilot/monitoring-usage-and-entitlements/about-premium-requests (verified 2026-04-30)
 // Premium request multiplier → per-1M-token cost estimate.
+// (Starting 2026-06-01 Copilot moves to usage-based billing; multipliers remain informative.)
 // Formula: multiplier × $0.04 per request, ~5k tokens/request avg → $/1M = multiplier × $8
 // input:output ratio ~4:1 in typical coding, so input = mult×$2, output = mult×$10
 const FREE: ModelPricing = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
@@ -135,6 +145,7 @@ const M033: ModelPricing = { input: 0.66, cacheWrite: 0.66, cacheRead: 0.07, out
 const M1: ModelPricing = { input: 2, cacheWrite: 2, cacheRead: 0.2, output: 10 };
 const M3: ModelPricing = { input: 6, cacheWrite: 6, cacheRead: 0.6, output: 30 };
 const M30: ModelPricing = { input: 60, cacheWrite: 60, cacheRead: 6, output: 300 };
+const M75: ModelPricing = { input: 15, cacheWrite: 15, cacheRead: 1.5, output: 75 };
 
 const COPILOT_PRICING: Record<string, ModelPricing> = {
   // multiplier 0 (free on paid plans)
@@ -146,6 +157,7 @@ const COPILOT_PRICING: Record<string, ModelPricing> = {
   // multiplier 0.25
   "grok-code-fast": M025,
   grok: M025,
+  "gpt-5.4-nano": M025,
   // multiplier 0.33
   "claude-haiku-4.5": M033,
   "gpt-5.4-mini": M033,
@@ -162,14 +174,19 @@ const COPILOT_PRICING: Record<string, ModelPricing> = {
   "gemini-3-pro": M1,
   "gpt-5.1": M1,
   "gpt-5.2": M1,
+  "gpt-5.2-codex": M1,
   "gpt-5.3": M1,
+  "gpt-5.3-codex": M1,
   "gpt-5.4": M1,
   "o3-mini": M1,
   "o4-mini": M1,
   // multiplier 3
   "claude-opus-4.5": M3,
   "claude-opus-4.6": M3,
-  // multiplier 30
+  // multiplier 7.5
+  "claude-opus-4.7": M75,
+  "gpt-5.5": M75,
+  // multiplier 30 (Opus 4.6 fast mode preview)
   "claude-opus-4.6-fast": M30,
 };
 
@@ -255,7 +272,7 @@ function matchPricing(modelId: string): ModelPricing {
   if (id.includes("sonnet")) return DEFAULT_PRICING;
   if (id.includes("haiku")) return MODEL_PRICING["claude-haiku-4-5"] ?? DEFAULT_PRICING;
   if (id.includes("gemini")) return MODEL_PRICING["gemini-2.5-flash"] ?? DEFAULT_PRICING;
-  if (id.includes("gpt")) return MODEL_PRICING["gpt-4.1"] ?? DEFAULT_PRICING;
+  if (id.includes("gpt")) return MODEL_PRICING["gpt-5.4"] ?? DEFAULT_PRICING;
   if (id.includes("deepseek")) return MODEL_PRICING["deepseek-chat"] ?? DEFAULT_PRICING;
   return DEFAULT_PRICING;
 }
