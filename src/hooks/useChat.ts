@@ -2272,9 +2272,10 @@ export function useChat({
           // "First content" = actual text or tool-call, not just start-step metadata.
           // First-content is generous for free tiers, deep reasoning, and large contexts.
           // Paused entirely while tools execute (they have their own timeouts).
-          const STALL_CHUNK_MS = 120_000;
-          const STALL_FIRST_CHUNK_MS = 180_000;
-          const STALL_TOOL_MAX_MS = 900_000; // 15min — dispatch worst case
+          const wd = effectiveConfig.watchdogTimeouts;
+          const STALL_CHUNK_MS = wd?.chunkMs ?? 120_000;
+          const STALL_FIRST_CHUNK_MS = wd?.firstChunkMs ?? 180_000;
+          const STALL_TOOL_MAX_MS = wd?.toolMaxMs ?? 900_000; // 15min — dispatch worst case
           let lastActivityTs = Date.now();
           let lastToolActivityTs = Date.now();
           let toolsInFlight = 0;
@@ -2322,7 +2323,7 @@ export function useChat({
           // Track whether the watchdog already fired abort — subsequent interval
           // ticks should force-resolve the stream if the abort didn't propagate.
           let stallAbortedAt = 0;
-          const STALL_FORCE_RESOLVE_MS = 5_000; // 5s grace after abort before force-kill
+          const STALL_FORCE_RESOLVE_MS = wd?.forceResolveMs ?? 5_000; // 5s grace after abort before force-kill
           if (effectiveConfig.watchdog)
             stallWatchdog = setInterval(() => {
               // If watchdog aborted but the for-await loop is stuck on a dead

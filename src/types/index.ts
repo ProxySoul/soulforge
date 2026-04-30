@@ -348,6 +348,8 @@ export interface AppConfig {
   mcpServers?: MCPServerConfig[];
   /** Auto-retry on stream stalls. Default: false (disabled). Toggle via /watchdog. */
   watchdog?: boolean;
+  /** Watchdog timeouts for detecting stalled streams. */
+  watchdogTimeouts?: WatchdogTimeouts;
   /** Tool call timeout in minutes. Applies to shell, project, and agent tools. Default: 2 */
   toolTimeout?: number;
   /** Retry behavior for transient provider errors (429, 529, 503, timeouts, overloaded). */
@@ -359,6 +361,17 @@ export interface RetryConfig {
   maxAttempts?: number;
   /** Base delay in ms before the first retry. Doubles each attempt + jitter. Default: 2000 (agents), 1000 (chat). Range: 250–60000. */
   baseDelayMs?: number;
+}
+
+export interface WatchdogTimeouts {
+  /** Timeout in ms before first content chunk. Default: 180000 (180s). Range: 30000-600000. */
+  firstChunkMs?: number;
+  /** Timeout in ms between subsequent chunks. Default: 120000 (120s). Range: 30000-600000. */
+  chunkMs?: number;
+  /** Max timeout in ms while tools are executing. Default: 900000 (15min). Range: 120000-1800000. */
+  toolMaxMs?: number;
+  /** Grace period in ms after abort before force-resolving. Default: 5000 (5s). Range: 1000-30000. */
+  forceResolveMs?: number;
 }
 
 export interface MCPServerConfig {
