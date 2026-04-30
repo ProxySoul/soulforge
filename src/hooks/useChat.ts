@@ -2144,59 +2144,61 @@ export function useChat({
           });
           let result: StreamTextResult<ToolSet, never> | undefined;
           if (!abortController.signal.aborted) {
+            // Extracted for smaller diffs when modifying streaming logic
+            const runStreamAttempt = async (degradeLevel: number) => {
+              const currentAgent =
+                degradeLevel === 0
+                  ? agent
+                  : (() => {
+                      const degraded = degradeProviderOptions(activeModelRef.current, degradeLevel);
+                      return createForgeAgent({
+                        model,
+                        fullModelId: modelId,
+                        contextManager,
+                        forgeMode: contextManager.getForgeMode(),
+                        interactive: interactiveCallbacks,
+                        editorIntegration: effectiveConfig.editorIntegration,
+                        subagentModels,
+                        webSearchModel: effectiveWebSearchModel,
+                        onApproveWebSearch: webSearchApproval,
+                        onApproveFetchPage: fetchPageApproval,
+                        onApproveOutsideCwd: promptOutsideCwd,
+                        onApproveDestructive: promptDestructive,
+                        providerOptions: degraded.providerOptions,
+                        headers: degraded.headers,
+                        codeExecution: effectiveConfig.codeExecution,
+                        computerUse: effectiveConfig.computerUse,
+                        anthropicTextEditor: effectiveConfig.anthropicTextEditor,
+                        cwd,
+                        sessionId: sessionIdRef.current,
+                        sharedCacheRef: sharedCacheRef.current,
+                        agentFeatures: {
+                          ...effectiveConfig.agentFeatures,
+                          onDemandTools: !useToolsStore
+                            .getState()
+                            .disabledTools.has("request_tools"),
+                        },
+                        planExecution: planExecutionRef.current,
+                        drainSteering,
+                        disablePruning: !["subagents", "both"].includes(
+                          effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+                        ),
+                        disabledTools: useToolsStore.getState().disabledTools,
+                        tabId,
+                        tabLabel,
+                      });
+                    })();
+              return (await currentAgent.stream({
+                messages: newCoreMessages,
+                abortSignal: abortController.signal,
+                options: { userMessage: input },
+              })) as unknown as StreamTextResult<ToolSet, never>;
+            };
+
             for (let degradeLevel = 0; degradeLevel <= 2; degradeLevel++) {
               if (abortController.signal.aborted) break;
               try {
-                const currentAgent =
-                  degradeLevel === 0
-                    ? agent
-                    : (() => {
-                        const degraded = degradeProviderOptions(
-                          activeModelRef.current,
-                          degradeLevel,
-                        );
-                        return createForgeAgent({
-                          model,
-                          fullModelId: modelId,
-                          contextManager,
-                          forgeMode: contextManager.getForgeMode(),
-                          interactive: interactiveCallbacks,
-                          editorIntegration: effectiveConfig.editorIntegration,
-                          subagentModels,
-                          webSearchModel: effectiveWebSearchModel,
-                          onApproveWebSearch: webSearchApproval,
-                          onApproveFetchPage: fetchPageApproval,
-                          onApproveOutsideCwd: promptOutsideCwd,
-                          onApproveDestructive: promptDestructive,
-                          providerOptions: degraded.providerOptions,
-                          headers: degraded.headers,
-                          codeExecution: effectiveConfig.codeExecution,
-                          computerUse: effectiveConfig.computerUse,
-                          anthropicTextEditor: effectiveConfig.anthropicTextEditor,
-                          cwd,
-                          sessionId: sessionIdRef.current,
-                          sharedCacheRef: sharedCacheRef.current,
-                          agentFeatures: {
-                            ...effectiveConfig.agentFeatures,
-                            onDemandTools: !useToolsStore
-                              .getState()
-                              .disabledTools.has("request_tools"),
-                          },
-                          planExecution: planExecutionRef.current,
-                          drainSteering,
-                          disablePruning: !["subagents", "both"].includes(
-                            effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
-                          ),
-                          disabledTools: useToolsStore.getState().disabledTools,
-                          tabId,
-                          tabLabel,
-                        });
-                      })();
-                result = (await currentAgent.stream({
-                  messages: newCoreMessages,
-                  abortSignal: abortController.signal,
-                  options: { userMessage: input },
-                })) as unknown as StreamTextResult<ToolSet, never>;
+                result = await runStreamAttempt(degradeLevel);
                 break;
               } catch (err: unknown) {
                 if (!isProviderOptionsError(err) || degradeLevel === 2) {
