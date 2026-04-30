@@ -3328,11 +3328,10 @@ export function useChat({
             // 1. finally block doesn't fire competing handleSubmit (messageQueue/compact)
             // 2. next handleSubmit("Continue.") preserves the retry count
             stallRetryPendingRef.current = true;
-            // Backoff: 2s first, 5s second
+            // Backoff: 2s first, 5s second (use await to avoid racing finally block)
             const backoffMs = stallRetryCountRef.current === 1 ? 2_000 : 5_000;
-            setTimeout(() => handleSubmitRef.current("Continue."), backoffMs);
-            // Skip the rest of the catch — finally block will clean up
-            return;
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            continue;
           }
 
           const rawMsg = err instanceof Error ? err.message : String(err);
