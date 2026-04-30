@@ -293,6 +293,8 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
   const wd = cfg.watchdogTimeouts ?? {};
 
   const options = [
+    // Separator
+    { value: "sep0", label: "─ Tool Timeout ─", disabled: true },
     // Tool timeout
     { value: "tool:1", label: "1 min" },
     { value: "tool:2", label: "2 min", description: "default" },
