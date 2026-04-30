@@ -334,13 +334,31 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
     { value: "wd-force:30", label: "WD Force-Resolve: 30s" },
   ];
 
-  // Determine current value for highlighting
-  const currentValue = `tool:${currentToolTimeout}`;
+  // Determine current value for highlighting — find matching presets
+  const currentTool = `tool:${currentToolTimeout}`;
+  const wdFirstSec = (wd.firstChunkMs ?? 180_000) / 1000;
+  const wdChunkSec = (wd.chunkMs ?? 120_000) / 1000;
+  const wdToolSec = (wd.toolMaxMs ?? 900_000) / 1000;
+  const wdForceSec = (wd.forceResolveMs ?? 5_000) / 1000;
+
+  // Prefer exact preset matches, fallback to custom value
+  const wdFirst = ["5", "15", "30", "60", "120", "180"].includes(String(wdFirstSec))
+    ? `wd-first:${wdFirstSec}`
+    : `wd-first:${wdFirstSec}`;
+  const wdChunk = ["5", "15", "30", "60", "120", "180"].includes(String(wdChunkSec))
+    ? `wd-chunk:${wdChunkSec}`
+    : `wd-chunk:${wdChunkSec}`;
+  const wdTool = ["60", "300", "600", "900", "1800", "3600"].includes(String(wdToolSec))
+    ? `wd-tool:${wdToolSec}`
+    : `wd-tool:${wdToolSec}`;
+  const wdForce = ["1", "5", "10", "30"].includes(String(wdForceSec))
+    ? `wd-force:${wdForceSec}`
+    : `wd-force:${wdForceSec}`;
 
   ctx.openCommandPicker({
     title: "Timeouts & Watchdog",
     icon: icon("clock"),
-    currentValue,
+    currentValue: [currentTool, wdFirst, wdChunk, wdTool, wdForce],
     scopeEnabled: false,
     options,
     onSelect: (value) => {

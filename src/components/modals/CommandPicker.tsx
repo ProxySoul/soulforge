@@ -58,7 +58,7 @@ export interface CommandPickerConfig {
   title: string;
   icon?: string;
   options: CommandPickerOption[];
-  currentValue?: string;
+  currentValue?: string | string[];
   scopeEnabled?: boolean;
   initialScope?: ConfigScope;
   maxWidth?: number;
@@ -258,7 +258,11 @@ export function CommandPicker({ visible, config, onClose }: Props) {
         for (const sel of config.selectors) initial[sel.key] = sel.value;
         setSelectorState(initial);
       }
-      let idx = filteredOptions.findIndex((o) => o.value === config.currentValue);
+      let idx = config.currentValue
+        ? Array.isArray(config.currentValue)
+          ? filteredOptions.findIndex((o) => (config.currentValue as string[]).includes(o.value))
+          : filteredOptions.findIndex((o) => o.value === config.currentValue)
+        : -1;
       if (idx < 0) idx = filteredOptions.findIndex((o) => !o.disabled);
       const startIdx = idx >= 0 ? idx : 0;
       setCursor(startIdx);
@@ -588,7 +592,13 @@ export function CommandPicker({ visible, config, onClose }: Props) {
                 key={option.value}
                 option={option}
                 isActive={vi + clampedOffset === cursor}
-                isCurrent={option.value === config.currentValue}
+                isCurrent={
+                  config.currentValue
+                    ? Array.isArray(config.currentValue)
+                      ? (config.currentValue as string[]).includes(option.value)
+                      : option.value === config.currentValue
+                    : false
+                }
                 innerW={innerW}
                 popupBg={POPUP_BG}
                 popupHl={POPUP_HL}
