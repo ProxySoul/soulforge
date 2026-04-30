@@ -294,12 +294,12 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
 
   const options = [
     // Tool timeout
-    { value: "tool:1", label: "Tool: 1 min" },
-    { value: "tool:2", label: "Tool: 2 min", description: "default" },
-    { value: "tool:5", label: "Tool: 5 min" },
-    { value: "tool:10", label: "Tool: 10 min" },
-    { value: "tool:20", label: "Tool: 20 min" },
-    { value: "tool:0", label: "Tool: No timeout", description: "tools run until completion" },
+    { value: "tool:1", label: "1 min" },
+    { value: "tool:2", label: "2 min", description: "default" },
+    { value: "tool:5", label: "5 min" },
+    { value: "tool:10", label: "10 min" },
+    { value: "tool:20", label: "20 min" },
+    { value: "tool:0", label: "No timeout", description: "tools run until completion" },
     // Separator
     { value: "sep1", label: "─ Watchdog ─", disabled: true },
     // Watchdog toggle
@@ -309,37 +309,37 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
       description: watchdogEnabled ? "disable auto-retry on stalls" : "enable auto-retry on stalls",
     },
     // Watchdog first chunk timeout (seconds)
-    { value: "wd-first:5", label: "WD First Chunk: 5s" },
-    { value: "wd-first:15", label: "WD First Chunk: 15s" },
-    { value: "wd-first:30", label: "WD First Chunk: 30s" },
-    { value: "wd-first:60", label: "WD First Chunk: 60s" },
-    { value: "wd-first:120", label: "WD First Chunk: 120s" },
-    { value: "wd-first:180", label: "WD First Chunk: 180s", description: "default" },
+    { value: "wd-first:5", label: "5s" },
+    { value: "wd-first:15", label: "15s" },
+    { value: "wd-first:30", label: "30s" },
+    { value: "wd-first:60", label: "60s" },
+    { value: "wd-first:120", label: "120s" },
+    { value: "wd-first:180", label: "180s", description: "default" },
     // Separator
     { value: "sep2", label: "─ Chunk Timeout ─", disabled: true },
     // Watchdog chunk timeout (seconds)
-    { value: "wd-chunk:5", label: "WD Chunk: 5s" },
-    { value: "wd-chunk:15", label: "WD Chunk: 15s" },
-    { value: "wd-chunk:30", label: "WD Chunk: 30s" },
-    { value: "wd-chunk:60", label: "WD Chunk: 60s" },
-    { value: "wd-chunk:120", label: "WD Chunk: 120s", description: "default" },
-    { value: "wd-chunk:180", label: "WD Chunk: 180s" },
+    { value: "wd-chunk:5", label: "5s" },
+    { value: "wd-chunk:15", label: "15s" },
+    { value: "wd-chunk:30", label: "30s" },
+    { value: "wd-chunk:60", label: "60s" },
+    { value: "wd-chunk:120", label: "120s", description: "default" },
+    { value: "wd-chunk:180", label: "180s" },
     // Separator
     { value: "sep3", label: "─ Tool Max Timeout ─", disabled: true },
     // Watchdog tool max timeout (seconds)
-    { value: "wd-tool:60", label: "WD Tool Max: 1 min" },
-    { value: "wd-tool:300", label: "WD Tool Max: 5 min" },
-    { value: "wd-tool:600", label: "WD Tool Max: 10 min" },
-    { value: "wd-tool:900", label: "WD Tool Max: 15 min", description: "default" },
-    { value: "wd-tool:1800", label: "WD Tool Max: 30 min" },
-    { value: "wd-tool:3600", label: "WD Tool Max: 60 min" },
+    { value: "wd-tool:60", label: "1 min" },
+    { value: "wd-tool:300", label: "5 min" },
+    { value: "wd-tool:600", label: "10 min" },
+    { value: "wd-tool:900", label: "15 min", description: "default" },
+    { value: "wd-tool:1800", label: "30 min" },
+    { value: "wd-tool:3600", label: "60 min" },
     // Separator
     { value: "sep4", label: "─ Force-Resolve Timeout ─", disabled: true },
     // Watchdog force-resolve timeout (seconds)
-    { value: "wd-force:1", label: "WD Force-Resolve: 1s" },
-    { value: "wd-force:5", label: "WD Force-Resolve: 5s", description: "default" },
-    { value: "wd-force:10", label: "WD Force-Resolve: 10s" },
-    { value: "wd-force:30", label: "WD Force-Resolve: 30s" },
+    { value: "wd-force:1", label: "1s" },
+    { value: "wd-force:5", label: "5s", description: "default" },
+    { value: "wd-force:10", label: "10s" },
+    { value: "wd-force:30", label: "30s" },
   ];
 
   // Determine current value for highlighting — find matching presets
