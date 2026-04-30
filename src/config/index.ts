@@ -35,7 +35,7 @@ function mergeMCPServers(
 const CONFIG_DIR = join(homedir(), ".soulforge");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
-export const DEFAULT_CONFIG: AppConfig = {
+const DEFAULT_CONFIG: AppConfig = {
   defaultModel: "none",
   routerRules: [],
   editor: {

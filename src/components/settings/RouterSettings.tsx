@@ -138,6 +138,12 @@ const SECTIONS: SectionDef[] = [
       },
     ],
   },
+  {
+    id: "fallback",
+    title: "Model Fallback",
+    subtitle: "Per-model fallback chains for transient errors",
+    defs: [],
+  },
 ];
 
 const ALL_DEFS: Def[] = SECTIONS.flatMap((s) => s.defs);
@@ -149,24 +155,34 @@ interface SlotRow extends GroupedItem {
 interface Props {
   visible: boolean;
   router: TaskRouter | undefined;
+  defaultModel: string;
+  modelFallback: Record<string, string[]> | undefined;
   activeModel: string;
   scope: ConfigScope;
   onScopeChange: (toScope: ConfigScope, fromScope: ConfigScope) => void;
   onPickSlot: (slot: keyof TaskRouter) => void;
   onClearSlot: (slot: keyof TaskRouter) => void;
   onPickerChange: (key: "maxConcurrentAgents", value: number) => void;
+  /** Add a fallback model to a specific model's fallback chain */
+  onAddFallback: (modelId: string) => void;
+  /** Clear all fallbacks for a model */
+  onClearFallbacks: (modelId: string) => void;
   onClose: () => void;
 }
 
 export function RouterSettings({
   visible,
   router,
+  defaultModel,
+  modelFallback,
   activeModel,
   scope,
   onScopeChange,
   onPickSlot,
   onClearSlot,
   onPickerChange,
+  onAddFallback,
+  onClearFallbacks,
   onClose,
 }: Props) {
   const t = useTheme();
@@ -177,28 +193,85 @@ export function RouterSettings({
   const popupH = Math.min(36, Math.max(22, th - 4));
   const contentW = popupW - 4;
 
+  // Collect all unique models currently in use from task router slots + default model
+  const modelsInUse = useMemo(() => {
+    const models = new Set<string>();
+    // Always include the default model from config
+    if (defaultModel) models.add(defaultModel);
+    if (!router) return Array.from(models);
+    const slots: (keyof TaskRouter)[] = [
+      "default",
+      "spark",
+      "ember",
+      "webSearch",
+      "desloppify",
+      "verify",
+      "compact",
+      "semantic",
+    ];
+    for (const slot of slots) {
+      const model = router[slot];
+      if (typeof model === "string" && model.trim()) models.add(model);
+    }
+    return Array.from(models);
+  }, [router, defaultModel]);
+
   const groups = useMemo<GroupedListGroup<SlotRow>[]>(() => {
-    return SECTIONS.map((s) => ({
-      id: s.id,
-      label: s.title,
-      accent: t.brandAlt,
-      meta: s.subtitle,
-      items: s.defs
-        .filter((def) => def.kind === "slot")
-        .map<SlotRow>((def) => {
-          const raw = router?.[def.key] ?? null;
-          const modelId = typeof raw === "string" ? raw : null;
+    return SECTIONS.map((s) => {
+      if (s.id === "fallback") {
+        // Dynamic fallback rows: show all models in use with their fallback chains
+        const fallbackEntries = modelsInUse.map<SlotRow>((modelId) => {
+          const fallbacks = modelFallback?.[modelId] ?? [];
+          const fallbackLabels =
+            fallbacks.length > 0
+              ? fallbacks.map((m) => m.split("/").pop() ?? m).join(", ")
+              : "(no fallbacks)";
           return {
-            id: def.key,
-            label: def.label,
-            icon: def.icon,
-            meta: modelId ?? `↳ ${activeModel}`,
-            active: !!modelId,
-            def,
-          };
-        }),
-    }));
-  }, [router, activeModel, t]);
+            id: `fallback:${modelId}`,
+            label: modelId.split("/").pop() ?? modelId,
+            icon: "model",
+            meta: fallbacks.length > 0 ? `→ ${fallbackLabels}` : fallbackLabels,
+            active: fallbacks.length > 0,
+            def: {
+              kind: "slot",
+              key: "default" as keyof TaskRouter,
+              label: "",
+              icon: "",
+              hint: "",
+            }, // placeholder
+            modelId, // custom field to identify fallback rows
+            fallbackCount: fallbacks.length,
+          } as SlotRow & { modelId: string; fallbackCount: number };
+        });
+        return {
+          id: s.id,
+          label: s.title,
+          accent: t.brandAlt,
+          meta: s.subtitle,
+          items: fallbackEntries,
+        };
+      }
+      return {
+        id: s.id,
+        label: s.title,
+        accent: t.brandAlt,
+        meta: s.subtitle,
+        items: s.defs
+          .filter((def) => def.kind === "slot")
+          .map((def) => {
+            const modelId = router?.[def.key] ?? null;
+            return {
+              id: String(def.key),
+              label: def.label,
+              icon: def.icon,
+              meta: (modelId ?? `↳ ${activeModel}`) as string,
+              active: !!modelId,
+              def,
+            };
+          }),
+      };
+    });
+  }, [router, modelFallback, activeModel, modelsInUse, t]);
 
   // Pickers are separate controls (SegmentedControl) rendered outside the list
   const pickerDefs = useMemo(() => ALL_DEFS.filter((d): d is PickerDef => d.kind === "picker"), []);
@@ -207,7 +280,15 @@ export function RouterSettings({
   const rows = useMemo(() => buildGroupedRows(groups, expanded), [groups, expanded]);
 
   const selectedRow = rows[cursor];
-  const selectedDef = selectedRow?.kind === "item" ? (selectedRow.item as SlotRow).def : null;
+  const selectedSlotRow =
+    selectedRow?.kind === "item"
+      ? (selectedRow.item as SlotRow & { modelId?: string; fallbackCount?: number })
+      : null;
+  const selectedDef = selectedSlotRow?.def ?? null;
+  const selectedIsFallbackRow = selectedSlotRow?.id?.startsWith("fallback:") ?? false;
+  const selectedFallbackModelId = selectedIsFallbackRow
+    ? String(selectedSlotRow?.id ?? "").replace("fallback:", "")
+    : null;
 
   // Move cursor to next/prev item (skip group headers)
   const moveItem = (dir: 1 | -1) => {
@@ -242,13 +323,22 @@ export function RouterSettings({
       return;
     }
     if (evt.name === "return") {
-      if (selectedDef?.kind === "slot") onPickSlot(selectedDef.key);
+      if (selectedIsFallbackRow && selectedFallbackModelId) {
+        // Open model picker to add a fallback for this model
+        onAddFallback(selectedFallbackModelId);
+      } else if (selectedDef?.kind === "slot") {
+        onPickSlot(selectedDef.key);
+      }
       return;
     }
     if (evt.name === "d" || evt.name === "delete" || evt.name === "backspace") {
-      if (selectedDef?.kind === "slot") onClearSlot(selectedDef.key);
-      else if (selectedDef?.kind === "picker")
+      if (selectedIsFallbackRow && selectedFallbackModelId) {
+        onClearFallbacks(selectedFallbackModelId);
+      } else if (selectedDef?.kind === "slot") {
+        onClearSlot(selectedDef.key);
+      } else if (selectedDef?.kind === "picker") {
         onPickerChange(selectedDef.key, selectedDef.defaultValue);
+      }
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
@@ -321,7 +411,11 @@ export function RouterSettings({
           );
         })}
         <VSpacer />
-        {selectedDef ? <Hint>{selectedDef.hint}</Hint> : null}
+        {selectedIsFallbackRow ? (
+          <Hint>Enter: add fallback · d: clear all fallbacks</Hint>
+        ) : selectedDef ? (
+          <Hint>{selectedDef.hint}</Hint>
+        ) : null}
         <VSpacer />
         <SegmentedControl
           label="Scope"

@@ -1345,11 +1345,13 @@ export function App({
 
   const closeLlmSelector = useCallback(() => {
     const wasPickingSlot = useUIStore.getState().routerSlotPicking != null;
+    const wasFallbackForModel = useUIStore.getState().fallbackForModel != null;
     const wasFromWizard = wizardOpenedLlm.current;
     useUIStore.getState().closeModal("llmSelector");
     useUIStore.getState().setRouterSlotPicking(null);
+    useUIStore.getState().setFallbackForModel(null);
     wizardOpenedLlm.current = false;
-    if (wasPickingSlot) {
+    if (wasPickingSlot || wasFallbackForModel) {
       useUIStore.getState().openModal("routerSettings");
     } else if (wasFromWizard) {
       useUIStore.getState().openModal("firstRunWizard");
@@ -1558,6 +1560,21 @@ export function App({
         activeModel={activeModelForHeader}
         onSelect={(modelId) => {
           const slot = useUIStore.getState().routerSlotPicking;
+          const fallbackForModel = useUIStore.getState().fallbackForModel;
+
+          // Handle fallback picking
+          if (fallbackForModel) {
+            const current = { ...(effectiveConfig.modelFallback ?? {}) };
+            const fallbacks = [...(current[fallbackForModel] ?? [])];
+            fallbacks.push(modelId);
+            current[fallbackForModel] = fallbacks;
+            saveToScope({ modelFallback: current }, modelScope);
+            useUIStore.getState().setFallbackForModel(null);
+            useUIStore.getState().closeModal("llmSelector");
+            useUIStore.getState().openModal("routerSettings");
+            return;
+          }
+
           if (slot) {
             const current = effectiveConfig.taskRouter ?? DEFAULT_TASK_ROUTER;
             const updated = { ...current, [slot]: modelId };
@@ -1708,6 +1725,8 @@ export function App({
       <RouterSettings
         visible={modalRouterSettings && !routerSlotPicking}
         router={effectiveConfig.taskRouter}
+        defaultModel={effectiveConfig.defaultModel}
+        modelFallback={effectiveConfig.modelFallback}
         activeModel={activeModelForHeader}
         scope={routerScope}
         onScopeChange={(toScope, fromScope) => {
@@ -1729,6 +1748,18 @@ export function App({
           const current = effectiveConfig.taskRouter ?? DEFAULT_TASK_ROUTER;
           const updated = { ...current, [key]: value };
           saveToScope({ taskRouter: updated }, routerScope);
+        }}
+        onAddFallback={(modelId) => {
+          useUIStore.getState().setFallbackForModel(modelId);
+          useUIStore.getState().openModal("llmSelector");
+        }}
+        onClearFallbacks={(modelId) => {
+          const current = { ...(effectiveConfig.modelFallback ?? {}) };
+          delete current[modelId];
+          saveToScope(
+            { modelFallback: Object.keys(current).length > 0 ? current : undefined },
+            modelScope,
+          );
         }}
         onClose={getCloser("routerSettings")}
       />
