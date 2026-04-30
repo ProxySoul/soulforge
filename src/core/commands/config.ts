@@ -292,12 +292,6 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
   const watchdogEnabled = cfg.watchdog ?? false;
   const wd = cfg.watchdogTimeouts ?? {};
 
-  const watchdogLabel = watchdogEnabled ? "On" : "Off";
-  const firstChunkSec = (wd.firstChunkMs ?? 180_000) / 1000;
-  const chunkSec = (wd.chunkMs ?? 120_000) / 1000;
-  const toolMaxMin = (wd.toolMaxMs ?? 900_000) / 60_000;
-  const forceResolveSec = (wd.forceResolveMs ?? 5_000) / 1000;
-
   const options = [
     // Tool timeout
     { value: "tool:1", label: "Tool: 1 min" },
@@ -309,30 +303,35 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
     // Watchdog toggle
     {
       value: watchdogEnabled ? "watchdog:off" : "watchdog:on",
-      label: `Watchdog: ${watchdogLabel}`,
+      label: `Watchdog: ${watchdogEnabled ? "On" : "Off"}`,
       description: watchdogEnabled ? "disable auto-retry on stalls" : "enable auto-retry on stalls",
     },
-    // Watchdog timeouts
-    {
-      value: `wd-first:${firstChunkSec}`,
-      label: `WD First Chunk: ${firstChunkSec}s`,
-      description: "timeout before first content",
-    },
-    {
-      value: `wd-chunk:${chunkSec}`,
-      label: `WD Chunk: ${chunkSec}s`,
-      description: "timeout between chunks",
-    },
-    {
-      value: `wd-tool:${toolMaxMin}`,
-      label: `WD Tool Max: ${toolMaxMin}min`,
-      description: "max tool execution time",
-    },
-    {
-      value: `wd-force:${forceResolveSec}`,
-      label: `WD Force-Resolve: ${forceResolveSec}s`,
-      description: "grace period after abort",
-    },
+    // Watchdog first chunk timeout (seconds)
+    { value: "wd-first:5", label: "WD First Chunk: 5s" },
+    { value: "wd-first:15", label: "WD First Chunk: 15s" },
+    { value: "wd-first:30", label: "WD First Chunk: 30s" },
+    { value: "wd-first:60", label: "WD First Chunk: 60s" },
+    { value: "wd-first:120", label: "WD First Chunk: 120s" },
+    { value: "wd-first:180", label: "WD First Chunk: 180s", description: "default" },
+    // Watchdog chunk timeout (seconds)
+    { value: "wd-chunk:5", label: "WD Chunk: 5s" },
+    { value: "wd-chunk:15", label: "WD Chunk: 15s" },
+    { value: "wd-chunk:30", label: "WD Chunk: 30s" },
+    { value: "wd-chunk:60", label: "WD Chunk: 60s" },
+    { value: "wd-chunk:120", label: "WD Chunk: 120s", description: "default" },
+    { value: "wd-chunk:180", label: "WD Chunk: 180s" },
+    // Watchdog tool max timeout (seconds)
+    { value: "wd-tool:60", label: "WD Tool Max: 1 min" },
+    { value: "wd-tool:300", label: "WD Tool Max: 5 min" },
+    { value: "wd-tool:600", label: "WD Tool Max: 10 min" },
+    { value: "wd-tool:900", label: "WD Tool Max: 15 min", description: "default" },
+    { value: "wd-tool:1800", label: "WD Tool Max: 30 min" },
+    { value: "wd-tool:3600", label: "WD Tool Max: 60 min" },
+    // Watchdog force-resolve timeout (seconds)
+    { value: "wd-force:1", label: "WD Force-Resolve: 1s" },
+    { value: "wd-force:5", label: "WD Force-Resolve: 5s", description: "default" },
+    { value: "wd-force:10", label: "WD Force-Resolve: 10s" },
+    { value: "wd-force:30", label: "WD Force-Resolve: 30s" },
   ];
 
   // Determine current value for highlighting
@@ -366,10 +365,10 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
         ctx.saveToScope({ watchdogTimeouts: timeouts }, "global");
         sysMsg(ctx, `Watchdog chunk timeout → ${sec}s (global)`);
       } else if (value.startsWith("wd-tool:")) {
-        const min = Number(value.split(":")[1]);
-        const timeouts = { ...wd, toolMaxMs: min * 60_000 };
+        const sec = Number(value.split(":")[1]);
+        const timeouts = { ...wd, toolMaxMs: sec * 1000 };
         ctx.saveToScope({ watchdogTimeouts: timeouts }, "global");
-        sysMsg(ctx, `Watchdog tool-max timeout → ${min}min (global)`);
+        sysMsg(ctx, `Watchdog tool-max timeout → ${sec}s (global)`);
       } else if (value.startsWith("wd-force:")) {
         const sec = Number(value.split(":")[1]);
         const timeouts = { ...wd, forceResolveMs: sec * 1000 };
