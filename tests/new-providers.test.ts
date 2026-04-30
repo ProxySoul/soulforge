@@ -298,20 +298,20 @@ describe("cost counting — matchPricing", () => {
 		expect(cost).toBeCloseTo(0.295, 4);
 	});
 
-	// ── DeepSeek ──
-	test("deepseek/deepseek-chat → $0.28 in + $0.42 out", () => {
+	// ── DeepSeek ── (V4-flash pricing as of 2026-04-30; chat/reasoner are V4-flash aliases)
+	test("deepseek/deepseek-chat → $0.14 in + $0.28 out", () => {
 		const cost = computeModelCost("deepseek/deepseek-chat", usage1M);
-		expect(cost).toBeCloseTo(0.28 + 0.42, 4);
+		expect(cost).toBeCloseTo(0.14 + 0.28, 4);
 	});
 
-	test("deepseek/deepseek-reasoner → same pricing (V3.2)", () => {
+	test("deepseek/deepseek-reasoner → same pricing (V4-flash)", () => {
 		const cost = computeModelCost("deepseek/deepseek-reasoner", usage1M);
-		expect(cost).toBeCloseTo(0.28 + 0.42, 4);
+		expect(cost).toBeCloseTo(0.14 + 0.28, 4);
 	});
 
-	test("deepseek cache read → 10% of input ($0.028)", () => {
+	test("deepseek cache read → 10% of input ($0.014)", () => {
 		const cost = computeModelCost("deepseek/deepseek-chat", cache1M);
-		expect(cost).toBeCloseTo(0.028, 4);
+		expect(cost).toBeCloseTo(0.014, 4);
 	});
 
 	// ── Mistral ──
@@ -367,10 +367,10 @@ describe("cost counting — matchPricing", () => {
 		const fireworksCost = computeModelCost("fireworks/accounts/fireworks/models/deepseek-v3", usage1M);
 		const directCost = computeModelCost("deepseek/deepseek-chat", usage1M);
 		// Fireworks: $0.56 + $1.68 = $2.24
-		// Direct: $0.28 + $0.42 = $0.70
+		// Direct (V4-flash): $0.14 + $0.28 = $0.42
 		expect(fireworksCost).toBeGreaterThan(directCost);
 		expect(fireworksCost).toBeCloseTo(2.24, 4);
-		expect(directCost).toBeCloseTo(0.70, 4);
+		expect(directCost).toBeCloseTo(0.42, 4);
 	});
 });
 
