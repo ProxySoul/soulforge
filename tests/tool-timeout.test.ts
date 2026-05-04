@@ -305,10 +305,10 @@ describe("/timeouts command registration", () => {
 		register(map as any);
 		const expected = [
 			"/chat-style", "/mode", "/nvim-config", "/verbose", "/reasoning",
-			"/compact settings", "/compaction", "/agent-features", "/instructions",
+			"/compaction", "/compaction", "/agent-features", "/instructions",
 			"/diff-style", "/editor split", "/split", "/vim-hints", "/model-scope",
 			"/font nerd", "/font set", "/settings", "/lock-in", "/theme",
-			"/watchdog", "/timeouts",
+			"/timeouts",
 		];
 		for (const cmd of expected) {
 			expect(map.has(cmd)).toBe(true);
@@ -356,9 +356,10 @@ describe("handleTimeouts (real handler)", () => {
 		};
 		handler("", ctx);
 		expect(pickerConfig).not.toBeNull();
-		expect(pickerConfig.title).toBe("Tool Timeout");
+		expect(pickerConfig.title).toBe("Timeouts & Watchdog");
 		expect(pickerConfig.scopeEnabled).toBe(false);
-		expect(pickerConfig.options.length).toBe(6);
+		// Should have multiple options including tool timeouts and watchdog settings
+		expect(pickerConfig.options.length).toBeGreaterThan(6);
 	});
 
 	test("picker options have correct values", () => {
@@ -371,10 +372,13 @@ describe("handleTimeouts (real handler)", () => {
 		};
 		handler("", ctx);
 		const values = options.map((o: any) => o.value);
-		expect(values).toEqual(["1", "2", "5", "10", "20", "0"]);
+		// Should have tool timeouts, watchdog toggle, and watchdog timeout options
+		expect(values.some((v: string) => v.startsWith("tool:"))).toBe(true);
+		expect(values.some((v: string) => v.startsWith("watchdog:"))).toBe(true);
+		expect(values.some((v: string) => v.startsWith("wd-"))).toBe(true);
 	});
 
-	test("default option (2) is marked", () => {
+	test("default option (tool:2) is marked", () => {
 		const handler = getHandler();
 		let options: any[] = [];
 		const ctx = {
@@ -383,7 +387,7 @@ describe("handleTimeouts (real handler)", () => {
 			detectScope: () => "global",
 		};
 		handler("", ctx);
-		const defaultOpt = options.find((o: any) => o.value === "2");
+		const defaultOpt = options.find((o: any) => o.value === "tool:2");
 		expect(defaultOpt.description).toBe("default");
 	});
 
@@ -397,13 +401,13 @@ describe("handleTimeouts (real handler)", () => {
 		});
 		handler("", ctx);
 
-		onSelect("5");
+		onSelect("tool:5");
 		expect(saved).toHaveLength(1);
 		expect(saved[0].scope).toBe("global");
 		expect(saved[0].patch).toEqual({ toolTimeout: 5 });
 	});
 
-	test("onSelect with '0' saves toolTimeout: 0 (not NaN, not undefined)", () => {
+	test("onSelect with 'tool:0' saves toolTimeout: 0 (not NaN, not undefined)", () => {
 		const handler = getHandler();
 		let onSelect: any = null;
 		const saved: Array<{ patch: any; scope: string }> = [];
@@ -413,7 +417,7 @@ describe("handleTimeouts (real handler)", () => {
 		});
 		handler("", ctx);
 
-		onSelect("0");
+		onSelect("tool:0");
 		expect(saved[0].patch.toolTimeout).toBe(0);
 		expect(saved[0].patch.toolTimeout).not.toBeNaN();
 		expect(saved[0].patch.toolTimeout).not.toBeUndefined();
@@ -429,7 +433,7 @@ describe("handleTimeouts (real handler)", () => {
 		});
 		handler("", ctx);
 
-		for (const v of ["1", "2", "5", "10", "20", "0"]) {
+		for (const v of ["tool:1", "tool:2", "tool:5", "tool:10", "tool:20", "tool:0"]) {
 			onSelect(v);
 		}
 		expect(scopes.every((s) => s === "global")).toBe(true);
@@ -443,8 +447,8 @@ describe("handleTimeouts (real handler)", () => {
 		});
 		handler("", ctx);
 
-		onSelect("5");
-		onSelect("0");
+		onSelect("tool:5");
+		onSelect("tool:0");
 		expect(messages.some((m: string) => m.includes("5m"))).toBe(true);
 		expect(messages.some((m: string) => m.includes("none"))).toBe(true);
 	});

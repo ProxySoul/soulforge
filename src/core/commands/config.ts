@@ -286,39 +286,123 @@ const handleVerbose = createTogglePicker({
   messageTemplate: (v, s) => `Verbose mode ${v === "on" ? "on" : "off"} (${s})`,
 });
 
-const handleWatchdog = createTogglePicker({
-  configKey: "watchdog",
-  title: "Stream Stall Watchdog",
-  iconName: "dog",
-  onValue: "on",
-  offValue: "off",
-  onLabel: "On",
-  offLabel: "Off",
-  onDescription: "auto-retry when stream stalls (connection hangs)",
-  offDescription: "no automatic stall detection or retry",
-  messageTemplate: (v, s) => `Watchdog ${v === "on" ? "enabled" : "disabled"} (${s})`,
-});
-
 function handleTimeouts(_input: string, ctx: CommandContext): void {
   const cfg = loadConfig();
-  const current = cfg.toolTimeout ?? 2;
+  const currentToolTimeout = cfg.toolTimeout ?? 2;
+  const watchdogEnabled = cfg.watchdog ?? false;
+  const wd = cfg.watchdogTimeouts ?? {};
+
   const options = [
-    { value: "1", label: "1 min" },
-    { value: "2", label: "2 min", description: "default" },
-    { value: "5", label: "5 min" },
-    { value: "10", label: "10 min" },
-    { value: "20", label: "20 min" },
-    { value: "0", label: "No timeout", description: "tools run until completion" },
+    // Separator
+    { value: "sep0", label: "─ Tool Timeout ─", disabled: true },
+    // Tool timeout
+    { value: "tool:1", label: "1 min" },
+    { value: "tool:2", label: "2 min", description: "default" },
+    { value: "tool:5", label: "5 min" },
+    { value: "tool:10", label: "10 min" },
+    { value: "tool:20", label: "20 min" },
+    { value: "tool:0", label: "No timeout", description: "tools run until completion" },
+    // Separator
+    { value: "sep1", label: "─ Watchdog ─", disabled: true },
+    // Watchdog toggle
+    {
+      value: watchdogEnabled ? "watchdog:off" : "watchdog:on",
+      label: `Watchdog: ${watchdogEnabled ? "On" : "Off"}`,
+      description: watchdogEnabled ? "disable auto-retry on stalls" : "enable auto-retry on stalls",
+    },
+    // Watchdog first chunk timeout (seconds)
+    { value: "wd-first:5", label: "5s" },
+    { value: "wd-first:15", label: "15s" },
+    { value: "wd-first:30", label: "30s" },
+    { value: "wd-first:60", label: "60s" },
+    { value: "wd-first:120", label: "120s" },
+    { value: "wd-first:180", label: "180s", description: "default" },
+    // Separator
+    { value: "sep2", label: "─ Chunk Timeout ─", disabled: true },
+    // Watchdog chunk timeout (seconds)
+    { value: "wd-chunk:5", label: "5s" },
+    { value: "wd-chunk:15", label: "15s" },
+    { value: "wd-chunk:30", label: "30s" },
+    { value: "wd-chunk:60", label: "60s" },
+    { value: "wd-chunk:120", label: "120s", description: "default" },
+    { value: "wd-chunk:180", label: "180s" },
+    // Separator
+    { value: "sep3", label: "─ Tool Max Timeout ─", disabled: true },
+    // Watchdog tool max timeout (seconds)
+    { value: "wd-tool:60", label: "1 min" },
+    { value: "wd-tool:300", label: "5 min" },
+    { value: "wd-tool:600", label: "10 min" },
+    { value: "wd-tool:900", label: "15 min", description: "default" },
+    { value: "wd-tool:1800", label: "30 min" },
+    { value: "wd-tool:3600", label: "60 min" },
+    // Separator
+    { value: "sep4", label: "─ Force-Resolve Timeout ─", disabled: true },
+    // Watchdog force-resolve timeout (seconds)
+    { value: "wd-force:1", label: "1s" },
+    { value: "wd-force:5", label: "5s", description: "default" },
+    { value: "wd-force:10", label: "10s" },
+    { value: "wd-force:30", label: "30s" },
   ];
+
+  // Determine current value for highlighting — find matching presets
+  const currentTool = `tool:${currentToolTimeout}`;
+  const wdFirstSec = (wd.firstChunkMs ?? 180_000) / 1000;
+  const wdChunkSec = (wd.chunkMs ?? 120_000) / 1000;
+  const wdToolSec = (wd.toolMaxMs ?? 900_000) / 1000;
+  const wdForceSec = (wd.forceResolveMs ?? 5_000) / 1000;
+
+  // Prefer exact preset matches, fallback to custom value
+  const wdFirst = ["5", "15", "30", "60", "120", "180"].includes(String(wdFirstSec))
+    ? `wd-first:${wdFirstSec}`
+    : `wd-first:${wdFirstSec}`;
+  const wdChunk = ["5", "15", "30", "60", "120", "180"].includes(String(wdChunkSec))
+    ? `wd-chunk:${wdChunkSec}`
+    : `wd-chunk:${wdChunkSec}`;
+  const wdTool = ["60", "300", "600", "900", "1800", "3600"].includes(String(wdToolSec))
+    ? `wd-tool:${wdToolSec}`
+    : `wd-tool:${wdToolSec}`;
+  const wdForce = ["1", "5", "10", "30"].includes(String(wdForceSec))
+    ? `wd-force:${wdForceSec}`
+    : `wd-force:${wdForceSec}`;
+
   ctx.openCommandPicker({
-    title: "Tool Timeout",
+    title: "Timeouts & Watchdog",
     icon: icon("clock"),
-    currentValue: String(current),
+    currentValue: [currentTool, wdFirst, wdChunk, wdTool, wdForce],
     scopeEnabled: false,
     options,
     onSelect: (value) => {
-      ctx.saveToScope({ toolTimeout: Number(value) }, "global");
-      sysMsg(ctx, `Tool timeout → ${value === "0" ? "none" : `${value}m`} (global)`);
+      if (value.startsWith("tool:")) {
+        const timeout = Number(value.split(":")[1]);
+        ctx.saveToScope({ toolTimeout: timeout }, "global");
+        sysMsg(ctx, `Tool timeout → ${timeout === 0 ? "none" : `${timeout}m`} (global)`);
+      } else if (value === "watchdog:on") {
+        ctx.saveToScope({ watchdog: true }, "global");
+        sysMsg(ctx, "Watchdog enabled (global)");
+      } else if (value === "watchdog:off") {
+        ctx.saveToScope({ watchdog: false }, "global");
+        sysMsg(ctx, "Watchdog disabled (global)");
+      } else if (value.startsWith("wd-first:")) {
+        const sec = Number(value.split(":")[1]);
+        const timeouts = { ...wd, firstChunkMs: sec * 1000 };
+        ctx.saveToScope({ watchdogTimeouts: timeouts }, "global");
+        sysMsg(ctx, `Watchdog first-chunk timeout → ${sec}s (global)`);
+      } else if (value.startsWith("wd-chunk:")) {
+        const sec = Number(value.split(":")[1]);
+        const timeouts = { ...wd, chunkMs: sec * 1000 };
+        ctx.saveToScope({ watchdogTimeouts: timeouts }, "global");
+        sysMsg(ctx, `Watchdog chunk timeout → ${sec}s (global)`);
+      } else if (value.startsWith("wd-tool:")) {
+        const sec = Number(value.split(":")[1]);
+        const timeouts = { ...wd, toolMaxMs: sec * 1000 };
+        ctx.saveToScope({ watchdogTimeouts: timeouts }, "global");
+        sysMsg(ctx, `Watchdog tool-max timeout → ${sec}s (global)`);
+      } else if (value.startsWith("wd-force:")) {
+        const sec = Number(value.split(":")[1]);
+        const timeouts = { ...wd, forceResolveMs: sec * 1000 };
+        ctx.saveToScope({ watchdogTimeouts: timeouts }, "global");
+        sysMsg(ctx, `Watchdog force-resolve timeout → ${sec}s (global)`);
+      }
     },
   });
 }
@@ -899,7 +983,6 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/settings", handleSettingsHub);
   map.set("/lock-in", handleLockIn);
   map.set("/theme", handleTheme);
-  map.set("/watchdog", handleWatchdog);
   map.set("/timeouts", handleTimeouts);
 }
 
