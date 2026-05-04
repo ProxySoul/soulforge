@@ -5,17 +5,20 @@ import type { TaskRouter } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
 import { CONFIG_SCOPES } from "../layout/shared.js";
 import {
-  buildGroupedRows,
-  type GroupedItem,
-  GroupedList,
-  type GroupedListGroup,
-  Hint,
   handleCursorNavKey,
   PremiumPopup,
   Section,
   SegmentedControl,
   VSpacer,
 } from "../ui/index.js";
+
+const BOLD = 1;
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  if (max <= 1) return s.slice(0, max);
+  return `${s.slice(0, max - 1)}…`;
+}
 
 interface SlotDef {
   kind: "slot";
@@ -40,57 +43,36 @@ type Def = SlotDef | PickerDef;
 interface SectionDef {
   id: string;
   title: string;
-  subtitle: string;
   defs: Def[];
 }
 
 const SECTIONS: SectionDef[] = [
   {
     id: "main",
-    title: "Main Agent",
-    subtitle: "Model that handles your conversation",
+    title: "Main",
     defs: [
       {
         kind: "slot",
         key: "default",
         label: "Default",
         icon: "model",
-        hint: "Fallback for background tasks when no specific model is set",
+        hint: "Conversation & fallback",
       },
     ],
   },
   {
     id: "dispatch",
     title: "Dispatch",
-    subtitle: "Models for parallel subagents",
     defs: [
-      {
-        kind: "slot",
-        key: "spark",
-        label: "Explore",
-        icon: "read_only",
-        hint: "Read-only agents — searches, reads, analyzes",
-      },
-      {
-        kind: "slot",
-        key: "ember",
-        label: "Code",
-        icon: "edit",
-        hint: "Edit agents — reads files, makes changes",
-      },
-      {
-        kind: "slot",
-        key: "webSearch",
-        label: "Web",
-        icon: "web",
-        hint: "Searches the web & fetches pages",
-      },
+      { kind: "slot", key: "spark", label: "Explore", icon: "read_only", hint: "Read-only agents" },
+      { kind: "slot", key: "ember", label: "Code", icon: "edit", hint: "Edit agents" },
+      { kind: "slot", key: "webSearch", label: "Web", icon: "web", hint: "Web search & fetch" },
       {
         kind: "picker",
         key: "maxConcurrentAgents",
         label: "Concurrency",
         icon: "dispatch",
-        hint: "Max parallel agents per dispatch (default 3)",
+        hint: "Max parallel agents",
         options: [2, 3, 4, 5, 6, 7, 8],
         defaultValue: 3,
       },
@@ -99,52 +81,40 @@ const SECTIONS: SectionDef[] = [
   {
     id: "post",
     title: "Post-Dispatch",
-    subtitle: "Quality checks after code agents finish",
     defs: [
       {
         kind: "slot",
         key: "desloppify",
         label: "Cleanup",
         icon: "cleanup",
-        hint: "Post-dispatch polish & style fixes",
+        hint: "Polish & style fixes",
       },
-      {
-        kind: "slot",
-        key: "verify",
-        label: "Review",
-        icon: "review",
-        hint: "Adversarial review after code agents",
-      },
+      { kind: "slot", key: "verify", label: "Review", icon: "review", hint: "Adversarial review" },
     ],
   },
   {
     id: "bg",
     title: "Background",
-    subtitle: "Internal tasks — usually fine on defaults",
     defs: [
       {
         kind: "slot",
         key: "compact",
         label: "Compaction",
         icon: "compact_task",
-        hint: "Summarizes old context when conversation grows long",
+        hint: "Summarize old context",
       },
       {
         kind: "slot",
         key: "semantic",
         label: "Soul Map",
         icon: "repomap",
-        hint: "Generates symbol summaries for the repo map",
+        hint: "Symbol summaries",
       },
     ],
   },
 ];
 
 const ALL_DEFS: Def[] = SECTIONS.flatMap((s) => s.defs);
-
-interface SlotRow extends GroupedItem {
-  def: Def;
-}
 
 interface Props {
   visible: boolean;
@@ -174,56 +144,48 @@ export function RouterSettings({
   const [cursor, setCursor] = useState(0);
 
   const popupW = Math.min(100, Math.max(72, Math.floor(tw * 0.78)));
-  const popupH = Math.min(36, Math.max(22, th - 4));
+  const popupH = Math.min(40, Math.max(26, th - 4));
   const contentW = popupW - 4;
 
-  const groups = useMemo<GroupedListGroup<SlotRow>[]>(() => {
-    return SECTIONS.map((s) => ({
-      id: s.id,
-      label: s.title,
-      accent: t.brandAlt,
-      meta: s.subtitle,
-      items: s.defs
-        .filter((def) => def.kind === "slot")
-        .map<SlotRow>((def) => {
-          const raw = router?.[def.key] ?? null;
-          const modelId = typeof raw === "string" ? raw : null;
-          return {
-            id: def.key,
-            label: def.label,
-            icon: def.icon,
-            meta: modelId ?? `↳ ${activeModel}`,
-            active: !!modelId,
-            def,
-          };
-        }),
-    }));
-  }, [router, activeModel, t]);
+  // Flatten sections into navigable rows: [section header, slot, slot, …]
+  type Row =
+    | { kind: "header"; section: SectionDef }
+    | { kind: "slot"; section: SectionDef; def: SlotDef };
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (const s of SECTIONS) {
+      out.push({ kind: "header", section: s });
+      for (const d of s.defs) {
+        if (d.kind === "slot") out.push({ kind: "slot", section: s, def: d });
+      }
+    }
+    return out;
+  }, []);
 
-  // Pickers are separate controls (SegmentedControl) rendered outside the list
-  const pickerDefs = useMemo(() => ALL_DEFS.filter((d): d is PickerDef => d.kind === "picker"), []);
+  // Find indices of slot rows so cursor only lands on slots.
+  const slotIndices = useMemo(
+    () => rows.map((r, i) => (r.kind === "slot" ? i : -1)).filter((i) => i >= 0),
+    [rows],
+  );
 
-  const expanded = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
-  const rows = useMemo(() => buildGroupedRows(groups, expanded), [groups, expanded]);
+  const moveItem = (dir: 1 | -1) => {
+    if (slotIndices.length === 0) return;
+    const cur = slotIndices.indexOf(cursor);
+    const base = cur < 0 ? 0 : cur;
+    const nextPos = (base + dir + slotIndices.length) % slotIndices.length;
+    setCursor(slotIndices[nextPos] ?? slotIndices[0] ?? 0);
+  };
+
+  // Initialize cursor on first slot
+  useMemo(() => {
+    if (cursor === 0 && slotIndices.length > 0 && slotIndices[0] !== 0) {
+      setCursor(slotIndices[0] ?? 0);
+    }
+  }, [cursor, slotIndices]);
 
   const selectedRow = rows[cursor];
-  const selectedDef = selectedRow?.kind === "item" ? (selectedRow.item as SlotRow).def : null;
-
-  // Move cursor to next/prev item (skip group headers)
-  const moveItem = (dir: 1 | -1) => {
-    const total = rows.length;
-    if (total === 0) return;
-    let i = cursor + dir;
-    for (let n = 0; n < total; n++) {
-      if (i < 0) i = total - 1;
-      else if (i >= total) i = 0;
-      if (rows[i]?.kind === "item") {
-        setCursor(i);
-        return;
-      }
-      i += dir;
-    }
-  };
+  const selectedDef = selectedRow?.kind === "slot" ? selectedRow.def : null;
+  const pickerDefs = useMemo(() => ALL_DEFS.filter((d): d is PickerDef => d.kind === "picker"), []);
 
   useKeyboard((evt) => {
     if (!visible) return;
@@ -242,28 +204,17 @@ export function RouterSettings({
       return;
     }
     if (evt.name === "return") {
-      if (selectedDef?.kind === "slot") onPickSlot(selectedDef.key);
+      if (selectedDef) onPickSlot(selectedDef.key);
       return;
     }
     if (evt.name === "d" || evt.name === "delete" || evt.name === "backspace") {
-      if (selectedDef?.kind === "slot") onClearSlot(selectedDef.key);
-      else if (selectedDef?.kind === "picker")
-        onPickerChange(selectedDef.key, selectedDef.defaultValue);
+      if (selectedDef) onClearSlot(selectedDef.key);
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
-      if (selectedDef?.kind === "picker") {
-        const cur = router?.[selectedDef.key] ?? selectedDef.defaultValue;
-        const curNum = typeof cur === "number" ? cur : selectedDef.defaultValue;
-        const idx = selectedDef.options.indexOf(curNum);
-        const base = idx < 0 ? selectedDef.options.indexOf(selectedDef.defaultValue) : idx;
-        const nextIdx =
-          evt.name === "left"
-            ? Math.max(0, base - 1)
-            : Math.min(selectedDef.options.length - 1, base + 1);
-        onPickerChange(selectedDef.key, selectedDef.options[nextIdx] ?? selectedDef.defaultValue);
-        return;
-      }
+      // No picker selected (slots only) — left/right cycles config scope.
+      // Concurrency picker is editable via its own SegmentedControl below.
+      void onPickerChange;
       const sIdx = CONFIG_SCOPES.indexOf(scope);
       const next =
         evt.name === "left"
@@ -282,6 +233,17 @@ export function RouterSettings({
   ).length;
   const slotCount = ALL_DEFS.filter((d) => d.kind === "slot").length;
 
+  // Columns: marker(2) + label + description + model (right)
+  const labelCol = 12;
+  const modelCol = Math.min(30, Math.max(18, Math.floor(contentW * 0.32)));
+  const descCol = Math.max(8, contentW - 4 - labelCol - modelCol - 2);
+
+  // Strip well-known provider prefix to keep model column compact.
+  const shortModel = (m: string): string => {
+    const slash = m.indexOf("/");
+    return slash > 0 ? m.slice(slash + 1) : m;
+  };
+
   return (
     <PremiumPopup
       visible={visible}
@@ -289,23 +251,72 @@ export function RouterSettings({
       height={popupH}
       title="Task Router"
       titleIcon="router"
-      blurb={`${customCount} / ${slotCount} slots customized · scope: ${scope}`}
+      blurb={`${customCount}/${slotCount} set · ${scope} · default: ${shortModel(activeModel)}`}
       footerHints={[
         { key: "↑↓", label: "nav" },
-        { key: "Enter", label: "pick model" },
+        { key: "Enter", label: "set" },
         { key: "d", label: "reset" },
-        { key: "←→", label: "scope / value" },
+        { key: "←→", label: "scope" },
         { key: "Esc", label: "close" },
       ]}
     >
       <Section>
-        <GroupedList
-          groups={groups}
-          expanded={expanded}
-          selectedIndex={cursor}
-          width={contentW}
-          maxRows={Math.max(6, popupH - 16)}
-        />
+        <box flexDirection="column" backgroundColor={t.bgPopup}>
+          {rows.map((row, idx) => {
+            if (row.kind === "header") {
+              return (
+                <box
+                  // biome-ignore lint/suspicious/noArrayIndexKey: stable row layout
+                  key={`h-${idx}`}
+                  flexDirection="column"
+                  backgroundColor={t.bgPopup}
+                >
+                  {idx > 0 ? <box height={1} backgroundColor={t.bgPopup} /> : null}
+                  <text bg={t.bgPopup} fg={t.brandAlt} attributes={BOLD}>
+                    {row.section.title}
+                  </text>
+                </box>
+              );
+            }
+            const isSelected = idx === cursor;
+            const rowBg = isSelected ? t.bgPopupHighlight : t.bgPopup;
+            const raw = router?.[row.def.key] ?? null;
+            const modelId = typeof raw === "string" ? raw : null;
+            const descFg = isSelected ? t.textSecondary : t.textMuted;
+            const label = row.def.label.padEnd(labelCol).slice(0, labelCol);
+            const desc = truncate(row.def.hint, descCol).padEnd(descCol).slice(0, descCol);
+            return (
+              <box
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable row layout
+                key={`s-${idx}`}
+                flexDirection="row"
+                height={1}
+                backgroundColor={rowBg}
+              >
+                <text bg={rowBg} fg={isSelected ? t.brandSecondary : t.textFaint} attributes={BOLD}>
+                  {isSelected ? "▸ " : "  "}
+                </text>
+                <text bg={rowBg} fg={t.textPrimary} attributes={BOLD}>
+                  {label}
+                </text>
+                <text bg={rowBg} fg={descFg}>
+                  {desc}
+                </text>
+                <box flexGrow={1} backgroundColor={rowBg} />
+                {modelId ? (
+                  <text bg={rowBg} fg={t.brandAlt} attributes={BOLD}>
+                    {truncate(shortModel(modelId), modelCol)}
+                  </text>
+                ) : (
+                  <text bg={rowBg} fg={t.textDim}>
+                    —
+                  </text>
+                )}
+                <text bg={rowBg}>{"  "}</text>
+              </box>
+            );
+          })}
+        </box>
         <VSpacer />
         {pickerDefs.map((def) => {
           const cur = router?.[def.key];
@@ -320,8 +331,6 @@ export function RouterSettings({
             />
           );
         })}
-        <VSpacer />
-        {selectedDef ? <Hint>{selectedDef.hint}</Hint> : null}
         <VSpacer />
         <SegmentedControl
           label="Scope"
