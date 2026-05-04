@@ -29,9 +29,11 @@ LAZYGIT_VERSION="0.44.1"
 # ships the latest CLIProxyAPI. Override with `PROXY_VERSION=x.y.z ./bundle.sh`
 # for reproducible builds or to pin when an upstream release regresses.
 # Fallback (last-known-good) is used if GitHub is unreachable.
-PROXY_VERSION_FALLBACK="6.9.29"
+PROXY_VERSION_FALLBACK="6.10.6"
 if [[ -z "${PROXY_VERSION:-}" ]]; then
-  PROXY_VERSION="$(curl -fsSL --max-time 10 https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest 2>/dev/null \
+  AUTH_HEADER=()
+  [[ -n "${GITHUB_TOKEN:-}" ]] && AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  PROXY_VERSION="$(curl -fsSL --max-time 10 "${AUTH_HEADER[@]}" https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest 2>/dev/null \
     | python3 -c 'import sys,json;print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null \
     || echo "")"
   if [[ -z "$PROXY_VERSION" ]]; then

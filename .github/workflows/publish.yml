@@ -58,6 +58,8 @@ jobs:
 
       - name: Build bundle
         run: bash scripts/bundle.sh ${{ matrix.arch }} ${{ matrix.platform }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload to release
         run: |
