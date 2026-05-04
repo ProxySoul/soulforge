@@ -2,6 +2,12 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.4] — 2026-05-04
+
+### Bug Fixes
+
+- **bundle**: use aarch64 suffix for CLIProxyAPI assets
+- **proxy**: match upstream aarch64 asset rename, fallback to legacy arm64
 ## [2.14.3] — 2026-05-04
 
 ### Bug Fixes
