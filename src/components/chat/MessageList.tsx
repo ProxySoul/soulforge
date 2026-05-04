@@ -1194,13 +1194,21 @@ const AssistantMessage = memo(function AssistantMessage({
   const lockInFinalAnswer = useMemo(() => {
     if (!lockIn || !msg.segments) return null;
     const segs = msg.segments;
-    let sawTools = false;
-    for (const s of segs) {
-      if (s.type === "tools") sawTools = true;
+    let toolsIdx = -1;
+    for (let i = segs.length - 1; i >= 0; i--) {
+      if (segs[i]?.type === "tools") {
+        toolsIdx = i;
+        break;
+      }
     }
-    if (!sawTools) return null;
-    const last = segs[segs.length - 1];
-    if (last?.type === "text" && last.content.trim().length > 20) return last.content;
+    if (toolsIdx < 0) return null;
+    // Walk backwards past trailing reasoning segments — some providers
+    // (DeepSeek reasoner, etc.) emit a final reasoning block after the last
+    // text. The "final answer" is the last text segment that follows tools.
+    for (let i = segs.length - 1; i > toolsIdx; i--) {
+      const seg = segs[i];
+      if (seg?.type === "text" && seg.content.trim().length > 20) return seg.content;
+    }
     return null;
   }, [lockIn, msg.segments]);
 
