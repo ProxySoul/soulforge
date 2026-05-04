@@ -1858,12 +1858,25 @@ export function useChat({
       let unsubStallWatch3: (() => void) | null = null;
       let userAborted = false;
       let stallTriggered = false; // only true when the watchdog itself fires
-      let stallAborted = false; // true when abort is from stall watchdog
       // Resolve retry settings once at handleSubmit scope so they're accessible
       // in both the retry loop AND the outer catch block for streaming errors.
       const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
         resolveRetrySettings(effectiveConfig.retry);
       let streamRetryCount = 0; // local retry counter (not a ref)
+      // Model fallback: per-model fallback chains
+      // Format: Record<modelId, fallbackArray>
+      const raw = effectiveConfig.modelFallback;
+      let fallbackModels: string[] = [];
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        fallbackModels = ((raw as Record<string, string[]>)[activeModelRef.current] ?? []).filter(
+          (m) => m && m.trim().length > 0,
+        );
+      }
+      // Legacy string[] format is no longer supported - use Record format
+      let fallbackIndex = -1; // -1 = primary model, 0+ = index into fallbackModels
+      const primaryModelId = activeModelRef.current; // Store for cycling back
+      let cycleCount = 0; // Track how many times we've cycled back to primary
+      const MAX_CYCLES = 3; // Cap on primary↔fallback cycles
       // Reset retry count on real user messages (not auto-retry "Continue.")
       if (input !== "Continue." || !stallRetryPendingRef.current) {
         stallRetryCountRef.current = 0;
@@ -1874,7 +1887,6 @@ export function useChat({
 
       for (;;) {
         // Reset state for retry
-        let proxyBounced = false;
         abortController = new AbortController();
         abortRef.current = abortController;
         fullText = "";
@@ -1882,6 +1894,7 @@ export function useChat({
         finalSegments.length = 0;
         subagentCumulative.clear();
         completedResultChars.clear();
+        let proxyBounced = false;
 
         try {
           setIsLoading(true);
@@ -2149,9 +2162,9 @@ export function useChat({
             tabLabel,
           });
           let result: StreamTextResult<ToolSet, never> | undefined;
-          for (let degradeLevel = 0; degradeLevel <= 2; degradeLevel++) {
-            if (abortController.signal.aborted) break;
-            try {
+          if (!abortController.signal.aborted) {
+            // Extracted for smaller diffs when modifying streaming logic
+            const runStreamAttempt = async (degradeLevel: number) => {
               const currentAgent =
                 degradeLevel === 0
                   ? agent
@@ -2194,14 +2207,24 @@ export function useChat({
                         tabLabel,
                       });
                     })();
-              result = (await currentAgent.stream({
+              return (await currentAgent.stream({
                 messages: newCoreMessages,
                 abortSignal: abortController.signal,
                 options: { userMessage: input },
               })) as unknown as StreamTextResult<ToolSet, never>;
-              break;
-            } catch (err: unknown) {
-              if (!isProviderOptionsError(err) || degradeLevel === 2) throw err;
+            };
+
+            for (let degradeLevel = 0; degradeLevel <= 2; degradeLevel++) {
+              if (abortController.signal.aborted) break;
+              try {
+                result = await runStreamAttempt(degradeLevel);
+                break;
+              } catch (err: unknown) {
+                if (!isProviderOptionsError(err) || degradeLevel === 2) {
+                  // Let transient errors propagate to outer catch for retry handling
+                  throw err;
+                }
+              }
             }
           }
 
@@ -2324,7 +2347,7 @@ export function useChat({
           };
           const onUserAbort = () => {
             // Only mark as user-aborted if the abort wasn't from the stall watchdog.
-            if (!stallAborted) {
+            if (!stallTriggered) {
               userAborted = true;
             }
           };
@@ -2357,7 +2380,7 @@ export function useChat({
             stallWatchdog = setInterval(() => {
               // If watchdog aborted but the for-await loop is stuck on a dead
               // connection that didn't honor the AbortSignal, force-resolve it.
-              if (stallAborted && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
+              if (stallTriggered && Date.now() - stallAbortedAt >= STALL_FORCE_RESOLVE_MS) {
                 // Force the stream iterator to end by calling return() on the SAME
                 // iterator the for-await loop holds. A new [Symbol.asyncIterator]()
                 // call would create a fresh reader and fail on the locked stream.
@@ -2436,7 +2459,7 @@ export function useChat({
                   `Stream stalled ${String(STALL_MAX_RETRIES)} times — giving up`,
                 );
               }
-              stallAborted = true; // Mark that abort is from watchdog
+              stallTriggered = true; // Mark that abort is from watchdog
               stallAbortedAt = Date.now(); // Keep for force-resolve timing
               abortController.abort();
             }, 10_000);
@@ -3091,20 +3114,6 @@ export function useChat({
             /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
               msg,
             );
-          const isConnErr =
-            /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
-              msg,
-            );
-          if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
-            proxyBounced = true;
-            const healthy = await proxyHealthProbe().catch(() => false);
-            if (!healthy) {
-              await Promise.race([
-                bounceProxy().catch(() => false),
-                new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
-              ]);
-            }
-          }
           const isStallRetry =
             isAbort &&
             stallTriggered &&
@@ -3116,6 +3125,27 @@ export function useChat({
             streamRetryCount++;
             if (streamRetryCount <= MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
               const delay = RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
+
+              // Self-heal the proxy on connection-level failures (wedged child process).
+              // At most once per submit, hard-capped by an 8s timeout so a stuck
+              // ensureProxy() can never block the retry loop.
+              const isConnErr =
+                /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
+                  msg,
+                );
+              if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
+                proxyBounced = true;
+                // Probe /v1/models first — a healthy proxy means the error is
+                // upstream (Claude subscription flake) and bouncing is pointless.
+                const healthy = await proxyHealthProbe().catch(() => false);
+                if (!healthy) {
+                  await Promise.race([
+                    bounceProxy().catch(() => false),
+                    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+                  ]);
+                }
+              }
+
               setMessages((prev) => [
                 ...prev,
                 {
@@ -3192,7 +3222,7 @@ export function useChat({
                 // Signal that a retry is pending
                 stallRetryPendingRef.current = true;
 
-                // Stay in-loop: await backoff then continue (avoids racing finally block)
+                // Continue after backoff (use await to avoid racing finally block)
                 await new Promise((resolve) => setTimeout(resolve, delay));
                 continue;
               } else {
@@ -3203,6 +3233,50 @@ export function useChat({
                 await new Promise((resolve) => setTimeout(resolve, backoffDelay));
                 continue;
               }
+            }
+            // Exhausted retries for current model - try fallback models
+            if (fallbackIndex < fallbackModels.length - 1) {
+              fallbackIndex++;
+              const nextModel = fallbackModels[fallbackIndex];
+              if (!nextModel || nextModel.trim().length === 0) {
+                // Skip invalid entries and try next
+                continue;
+              }
+              activeModelRef.current = nextModel;
+              streamRetryCount = 0; // Reset retry count for the new model
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Switched to fallback model: ${nextModel}`,
+                  timestamp: Date.now(),
+                },
+              ]);
+              continue;
+            } else {
+              // All fallbacks exhausted - check cycle count
+              cycleCount++;
+              if (cycleCount > MAX_CYCLES) {
+                // Escalate: stop retrying and let the error propagate
+                throw new Error(
+                  `Exhausted ${MAX_CYCLES} cycles of model fallbacks. Last error: ${msg}`,
+                );
+              }
+              // Cycle back to primary model
+              fallbackIndex = -1;
+              activeModelRef.current = primaryModelId;
+              streamRetryCount = 0;
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `All fallbacks exhausted, retrying with primary model: ${primaryModelId} (cycle ${cycleCount}/${MAX_CYCLES})`,
+                  timestamp: Date.now(),
+                },
+              ]);
+              continue;
             }
           }
 
@@ -3284,11 +3358,10 @@ export function useChat({
             // 1. finally block doesn't fire competing handleSubmit (messageQueue/compact)
             // 2. next handleSubmit("Continue.") preserves the retry count
             stallRetryPendingRef.current = true;
-            // Backoff: 2s first, 5s second
+            // Backoff: 2s first, 5s second (use await to avoid racing finally block)
             const backoffMs = stallRetryCountRef.current === 1 ? 2_000 : 5_000;
-            setTimeout(() => handleSubmitRef.current("Continue."), backoffMs);
-            // Skip the rest of the catch — finally block will clean up
-            return;
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            continue;
           }
 
           const rawMsg = err instanceof Error ? err.message : String(err);

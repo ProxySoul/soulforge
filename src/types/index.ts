@@ -266,7 +266,15 @@ export type TaskTier = "spark" | "ember";
 
 export interface AppConfig {
   defaultModel: string;
+  /**
+   * Per-model fallback chains. When a model fails with transient errors,
+   * the fallbacks for THAT specific model are tried in order.
+   * Key = model ID, Value = ordered fallback model IDs.
+   */
+  modelFallback?: Record<string, string[]>;
   routerRules: RouterRule[];
+  /** @deprecated Use modelFallback (Record<string, string[]>) */
+  modelFallbackLegacy?: string[];
   taskRouter?: TaskRouter;
   editor: {
     command: string; // "nvim" by default
