@@ -48,7 +48,7 @@ if [[ "$PLATFORM" == "darwin" ]]; then
     RG_TRIPLET="aarch64-apple-darwin"
     FD_TRIPLET="aarch64-apple-darwin"
     LAZYGIT_SUFFIX="Darwin_arm64"
-    PROXY_SUFFIX="darwin_arm64"
+    PROXY_SUFFIX="darwin_aarch64"
     BUN_TARGET="bun-darwin-aarch64"
   elif [[ "$ARCH" == "x64" ]]; then
     NVIM_ASSET="nvim-macos-x86_64.tar.gz"
@@ -67,7 +67,7 @@ elif [[ "$PLATFORM" == "linux" ]]; then
     RG_TRIPLET="aarch64-unknown-linux-gnu"
     FD_TRIPLET="aarch64-unknown-linux-gnu"
     LAZYGIT_SUFFIX="Linux_arm64"
-    PROXY_SUFFIX="linux_arm64"
+    PROXY_SUFFIX="linux_aarch64"
     BUN_TARGET="bun-linux-aarch64"
   elif [[ "$BASE_ARCH" == "x64" ]]; then
     NVIM_ASSET="nvim-linux-x86_64.tar.gz"
