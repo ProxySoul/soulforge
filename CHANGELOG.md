@@ -2,6 +2,30 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.3] — 2026-05-04
+
+### Bug Fixes
+
+- **chat**: pick last text segment after tools, skipping trailing reasoning
+- **chat**: snap drip cuts to grapheme/ANSI boundaries
+- **compaction**: bill cache-read tokens at cache rate, not full input
+- **deepseek**: use openai-compatible provider to preserve reasoning_content
+- **pricing**: sync provider rates to 2026-04-30 official docs
+- **prompts**: mandate final answer on every turn
+- **ui**: rebuild update modal on PremiumPopup primitives
+- retry logic for stall watchdog and transient streaming errors (#55)
+### Features
+
+- **footer**: expand hints with hearth, checkpoints, tabs, hooks, mcp
+### Miscellaneous
+
+- **useTextDrip**: rename reassigned param to local cut
+### Performance
+
+- **stream**: kill render churn in lock-in and long autonomous loops
+### Testing
+
+- **pricing**: align deepseek expectations with v4-flash rates
 ## [2.14.2] — 2026-04-29
 
 ### Bug Fixes
