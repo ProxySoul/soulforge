@@ -2245,6 +2245,17 @@ export function useChat({
           };
 
           const pushReasoningSegment = (id: string) => {
+            // Coalesce consecutive reasoning blocks: if the last segment is still
+            // an open reasoning block (e.g. provider emits multiple <think>...</think>
+            // pairs back-to-back, or native reasoning resumes after a brief pause),
+            // reuse it instead of allocating a new one. Without this, models that
+            // emit hundreds of small think blocks per step grow segments[] unbounded
+            // and flushStreamState becomes O(N²) over the step.
+            const lastFinal = finalSegments[finalSegments.length - 1];
+            const lastBuf = buf[buf.length - 1];
+            if (lastFinal?.type === "reasoning" && lastBuf?.type === "reasoning" && !lastBuf.done) {
+              return;
+            }
             segmentsDirty.current = true;
             finalSegments.push({ type: "reasoning", content: "", id });
             buf.push({ type: "reasoning", content: "", id, done: false } as StreamSegment);

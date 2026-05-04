@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useRef } from "react";
 import { Markdown } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
 import { type LiveToolCall, ToolCallDisplay } from "./ToolCallDisplay.js";
@@ -49,20 +49,68 @@ export const StreamSegmentList = memo(function StreamSegmentList({
   reasoningExpanded?: boolean;
   lockIn?: boolean;
 }) {
-  const toolCallMap = useMemo(() => new Map(toolCalls.map((tc) => [tc.id, tc])), [toolCalls]);
+  // Build a stable id->call lookup. Allocating a new Map each render costs O(N)
+  // but avoids the O(N²) of repeated linear lookups inside the render loop.
+  const toolCallMap = useMemo(() => {
+    const m = new Map<string, LiveToolCall>();
+    for (const tc of toolCalls) m.set(tc.id, tc);
+    return m;
+  }, [toolCalls]);
 
-  // Merge consecutive tool segments (skipping empty text between them) so they share one tree
+  // Prefix-stable merge cache: each render compares the new segments array
+  // against the previous one element-by-element and reuses the merged tail
+  // from cache if the prefix is identical (which is the common case during
+  // streaming — only the trailing segment grows).
+  const mergeCacheRef = useRef<{ in: StreamSegment[]; out: StreamSegment[] }>({
+    in: [],
+    out: [],
+  });
   const merged = useMemo(() => {
+    const cache = mergeCacheRef.current;
+    // If new segments is a strict prefix of cached input AND nothing in the
+    // shared prefix changed, we can reuse cache.out wholesale up to that point.
+    let sharedPrefix = 0;
+    while (
+      sharedPrefix < segments.length &&
+      sharedPrefix < cache.in.length &&
+      segments[sharedPrefix] === cache.in[sharedPrefix]
+    ) {
+      sharedPrefix++;
+    }
     const out: StreamSegment[] = [];
-    for (const seg of segments) {
+    if (sharedPrefix > 0) {
+      // Find how many merged-output entries correspond to the shared input
+      // prefix. We can't simply slice because tool-segment merging changes
+      // the count. Walk the input prefix and replay merging into `out`.
+      for (let i = 0; i < sharedPrefix; i++) {
+        const seg = cache.in[i] as StreamSegment;
+        if (seg.type === "text" && seg.content.trim() === "") continue;
+        const prev = out[out.length - 1];
+        if (seg.type === "tools" && prev?.type === "tools") {
+          out[out.length - 1] = {
+            type: "tools",
+            callIds: [...prev.callIds, ...seg.callIds],
+          };
+        } else {
+          out.push(seg.type === "tools" ? { type: "tools", callIds: [...seg.callIds] } : seg);
+        }
+      }
+    }
+    // Process the changed tail.
+    for (let i = sharedPrefix; i < segments.length; i++) {
+      const seg = segments[i] as StreamSegment;
       if (seg.type === "text" && seg.content.trim() === "") continue;
       const prev = out[out.length - 1];
       if (seg.type === "tools" && prev?.type === "tools") {
-        prev.callIds.push(...seg.callIds);
+        out[out.length - 1] = {
+          type: "tools",
+          callIds: [...prev.callIds, ...seg.callIds],
+        };
       } else {
         out.push(seg.type === "tools" ? { type: "tools", callIds: [...seg.callIds] } : seg);
       }
     }
+    mergeCacheRef.current = { in: segments, out };
     return out;
   }, [segments]);
 

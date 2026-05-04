@@ -1,11 +1,13 @@
 import { TextAttributes } from "@opentui/core";
-import { memo, type ReactNode, useEffect, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { resolveToolDisplay, TOOL_LABELS_DONE } from "../../core/tool-display.js";
 import { garble } from "../../core/utils/splash.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
 import { Spinner } from "../layout/shared.js";
+import { type LiveToolCall, SUBAGENT_NAMES, ToolCallDisplay } from "./ToolCallDisplay.js";
+import { formatArgs } from "./tool-formatters.js";
 
 export const LOCKIN_EDIT_TOOLS = new Set([
   "edit_file",
@@ -246,5 +248,83 @@ export const LockInWrapper = memo(function LockInWrapper({
         </box>
       ) : null}
     </box>
+  );
+});
+export const LockInLiveView = memo(function LockInLiveView({
+  liveToolCalls,
+  loadingStartedAt,
+  messagesLength,
+}: {
+  liveToolCalls: LiveToolCall[];
+  loadingStartedAt: number;
+  messagesLength: number;
+}) {
+  // Stable-equal cache — only allocate a new tools array when content actually changed.
+  // Without this, LockInWrapper (memo) re-renders every 16ms flush even though the
+  // visible 5-row tool rail hasn't changed.
+  const toolsRef = useRef<LockInTool[]>([]);
+  const tools = useMemo(() => {
+    const next: LockInTool[] = [];
+    for (const tc of liveToolCalls) {
+      if (!filterQuietTools(tc.toolName) || SUBAGENT_NAMES.has(tc.toolName)) continue;
+      next.push({
+        id: tc.id,
+        name: tc.toolName,
+        done: tc.state !== "running",
+        error: tc.state === "error",
+        argStr: formatArgs(tc.toolName, tc.args),
+      });
+    }
+    const prev = toolsRef.current;
+    if (
+      prev.length === next.length &&
+      prev.every(
+        (p, i) =>
+          next[i] !== undefined &&
+          p.id === next[i]?.id &&
+          p.name === next[i]?.name &&
+          p.done === next[i]?.done &&
+          p.error === next[i]?.error &&
+          p.argStr === next[i]?.argStr,
+      )
+    ) {
+      return prev;
+    }
+    toolsRef.current = next;
+    return next;
+  }, [liveToolCalls]);
+
+  const dispatchRef = useRef<LiveToolCall[]>([]);
+  const dispatchCalls = useMemo(() => {
+    const next = liveToolCalls.filter((tc) => SUBAGENT_NAMES.has(tc.toolName));
+    const prev = dispatchRef.current;
+    if (
+      prev.length === next.length &&
+      prev.every((p, i) => p === next[i] || p.id === next[i]?.id)
+    ) {
+      return prev;
+    }
+    dispatchRef.current = next;
+    return next;
+  }, [liveToolCalls]);
+
+  const hasEdits = useMemo(
+    () => liveToolCalls.some((tc) => LOCKIN_EDIT_TOOLS.has(tc.toolName)),
+    [liveToolCalls],
+  );
+
+  return (
+    <LockInWrapper
+      hasEdits={hasEdits}
+      hasDispatch={dispatchCalls.length > 0}
+      done={false}
+      seed={messagesLength}
+      loadingStartedAt={loadingStartedAt}
+      tools={tools}
+    >
+      {dispatchCalls.length > 0 ? (
+        <ToolCallDisplay calls={dispatchCalls} diffStyle="compact" />
+      ) : null}
+    </LockInWrapper>
   );
 });
