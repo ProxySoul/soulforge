@@ -113,72 +113,64 @@ export function useTextDrip(
   return { text: fullText.slice(0, drip.revealed), freshCount: drip.fresh, opacity };
 }
 
-/**
- * Snap a reveal target to a safe boundary.
- *
- * Refuses to cut inside:
- * - UTF-16 surrogate pairs (emoji, supplementary planes) → would emit U+FFFD
- * - Grapheme clusters (combining marks, ZWJ sequences)
- * - ANSI escape sequences (\x1b[…m) emitted by upstream markdown ANSI rendering
- *
- * Then prefers a word/punctuation boundary within ±8 chars to avoid mid-word cuts.
- */
 function snapToWordBoundary(text: string, from: number, target: number): number {
   if (target >= text.length) return text.length;
 
+  let cut = target;
+
   // 1. Never split a UTF-16 surrogate pair.
-  const code = text.charCodeAt(target);
+  const code = text.charCodeAt(cut);
   if (code >= 0xdc00 && code <= 0xdfff) {
     // We're on a low surrogate — back up onto the high surrogate.
-    target = Math.max(from, target - 1);
+    cut = Math.max(from, cut - 1);
   }
 
   // 2. Never split inside an ANSI escape sequence (ESC [ ... letter).
-  const esc = text.lastIndexOf("\x1b", target);
-  if (esc >= from && esc < target) {
+  const esc = text.lastIndexOf("\x1b", cut);
+  if (esc >= from && esc < cut) {
     // Find the terminator (any letter ends a CSI).
     let end = esc + 1;
     while (end < text.length && !/[A-Za-z]/.test(text[end] ?? "")) end++;
-    if (end >= target) {
+    if (end >= cut) {
       // Cut would land inside the escape — back up before ESC, or skip past it.
       const before = esc;
       const after = Math.min(text.length, end + 1);
-      target = after - target < target - before ? after : before;
+      cut = after - cut < cut - before ? after : before;
     }
   }
 
-  if (target >= text.length) return text.length;
-  if (target <= from) return from;
+  if (cut >= text.length) return text.length;
+  if (cut <= from) return from;
 
   // 3. Snap to grapheme boundary using Intl.Segmenter when available.
   if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
     const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
     // Scan from `from` forward to find the grapheme boundary nearest target.
-    const slice = text.slice(from, Math.min(text.length, target + 8));
+    const slice = text.slice(from, Math.min(text.length, cut + 8));
     let lastBoundary = 0;
     for (const { index } of seg.segment(slice)) {
       const abs = from + index;
-      if (abs > target) break;
+      if (abs > cut) break;
       lastBoundary = index;
     }
-    target = from + lastBoundary;
+    cut = from + lastBoundary;
   }
 
-  if (target >= text.length) return text.length;
+  if (cut >= text.length) return text.length;
 
   // 4. Prefer a word/punctuation boundary within a small window.
-  const ch = text[target];
-  if (!ch || /[\s.,;:!?\-\n\r]/.test(ch)) return target;
+  const ch = text[cut];
+  if (!ch || /[\s.,;:!?\-\n\r]/.test(ch)) return cut;
 
-  for (let i = target + 1; i < Math.min(target + 8, text.length); i++) {
+  for (let i = cut + 1; i < Math.min(cut + 8, text.length); i++) {
     const c = text[i];
     if (c && /[\s.,;:!?\-\n\r]/.test(c)) return i;
   }
 
-  for (let i = target - 1; i > Math.max(from, target - 4); i--) {
+  for (let i = cut - 1; i > Math.max(from, cut - 4); i--) {
     const c = text[i];
     if (c && /[\s.,;:!?\-\n\r]/.test(c)) return i + 1;
   }
 
-  return target;
+  return cut;
 }
