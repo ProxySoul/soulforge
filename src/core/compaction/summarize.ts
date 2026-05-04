@@ -6,18 +6,14 @@ import { getModelId, supportsTemperature } from "../llm/provider-options.js";
 import type { IOClient } from "../workers/io-client.js";
 import type { WorkingStateManager } from "./working-state.js";
 
-/**
- * Build the compacted summary for v2.
- *
- * 1. Serialize the incrementally-built working state (offloaded to IO worker when available).
- * 2. Optionally run a cheap LLM pass to verify completeness against the
- *    full older messages — not a gap-fill on a tiny sample, but a real
- *    verification pass that sees everything.
- * 3. Merge and return the final summary string.
- */
 interface V2SummaryResult {
   summary: string;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
 }
 
 export async function buildV2Summary(opts: {
@@ -63,7 +59,14 @@ export async function buildV2Summary(opts: {
   }
 
   let gapFill: string | undefined;
-  let llmUsage: { inputTokens: number; outputTokens: number } | undefined;
+  let llmUsage:
+    | {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+      }
+    | undefined;
   try {
     const genResult = await generateText({
       model,
@@ -101,7 +104,17 @@ export async function buildV2Summary(opts: {
     });
     gapFill = genResult.text;
     const gu = genResult.usage;
-    if (gu) llmUsage = { inputTokens: gu.inputTokens ?? 0, outputTokens: gu.outputTokens ?? 0 };
+    if (gu) {
+      const details = (
+        gu as { inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } }
+      ).inputTokenDetails;
+      llmUsage = {
+        inputTokens: gu.inputTokens ?? 0,
+        outputTokens: gu.outputTokens ?? 0,
+        cacheReadTokens: details?.cacheReadTokens ?? 0,
+        cacheWriteTokens: details?.cacheWriteTokens ?? 0,
+      };
+    }
   } catch (err: unknown) {
     logBackgroundError("compaction-summarize", err instanceof Error ? err.message : String(err));
     return { summary: structuredState };

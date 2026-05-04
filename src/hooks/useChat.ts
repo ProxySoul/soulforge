@@ -901,7 +901,14 @@ export function useChat({
         }
 
         let summary: string;
-        let compactUsage: { inputTokens: number; outputTokens: number } | undefined;
+        let compactUsage:
+          | {
+              inputTokens: number;
+              outputTokens: number;
+              cacheReadTokens?: number;
+              cacheWriteTokens?: number;
+            }
+          | undefined;
 
         if (isV2 && workingStateRef.current) {
           // The working state was built incrementally during the conversation.
@@ -1034,11 +1041,17 @@ export function useChat({
           });
           summary = v1Result.text;
           const v1u = v1Result.usage;
-          if (v1u)
+          if (v1u) {
+            const v1Details = (
+              v1u as { inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } }
+            ).inputTokenDetails;
             compactUsage = {
               inputTokens: v1u.inputTokens ?? 0,
               outputTokens: v1u.outputTokens ?? 0,
+              cacheReadTokens: v1Details?.cacheReadTokens ?? 0,
+              cacheWriteTokens: v1Details?.cacheWriteTokens ?? 0,
             };
+          }
         }
 
         if (!summary || summary.trim().length < 50) {
@@ -1140,11 +1153,17 @@ export function useChat({
         setTokenUsage((prev) => {
           let bd = prev.modelBreakdown;
           if (compactUsage) {
+            // SDK inputTokens = total prompt (noCache + cacheRead + cacheWrite).
+            // Split so cache-read tokens are billed at the cache-read rate (10× cheaper)
+            // instead of the full input rate. Without this, compaction over-bills ~10×.
+            const cacheRead = compactUsage.cacheReadTokens ?? 0;
+            const cacheWrite = compactUsage.cacheWriteTokens ?? 0;
+            const noCache = Math.max(0, compactUsage.inputTokens - cacheRead - cacheWrite);
             bd = accumulateModelUsage(bd, compactModelId, {
-              input: compactUsage.inputTokens,
+              input: noCache,
               output: compactUsage.outputTokens,
-              cacheRead: 0,
-              cacheWrite: 0,
+              cacheRead,
+              cacheWrite,
             });
           }
           return {
