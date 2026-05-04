@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.5] — 2026-05-04
+
+### Bug Fixes
+
+- **bundle**: authenticate proxy version lookup, bump fallback
 ## [2.14.4] — 2026-05-04
 
 ### Bug Fixes
