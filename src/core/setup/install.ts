@@ -176,6 +176,15 @@ const FD_TRIPLETS: Record<PlatformKey, string> = {
 };
 
 const PROXY_SUFFIXES: Record<PlatformKey, string> = {
+  "darwin-arm64": "darwin_aarch64",
+  "darwin-x64": "darwin_amd64",
+  "linux-x64": "linux_amd64",
+  "linux-arm64": "linux_aarch64",
+};
+
+// Pre-v6.10 releases used `arm64` instead of `aarch64`. Used as a fallback
+// when the primary asset 404s (e.g. user pins an older version).
+const PROXY_SUFFIXES_LEGACY: Record<PlatformKey, string> = {
   "darwin-arm64": "darwin_arm64",
   "darwin-x64": "darwin_amd64",
   "linux-x64": "linux_amd64",
@@ -289,20 +298,33 @@ export async function installLazygit(): Promise<string> {
 
 export async function installProxy(version?: string): Promise<{ path: string; version: string }> {
   const v = version ?? (await resolveProxyVersion());
-  const path = await installBinary({
-    name: "cliproxyapi",
-    binName: "cli-proxy-api",
-    version: v,
-    getAsset: (key) => {
-      const suffix = PROXY_SUFFIXES[key];
-      const asset = `CLIProxyAPI_${v}_${suffix}.tar.gz`;
-      return {
-        url: `https://github.com/router-for-me/CLIProxyAPI/releases/download/v${v}/${asset}`,
-        binPath: join(INSTALLS_DIR, `cliproxyapi-${v}`, "cli-proxy-api"),
-      };
-    },
+  const buildAsset = (suffix: string): PlatformAsset => ({
+    url: `https://github.com/router-for-me/CLIProxyAPI/releases/download/v${v}/CLIProxyAPI_${v}_${suffix}.tar.gz`,
+    binPath: join(INSTALLS_DIR, `cliproxyapi-${v}`, "cli-proxy-api"),
   });
-  return { path, version: v };
+  try {
+    const path = await installBinary({
+      name: "cliproxyapi",
+      binName: "cli-proxy-api",
+      version: v,
+      getAsset: (key) => buildAsset(PROXY_SUFFIXES[key]),
+    });
+    return { path, version: v };
+  } catch (err) {
+    // Fall back to the pre-v6.10 asset naming scheme.
+    const legacyDiffers = Object.keys(PROXY_SUFFIXES).some(
+      (k) => PROXY_SUFFIXES[k as PlatformKey] !== PROXY_SUFFIXES_LEGACY[k as PlatformKey],
+    );
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!legacyDiffers || !msg.includes("404")) throw err;
+    const path = await installBinary({
+      name: "cliproxyapi",
+      binName: "cli-proxy-api",
+      version: v,
+      getAsset: (key) => buildAsset(PROXY_SUFFIXES_LEGACY[key]),
+    });
+    return { path, version: v };
+  }
 }
 
 function getUserFontDir(): string {
