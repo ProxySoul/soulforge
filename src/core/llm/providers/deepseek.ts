@@ -1,4 +1,5 @@
-import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModel } from "ai";
 import { getProviderApiKey } from "../../secrets.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
@@ -12,12 +13,19 @@ export const deepseek: ProviderDefinition = {
   asciiIcon: "D",
   description: "DeepSeek models",
 
-  createModel(modelId: string) {
+  createModel(modelId: string): LanguageModel {
     const apiKey = getProviderApiKey("DEEPSEEK_API_KEY");
     if (!apiKey) {
       throw new Error("DEEPSEEK_API_KEY is not set");
     }
-    return createDeepSeek({ apiKey })(modelId);
+    // Use @ai-sdk/openai-compatible to properly handle reasoning_content
+    // Fixes 400 error: "reasoning_content in the thinking mode must be passed back to the API"
+    const provider = createOpenAICompatible({
+      name: "deepseek",
+      baseURL: "https://api.deepseek.com/v1",
+      apiKey,
+    });
+    return provider.chatModel(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {
